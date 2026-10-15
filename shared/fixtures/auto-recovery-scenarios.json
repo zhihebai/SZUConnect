@@ -1,0 +1,309 @@
+{
+  "schemaVersion": 1,
+  "description": "自动恢复共享用例，由 Python 参考模型、macOS AppModel 测试和 Windows ConnectionEngine 测试读取。unavailable、challengeRefused、security 表示提交前失败；rejected 表示明确拒绝，uncertain 表示已提交但结果不明。probes 按序读取后使用 defaultProbe；discovery 按序读取并保留最后一项。账号及网络数据均为测试假值。",
+  "legacyVocabulary": {"bug": "对照模型应失败，当前实现应通过。", "preserved": "两种模型均应通过。", "changed": "校验当前实现；对照结果仅供参考。"},
+  "stepVocabulary": ["configure", "automaticRound", "manualConnect", "advance", "trust", "revokeTrust", "pathChange", "sleepWake", "saveCredentials", "editDraft", "revertDraft", "resume", "pause", "setMode", "setArea", "expect"],
+  "expectVocabulary": ["submissions", "submissionCount", "attempts", "paused", "mode", "online", "holds", "holdCount", "autoLoginState", "lastSuccessArea", "discoveries"],
+  "scenarios": [
+    {
+      "id": "AR-01",
+      "title": "手动「自动选择」在宿舍：教学候选会拒绝，宿舍门户已确认",
+      "legacy": "bug",
+      "initial": {"area": "automatic", "mode": "recover", "saved": ["fixture-A", "pw-a"], "trusted": false},
+      "steps": [
+        {"do": "configure", "discovery": {"teaching": "confirmed", "dormitory": "confirmed"}, "attempts": {"teaching": "rejected:areaMismatch", "dormitory": "success"}, "probes": ["offline", "online"]},
+        {"do": "manualConnect"},
+        {"do": "expect", "expect": {"submissions": [["dormitory", "fixture-A"]], "paused": false, "mode": "recover", "online": true, "holdCount": 0, "lastSuccessArea": "dormitory", "autoLoginState": "ready"}},
+        {"do": "advance", "seconds": 91},
+        {"do": "configure", "probes": ["offline", "offline", "online"]},
+        {"do": "automaticRound", "count": 2},
+        {"do": "expect", "expect": {"submissions": [["dormitory", "fixture-A"], ["dormitory", "fixture-A"]], "paused": false, "mode": "recover", "online": true, "holdCount": 0}}
+      ]
+    },
+    {
+      "id": "AR-02",
+      "title": "后台自动恢复：宿舍门户首轮未确认，教学候选被拒；后续宿舍明确成功",
+      "legacy": "bug",
+      "initial": {"area": "automatic", "mode": "recover", "saved": ["fixture-A", "pw-a"], "trusted": true},
+      "steps": [
+        {"do": "configure", "discovery": [{"teaching": "confirmed", "dormitory": "unconfirmed"}, {"teaching": "confirmed", "dormitory": "confirmed"}], "attempts": {"teaching": "rejected:unspecified", "dormitory": "success"}},
+        {"do": "automaticRound", "count": 2},
+        {"do": "expect", "expect": {"submissions": [["teaching", "fixture-A"]], "paused": false, "mode": "recover", "holds": [{"reason": "credentials", "area": "teaching", "scope": "network"}]}},
+        {"do": "advance", "seconds": 91},
+        {"do": "configure", "probes": ["offline", "online"]},
+        {"do": "automaticRound", "count": 1},
+        {"do": "expect", "expect": {"submissions": [["teaching", "fixture-A"], ["dormitory", "fixture-A"]], "paused": false, "mode": "recover", "online": true, "holdCount": 0, "lastSuccessArea": "dormitory"}}
+      ]
+    },
+    {
+      "id": "AR-03",
+      "title": "教学范围失败后仅公网通过不解除；同一保存账户宿舍明确成功才解除",
+      "legacy": "bug",
+      "initial": {"area": "automatic", "mode": "recover", "saved": ["fixture-A", "pw-a"], "trusted": true},
+      "steps": [
+        {"do": "configure", "discovery": {"teaching": "confirmed", "dormitory": "unconfirmed"}, "attempts": {"teaching": "rejected:unspecified"}},
+        {"do": "automaticRound", "count": 2},
+        {"do": "configure", "probes": ["online"]},
+        {"do": "automaticRound", "count": 1},
+        {"do": "expect", "expect": {"online": true, "paused": false, "holds": [{"reason": "credentials", "area": "teaching", "scope": "network"}]}},
+        {"do": "advance", "seconds": 91},
+        {"do": "configure", "discovery": {"teaching": "confirmed", "dormitory": "confirmed"}, "attempts": {"dormitory": "success"}, "probes": ["offline", "offline", "online"]},
+        {"do": "automaticRound", "count": 2},
+        {"do": "expect", "expect": {"holdCount": 0, "online": true, "paused": false, "submissions": [["teaching", "fixture-A"], ["dormitory", "fixture-A"]]}}
+      ]
+    },
+    {
+      "id": "AR-04",
+      "title": "未保存的不同账户成功不能冒认已保存账户有效",
+      "legacy": "changed",
+      "initial": {"area": "teaching", "mode": "recover", "saved": ["fixture-A", "pw-a"], "trusted": false},
+      "steps": [
+        {"do": "configure", "discovery": {"teaching": "confirmed", "dormitory": "notChecked"}, "attempts": {"teaching": "rejected:password"}},
+        {"do": "automaticRound", "count": 2},
+        {"do": "expect", "expect": {"paused": true, "autoLoginState": "paused", "holds": [{"reason": "credentials", "area": "teaching", "scope": "sticky"}]}},
+        {"do": "editDraft", "account": "fixture-B", "password": "pw-b"},
+        {"do": "configure", "attempts": {"teaching": "success"}, "probes": ["offline", "online"]},
+        {"do": "manualConnect"},
+        {"do": "expect", "expect": {"submissions": [["teaching", "fixture-A"], ["teaching", "fixture-B"]], "paused": true, "online": true}},
+        {"do": "advance", "seconds": 91},
+        {"do": "automaticRound", "count": 2},
+        {"do": "expect", "expect": {"submissionCount": 2, "paused": true}}
+      ]
+    },
+    {
+      "id": "AR-05",
+      "title": "外网探针通过但保存账户曾被明确拒绝：联网与凭据暂停分别表达",
+      "legacy": "preserved",
+      "initial": {"area": "teaching", "mode": "recover", "saved": ["fixture-A", "pw-a"], "trusted": false},
+      "steps": [
+        {"do": "configure", "discovery": {"teaching": "confirmed", "dormitory": "notChecked"}, "attempts": {"teaching": "rejected:password"}},
+        {"do": "automaticRound", "count": 2},
+        {"do": "configure", "probes": ["online"]},
+        {"do": "automaticRound", "count": 1},
+        {"do": "expect", "expect": {"online": true, "paused": true, "autoLoginState": "paused", "submissionCount": 1}}
+      ]
+    },
+    {
+      "id": "AR-06a",
+      "title": "教学 TLS/身份异常：不借自动选择降级到宿舍 HTTP",
+      "legacy": "preserved",
+      "initial": {"area": "automatic", "mode": "recover", "saved": ["fixture-A", "pw-a"], "trusted": true},
+      "steps": [
+        {"do": "configure", "discovery": {"teaching": "confirmed", "dormitory": "unconfirmed"}, "attempts": {"teaching": "security", "dormitory": "success"}},
+        {"do": "automaticRound", "count": 2},
+        {"do": "expect", "expect": {"submissionCount": 0, "attempts": [["teaching", "security"]], "paused": true, "holds": [{"reason": "security", "area": null, "scope": "sticky"}]}},
+        {"do": "advance", "seconds": 91},
+        {"do": "automaticRound", "count": 2},
+        {"do": "expect", "expect": {"submissionCount": 0, "paused": true}}
+      ]
+    },
+    {
+      "id": "AR-06b",
+      "title": "提交后结果不确定：不转区、不重复提交；只读确认联网后解除",
+      "legacy": "preserved",
+      "initial": {"area": "automatic", "mode": "recover", "saved": ["fixture-A", "pw-a"], "trusted": true},
+      "steps": [
+        {"do": "configure", "discovery": {"teaching": "confirmed", "dormitory": "unconfirmed"}, "attempts": {"teaching": "uncertain", "dormitory": "success"}},
+        {"do": "automaticRound", "count": 2},
+        {"do": "expect", "expect": {"submissions": [["teaching", "fixture-A"]], "paused": true, "holds": [{"reason": "uncertain", "area": null, "scope": "sticky"}]}},
+        {"do": "configure", "probes": ["online"]},
+        {"do": "automaticRound", "count": 1},
+        {"do": "expect", "expect": {"online": true, "paused": false, "holdCount": 0, "submissionCount": 1}}
+      ]
+    },
+    {
+      "id": "AR-06c",
+      "title": "伪造宿舍门户：未确认 HTTPS 校园身份时两条入口都不提交",
+      "legacy": "changed",
+      "initial": {"area": "automatic", "mode": "recover", "saved": ["fixture-A", "pw-a"], "trusted": true},
+      "steps": [
+        {"do": "configure", "discovery": {"teaching": "unconfirmed", "dormitory": "confirmed"}, "attempts": {"teaching": "success", "dormitory": "success"}},
+        {"do": "automaticRound", "count": 2},
+        {"do": "manualConnect"},
+        {"do": "expect", "expect": {"submissionCount": 0, "paused": false}}
+      ]
+    },
+    {
+      "id": "AR-07",
+      "title": "手动「自动选择」：教学提交前不可用，本轮改用已确认的宿舍区",
+      "legacy": "changed",
+      "initial": {"area": "automatic", "mode": "recover", "saved": ["fixture-A", "pw-a"], "trusted": false},
+      "steps": [
+        {"do": "configure", "discovery": [{"teaching": "confirmed", "dormitory": "unconfirmed"}, {"teaching": "confirmed", "dormitory": "confirmed"}], "attempts": {"teaching": "unavailable", "dormitory": "success"}, "probes": ["offline", "online"]},
+        {"do": "manualConnect"},
+        {"do": "expect", "expect": {"submissions": [["dormitory", "fixture-A"]], "attempts": [["teaching", "unavailable"], ["dormitory", "success"]], "holdCount": 0, "lastSuccessArea": "dormitory", "online": true, "paused": false}}
+      ]
+    },
+    {
+      "id": "AR-08",
+      "title": "网络范围候选阻断随换网失效；同账户跨网络再次被拒升级为持久；保存新账户后旧阻断不再适用",
+      "legacy": "changed",
+      "initial": {"area": "automatic", "mode": "recover", "saved": ["fixture-A", "pw-a"], "trusted": true},
+      "steps": [
+        {"do": "configure", "discovery": {"teaching": "confirmed", "dormitory": "unconfirmed"}, "attempts": {"teaching": "rejected:unspecified"}},
+        {"do": "automaticRound", "count": 2},
+        {"do": "expect", "expect": {"holds": [{"reason": "credentials", "area": "teaching", "scope": "network"}], "paused": false}},
+        {"do": "pathChange"},
+        {"do": "expect", "expect": {"holdCount": 0, "paused": false}},
+        {"do": "advance", "seconds": 91},
+        {"do": "automaticRound", "count": 2},
+        {"do": "expect", "expect": {"submissionCount": 2, "paused": false, "autoLoginState": "coolingDown", "holds": [{"reason": "credentials", "area": "teaching", "scope": "sticky"}]}},
+        {"do": "saveCredentials", "account": "fixture-A", "password": "pw-a2"},
+        {"do": "expect", "expect": {"holdCount": 0, "paused": false}}
+      ]
+    },
+    {
+      "id": "AR-09a",
+      "title": "用户主动暂停：任何成功都不会越过暂停，只有恢复可以解除",
+      "legacy": "changed",
+      "initial": {"area": "automatic", "mode": "recover", "saved": ["fixture-A", "pw-a"], "trusted": true},
+      "steps": [
+        {"do": "pause"},
+        {"do": "configure", "discovery": {"teaching": "confirmed", "dormitory": "confirmed"}, "attempts": {"dormitory": "success"}, "probes": ["offline", "online"]},
+        {"do": "manualConnect"},
+        {"do": "expect", "expect": {"submissionCount": 1, "online": true, "paused": true, "autoLoginState": "paused"}},
+        {"do": "advance", "seconds": 91},
+        {"do": "automaticRound", "count": 2},
+        {"do": "expect", "expect": {"submissionCount": 1, "paused": true}},
+        {"do": "resume"},
+        {"do": "expect", "expect": {"paused": false, "holdCount": 0}}
+      ]
+    },
+    {
+      "id": "AR-09b",
+      "title": "手动/只读方式与撤回信任：不因任何结果改变用户选择",
+      "legacy": "preserved",
+      "initial": {"area": "automatic", "mode": "recover", "saved": ["fixture-A", "pw-a"], "trusted": true},
+      "steps": [
+        {"do": "configure", "discovery": {"teaching": "confirmed", "dormitory": "confirmed"}, "attempts": {"dormitory": "success"}},
+        {"do": "setMode", "mode": "observe"},
+        {"do": "automaticRound", "count": 3},
+        {"do": "expect", "expect": {"submissionCount": 0, "mode": "observe", "autoLoginState": "off"}},
+        {"do": "setMode", "mode": "recover"},
+        {"do": "revokeTrust"},
+        {"do": "automaticRound", "count": 2},
+        {"do": "expect", "expect": {"submissionCount": 0, "mode": "recover"}},
+        {"do": "setMode", "mode": "manual"},
+        {"do": "automaticRound", "count": 2},
+        {"do": "expect", "expect": {"submissionCount": 0, "mode": "manual", "autoLoginState": "off"}}
+      ]
+    },
+    {
+      "id": "AR-10",
+      "title": "两次失败门槛与 90 秒提交冷却",
+      "legacy": "preserved",
+      "initial": {"area": "automatic", "mode": "recover", "saved": ["fixture-A", "pw-a"], "trusted": true},
+      "steps": [
+        {"do": "configure", "discovery": {"teaching": "confirmed", "dormitory": "confirmed"}, "attempts": {"dormitory": "success"}},
+        {"do": "automaticRound", "count": 1},
+        {"do": "expect", "expect": {"submissionCount": 0}},
+        {"do": "automaticRound", "count": 1},
+        {"do": "expect", "expect": {"submissionCount": 1, "online": false, "autoLoginState": "coolingDown"}},
+        {"do": "automaticRound", "count": 2},
+        {"do": "advance", "seconds": 89},
+        {"do": "automaticRound", "count": 1},
+        {"do": "expect", "expect": {"submissionCount": 1}},
+        {"do": "advance", "seconds": 2},
+        {"do": "automaticRound", "count": 1},
+        {"do": "expect", "expect": {"submissionCount": 2}}
+      ]
+    },
+    {
+      "id": "AR-11",
+      "title": "自动选择识别到宿舍门户但尚未信任：显示需要信任、不提交；信任后才提交",
+      "legacy": "changed",
+      "initial": {"area": "automatic", "mode": "recover", "saved": ["fixture-A", "pw-a"], "trusted": false},
+      "steps": [
+        {"do": "configure", "discovery": {"teaching": "confirmed", "dormitory": "confirmed"}, "attempts": {"dormitory": "success"}},
+        {"do": "automaticRound", "count": 2},
+        {"do": "expect", "expect": {"submissionCount": 0, "paused": false, "autoLoginState": "needsTrust"}},
+        {"do": "trust"},
+        {"do": "configure", "probes": ["offline", "online"]},
+        {"do": "automaticRound", "count": 1},
+        {"do": "expect", "expect": {"submissions": [["dormitory", "fixture-A"]], "online": true, "autoLoginState": "ready", "lastSuccessArea": "dormitory"}}
+      ]
+    },
+    {
+      "id": "AR-12",
+      "title": "自动选择中明确密码错误：该区域持久暂停，换网不解除；其他区域仍可守护",
+      "legacy": "changed",
+      "initial": {"area": "automatic", "mode": "recover", "saved": ["fixture-A", "pw-a"], "trusted": true},
+      "steps": [
+        {"do": "configure", "discovery": {"teaching": "confirmed", "dormitory": "unconfirmed"}, "attempts": {"teaching": "rejected:password"}},
+        {"do": "automaticRound", "count": 2},
+        {"do": "pathChange"},
+        {"do": "advance", "seconds": 91},
+        {"do": "expect", "expect": {"paused": false, "autoLoginState": "limited", "holds": [{"reason": "credentials", "area": "teaching", "scope": "sticky"}]}},
+        {"do": "automaticRound", "count": 2},
+        {"do": "expect", "expect": {"submissionCount": 1}}
+      ]
+    },
+    {
+      "id": "AR-13",
+      "title": "固定教学区却身处宿舍：明确区域的拒绝持久保护并提示改选区域",
+      "legacy": "changed",
+      "initial": {"area": "teaching", "mode": "recover", "saved": ["fixture-A", "pw-a"], "trusted": false},
+      "steps": [
+        {"do": "configure", "discovery": {"teaching": "confirmed", "dormitory": "notChecked"}, "attempts": {"teaching": "rejected:areaMismatch"}},
+        {"do": "automaticRound", "count": 2},
+        {"do": "pathChange"},
+        {"do": "expect", "expect": {"paused": true, "holds": [{"reason": "credentials", "area": "teaching", "scope": "sticky"}]}},
+        {"do": "advance", "seconds": 91},
+        {"do": "setArea", "area": "automatic"},
+        {"do": "expect", "expect": {"paused": false, "autoLoginState": "limited"}}
+      ]
+    },
+    {
+      "id": "AR-14",
+      "title": "保存了不同的新密码：旧账户阻断不再适用，按门槛和冷却继续守护",
+      "legacy": "changed",
+      "initial": {"area": "teaching", "mode": "recover", "saved": ["fixture-A", "pw-a"], "trusted": false},
+      "steps": [
+        {"do": "configure", "discovery": {"teaching": "confirmed", "dormitory": "notChecked"}, "attempts": {"teaching": "rejected:password"}},
+        {"do": "automaticRound", "count": 2},
+        {"do": "expect", "expect": {"paused": true}},
+        {"do": "saveCredentials", "account": "fixture-A", "password": "pw-new"},
+        {"do": "expect", "expect": {"paused": false, "holdCount": 0}},
+        {"do": "advance", "seconds": 91},
+        {"do": "configure", "attempts": {"teaching": "success"}, "probes": ["offline", "online"]},
+        {"do": "automaticRound", "count": 1},
+        {"do": "expect", "expect": {"submissions": [["teaching", "fixture-A"], ["teaching", "fixture-A"]], "online": true, "paused": false}}
+      ]
+    },
+    {
+      "id": "AR-15",
+      "title": "全局安全暂停：公网通过不解除；同一保存账户手动明确成功或用户恢复才解除",
+      "legacy": "preserved",
+      "initial": {"area": "automatic", "mode": "recover", "saved": ["fixture-A", "pw-a"], "trusted": true},
+      "steps": [
+        {"do": "configure", "discovery": {"teaching": "confirmed", "dormitory": "unconfirmed"}, "attempts": {"teaching": "security"}},
+        {"do": "automaticRound", "count": 2},
+        {"do": "configure", "probes": ["online"]},
+        {"do": "automaticRound", "count": 1},
+        {"do": "expect", "expect": {"online": true, "paused": true}},
+        {"do": "configure", "discovery": {"teaching": "confirmed", "dormitory": "confirmed"}, "attempts": {"dormitory": "success"}, "probes": ["offline", "online"]},
+        {"do": "manualConnect"},
+        {"do": "expect", "expect": {"paused": false, "holdCount": 0, "online": true}}
+      ]
+    },
+    {
+      "id": "AR-16",
+      "title": "固定区域的拒绝跨换网、休眠和相同内容再次保存仍保持",
+      "legacy": "preserved",
+      "initial": {"area": "teaching", "mode": "recover", "saved": ["fixture-A", "pw-a"], "trusted": false},
+      "steps": [
+        {"do": "configure", "discovery": {"teaching": "confirmed", "dormitory": "notChecked"}, "attempts": {"teaching": "rejected:unspecified"}},
+        {"do": "automaticRound", "count": 2},
+        {"do": "pathChange"},
+        {"do": "sleepWake"},
+        {"do": "saveCredentials", "account": "fixture-A", "password": "pw-a"},
+        {"do": "advance", "seconds": 91},
+        {"do": "automaticRound", "count": 3},
+        {"do": "expect", "expect": {"paused": true, "submissionCount": 1}},
+        {"do": "resume"},
+        {"do": "automaticRound", "count": 2},
+        {"do": "expect", "expect": {"paused": true, "submissionCount": 2}}
+      ]
+    }
+  ]
+}

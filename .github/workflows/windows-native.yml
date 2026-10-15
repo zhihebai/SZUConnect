@@ -1,0 +1,103 @@
+name: Windows native
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-native-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: MSVC ${{ matrix.configuration }}
+    runs-on: windows-2022
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        configuration: [Release, Debug]
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      PYTHONUTF8: '1'
+      CMAKE_BUILD_PARALLEL_LEVEL: '2'
+    steps:
+      - name: Set external build and report directories
+        shell: pwsh
+        run: |
+          "SZU_BUILD_DIR=$env:RUNNER_TEMP/SZUConnect-build" >> $env:GITHUB_ENV
+          "SZU_REPORT_DIR=$env:RUNNER_TEMP/SZUConnect-reports" >> $env:GITHUB_ENV
+          "SZU_DIST_DIR=$env:RUNNER_TEMP/SZUConnect-dist" >> $env:GITHUB_ENV
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - name: Verify shared resources and source hygiene
+        shell: pwsh
+        run: |
+          python tools/generate_shared.py --check
+          if ($LASTEXITCODE -ne 0) { throw 'Shared resource verification failed' }
+          python tools/reference/verify_fixtures.py
+          if ($LASTEXITCODE -ne 0) { throw 'Fixture verification failed' }
+          python tools/public_scan.py --json "$env:RUNNER_TEMP/public-source-scan.json"
+          if ($LASTEXITCODE -ne 0) { throw 'Source hygiene verification failed' }
+      - name: Build application and tests with the Windows SDK
+        shell: pwsh
+        run: |
+          & ./windows/SZUConnect/scripts/build-windows.ps1 -Configuration '${{ matrix.configuration }}' -BuildDir "$env:SZU_BUILD_DIR"
+      - name: Run native tests and isolated window smoke
+        if: matrix.configuration == 'Debug'
+        shell: pwsh
+        run: |
+          & ./windows/SZUConnect/scripts/test-windows.ps1 -Configuration Debug -BuildDir "$env:SZU_BUILD_DIR" -ReportDir "$env:SZU_REPORT_DIR" -SkipBuild
+      - name: Verify and package Release application
+        if: matrix.configuration == 'Release'
+        shell: pwsh
+        run: |
+          & ./windows/SZUConnect/scripts/package-windows.ps1 -BuildDir "$env:SZU_BUILD_DIR" -ReportDir "$env:SZU_REPORT_DIR" -OutputDir "$env:SZU_DIST_DIR" -SkipBuild
+      - name: Convert isolated native UI captures for inspection
+        shell: pwsh
+        run: |
+          Add-Type -AssemblyName System.Drawing
+          Get-ChildItem -LiteralPath "$env:SZU_REPORT_DIR" -Recurse -File -Filter '*.ui-*.bmp' | ForEach-Object {
+            $qaOutput = [IO.Path]::ChangeExtension($_.FullName, '.png')
+            if (Test-Path -LiteralPath $qaOutput) { throw 'Native UI image already exists' }
+            $qaImage = [Drawing.Image]::FromFile($_.FullName)
+            try { $qaImage.Save($qaOutput, [Drawing.Imaging.ImageFormat]::Png) }
+            finally { $qaImage.Dispose() }
+            Remove-Item -LiteralPath $_.FullName
+          }
+      - name: Preserve check reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: windows-checks-${{ matrix.configuration }}
+          path: |
+            ${{ runner.temp }}/public-source-scan.json
+            ${{ env.SZU_REPORT_DIR }}/
+            ${{ env.SZU_BUILD_DIR }}/Testing/Temporary/LastTest.log
+            ${{ env.SZU_BUILD_DIR }}/CMakeFiles/CMakeConfigureLog.yaml
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Preserve successfully built application
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: windows-build-${{ matrix.configuration }}
+          path: ${{ env.SZU_BUILD_DIR }}/${{ matrix.configuration }}/SZUConnect.exe
+          if-no-files-found: error
+          retention-days: 14
+      - name: Preserve verified Windows package
+        if: matrix.configuration == 'Release'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: windows-package
+          path: ${{ env.SZU_DIST_DIR }}/
+          if-no-files-found: error
+          retention-days: 14

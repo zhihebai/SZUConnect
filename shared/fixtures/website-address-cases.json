@@ -1,0 +1,136 @@
+{
+ "schemaVersion": 1,
+ "description": "网址规范化用例，由 Python、Swift WebsiteAddress 和 C++ website 校验。用户输入仅保存在内存；本组用例不覆盖 IPv6 字面量或国际化域名。",
+ "cases": [
+  {
+   "id": "empty",
+   "input": "",
+   "error": "empty"
+  },
+  {
+   "id": "spaces-only",
+   "input": "   ",
+   "error": "empty"
+  },
+  {
+   "id": "bare-host",
+   "input": "www.baidu.com",
+   "ok": "https://www.baidu.com"
+  },
+  {
+   "id": "trim",
+   "input": "  www.szu.edu.cn  ",
+   "ok": "https://www.szu.edu.cn"
+  },
+  {
+   "id": "uppercase",
+   "input": "HTTPS://WWW.Example.COM/Path",
+   "ok": "https://www.example.com/Path"
+  },
+  {
+   "id": "http-kept",
+   "input": "http://example.com",
+   "ok": "http://example.com"
+  },
+  {
+   "id": "scheme-relative",
+   "input": "//example.com",
+   "ok": "https://example.com"
+  },
+  {
+   "id": "bare-host-port",
+   "input": "example.com:8443",
+   "ok": "https://example.com:8443"
+  },
+  {
+   "id": "bare-host-port-path",
+   "input": "example.com:8080/status",
+   "ok": "https://example.com:8080/status"
+  },
+  {
+   "id": "bare-host-bad-port",
+   "input": "example.com:abc",
+   "error": "unsupportedScheme"
+  },
+  {
+   "id": "file-scheme",
+   "input": "file:///etc/hosts",
+   "error": "unsupportedScheme"
+  },
+  {
+   "id": "ftp-scheme",
+   "input": "ftp://example.com",
+   "error": "unsupportedScheme"
+  },
+  {
+   "id": "mailto",
+   "input": "mailto:someone@example.com",
+   "error": "unsupportedScheme"
+  },
+  {
+   "id": "javascript",
+   "input": "javascript:alert(1)",
+   "error": "unsupportedScheme"
+  },
+  {
+   "id": "userinfo",
+   "input": "https://user:secret@example.com",
+   "error": "sensitiveComponents"
+  },
+  {
+   "id": "user-only",
+   "input": "https://user@example.com",
+   "error": "sensitiveComponents"
+  },
+  {
+   "id": "query",
+   "input": "https://example.com/?token=abc",
+   "error": "sensitiveComponents"
+  },
+  {
+   "id": "empty-query",
+   "input": "https://example.com/?",
+   "error": "sensitiveComponents"
+  },
+  {
+   "id": "fragment",
+   "input": "https://example.com/#top",
+   "error": "sensitiveComponents"
+  },
+  {
+   "id": "backslash",
+   "input": "https://example.com\\admin",
+   "error": "invalid"
+  },
+  {
+   "id": "control-char",
+   "input": "https://exa\tmple.com",
+   "error": "invalid"
+  },
+  {
+   "id": "port-zero",
+   "input": "https://example.com:0",
+   "error": "invalid"
+  },
+  {
+   "id": "no-host",
+   "input": "https://",
+   "error": "invalid"
+  },
+  {
+   "id": "too-long",
+   "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "error": "tooLong"
+  },
+  {
+   "id": "ip-literal",
+   "input": "http://172.30.255.42:801",
+   "ok": "http://172.30.255.42:801"
+  },
+  {
+   "id": "path-kept",
+   "input": "https://www.szu.edu.cn/board/",
+   "ok": "https://www.szu.edu.cn/board/"
+  }
+ ]
+}

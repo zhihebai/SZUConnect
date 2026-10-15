@@ -1,0 +1,1380 @@
+{
+  "_meta": {
+    "schemaVersion": 1,
+    "locale": "zh-CN",
+    "description": "Single source of user-facing Chinese text for macOS and Windows. Keys are dotted paths. A value may be a string or {\"mac\": ..., \"windows\": ...}. Placeholders use {name}. Generated into macos/SZUConnect/Sources/Generated/SharedCopy.swift and windows/SZUConnect/core/generated/shared_copy.cpp by tools/generate_shared.py."
+  },
+  "app": {
+    "name": "深大随连",
+    "tagline": "深圳大学校园网连接助手",
+    "unofficial": "非官方校园网工具，与学校及运营商无隶属关系。",
+    "store": {
+      "mac": "钥匙串",
+      "windows": "Windows 凭据管理器"
+    },
+    "tray": {
+      "mac": "菜单栏",
+      "windows": "系统托盘"
+    },
+    "launchItem": {
+      "mac": "登录时打开",
+      "windows": "开机启动"
+    }
+  },
+  "installation": {
+    "newerInstalled": "已安装的版本较新。请从开始菜单打开“深大随连”，无需再次安装这个下载包。",
+    "failed": "未能完成应用更新。请确认程序目录可写，关闭旧应用后重新运行下载的 EXE。账号与设置无需删除。",
+    "busy": "另一次安装或更新正在进行，请稍后重新打开应用。",
+    "unsafe": "程序目录包含无法确认归属的文件或链接，已停止自动替换。请保留原目录，检查后重试。",
+    "exitRequired": "旧应用尚未正常退出，暂未替换程序。请从托盘选择“退出”，再运行新 EXE。",
+    "rollbackFailed": "更新未能完成，原程序备份仍保留在程序目录。请保留该目录，关闭正在运行的应用后重试。"
+  },
+  "nav": {
+    "connection": "连接",
+    "records": "记录",
+    "settings": "设置"
+  },
+  "action": {
+    "check": "检测连接",
+    "login": "登录校园网",
+    "cancel": "取消",
+    "account": "账号设置",
+    "resume": "继续自动重连",
+    "trust": "信任此网络",
+    "network": "查看网络详情",
+    "forceLogin": "仍要登录",
+    "guard": "自动重连设置",
+    "save": "保存",
+    "discard": "放弃修改",
+    "close": "关闭",
+    "back": "上一步",
+    "next": "下一步",
+    "skip": "跳过",
+    "done": "完成",
+    "copy": "复制",
+    "copied": "已复制",
+    "open": "打开",
+    "retry": "重试",
+    "pause": "暂停自动重连",
+    "revokeTrust": "取消信任",
+    "exportDiagnostics": "导出排查报告…",
+    "copyDiagnostics": "复制排查摘要",
+    "runDiagnosis": "开始排查",
+    "stopDiagnosis": "停止排查",
+    "websiteCheck": "检测指定网站",
+    "help": "帮助",
+    "about": "关于",
+    "rewatchTutorial": "使用教程",
+    "quit": "退出深大随连",
+    "showWindow": "打开深大随连",
+    "loginOnce": "用填写的账号登录一次",
+    "saveAccount": "保存账号",
+    "showPassword": "显示密码",
+    "hidePassword": "隐藏密码",
+    "openLink": "在浏览器中打开",
+    "editAccount": "填写账号",
+    "viewNetwork": "查看网络详情",
+    "partialLogin": "登录校园网"
+  },
+  "status": {
+    "idle": {
+      "headline": "还没有检测",
+      "detail": "点击“检测连接”，检查当前网络。"
+    },
+    "checking": {
+      "headline": "正在检测…",
+      "detail": "正在检查网络，不会发送账号密码。"
+    },
+    "discovering": {
+      "headline": "正在检查校园网登录服务…",
+      "detail": "正在检查校园服务，尚未发送账号密码。"
+    },
+    "loggingIn": {
+      "headline": "正在登录校园网…",
+      "detail": "正在向校园网登录服务发送账号密码。"
+    },
+    "verifying": {
+      "headline": "已提交登录，正在检查连接…",
+      "detail": "最多再检测三次，不会重复登录。"
+    },
+    "online": {
+      "headline": "联网检测通过",
+      "quick": "Apple 或 Microsoft 检测已通过，另一项未等待。",
+      "complete": "Apple 和 Microsoft 的检测均已通过。",
+      "partial": "部分检测通过，仍有项目需要检查。"
+    },
+    "offline": {
+      "headline": "联网检测未通过",
+      "detail": "请查看检测结果，检查网络连接。"
+    },
+    "portal": {
+      "headline": "可能需要登录校园网"
+    },
+    "confirming": {
+      "headline": "检测未通过，稍后再试",
+      "detail": "约 5 秒后复查；连续两次未通过，且校园核验通过后，才会自动登录。",
+      "rapidDetail": "约 1 秒后复查；连续两次未通过，且校园核验通过后，才会自动登录。"
+    },
+    "paused": {
+      "headline": "自动重连已暂停",
+      "detail": "仍会检测网络，暂不自动登录。"
+    },
+    "coolingDown": {
+      "headline": "刚提交过登录，请稍等",
+      "detail": "当前连接提交后 90 秒内不重复登录，仍会检测网络。"
+    },
+    "unconfirmed": {
+      "headline": "尚未确认校园网登录服务",
+      "detail": "尚未发送账号密码。请确认已接入校园网，并检查代理或 VPN 的校园地址规则。",
+      "physicalDetail": "尚未发送账号密码。校园服务或直连通道未通过检查，请确认校园网连接后重试。"
+    },
+    "needsTrust": {
+      "headline": "请确认当前网络可信",
+      "detail": "宿舍登录使用 HTTP，自动登录前需确认网络可信。记住后，下次仍会先检查校园服务。"
+    },
+    "needsAccount": {
+      "headline": "请填写校园账号",
+      "detail": "填写账号密码即可手动登录，保存后可用于自动重连。"
+    },
+    "accepted": {
+      "headline": "登录已提交，等待联网",
+      "detail": "校园网已接受登录，联网检测尚未通过。接下来只检测，90 秒内不重复登录。"
+    },
+    "rejected": {
+      "headline": "登录被拒绝",
+      "detail": "请核对账号、密码和登录区域。"
+    },
+    "uncertain": {
+      "headline": "暂时无法确认登录结果",
+      "detail": "登录已提交，结果尚未确认，自动重连已暂停。请先进行完整检测。"
+    },
+    "security": {
+      "headline": "安全检查未通过",
+      "detail": "校园网登录页面或安全连接异常，已停止发送账号密码。请检查网络。"
+    },
+    "unavailable": {
+      "headline": "暂时连不上校园网登录服务",
+      "detail": "尚未发送账号密码。请确认已连接校园网，或稍后再试。"
+    },
+    "cancelled": {
+      "headline": "已取消",
+      "detail": "已停止本次操作，网络连接未断开。"
+    },
+    "noNetwork": {
+      "headline": "未连接网络",
+      "detail": "请连接校园 Wi-Fi 或插上网线。"
+    },
+    "sleeping": {
+      "headline": "系统休眠中",
+      "detail": "唤醒后会重新检测网络。"
+    },
+    "awaitingProof": {
+      "headline": "正在检查已记住的网络",
+      "detail": "确认校园网登录服务正常后才会自动登录。"
+    }
+  },
+  "diagnosis": {
+    "online": {
+      "title": "基础检测通过",
+      "detail": "至少一项基础检测通过。校园登录和常用网址需分别确认。"
+    },
+    "portal": {
+      "title": "检测地址要求跳转",
+      "detail": "可能涉及校园登录、代理规则或网站页面，原因尚未确认。"
+    },
+    "response": {
+      "title": "检测地址返回的内容异常",
+      "detail": "未收到预期内容。请检查登录页面、代理规则和网站状态，不能据此判断校园网是否已登录。"
+    },
+    "security": {
+      "title": "无法验证安全连接",
+      "detail": "证书检查未通过，已停止连接。请核对设备时间、证书及代理的 HTTPS 检查设置。"
+    },
+    "dns": {
+      "title": "找不到网站地址",
+      "detail": "请检查 DNS 和代理规则，不能据此判断校园网是否已登录。"
+    },
+    "timeout": {
+      "title": "连接超时",
+      "detail": "本次等待超时。请检查网络、代理节点或网站状态。"
+    },
+    "unreachable": {
+      "title": "暂时连不上外网",
+      "detail": "请先检查 Wi-Fi 或网线，再检查代理规则和校园服务。"
+    },
+    "incomplete": {
+      "title": "检测未完成",
+      "detail": "本次检测已取消，没有得到结果。"
+    }
+  },
+  "hold": {
+    "credentials": {
+      "title": "登录被拒绝，自动重连已暂停",
+      "detail": "校园服务未接受登录。请核对账号和区域，确认后点击“继续自动重连”。"
+    },
+    "security": {
+      "title": "安全检查未通过，自动重连已暂停",
+      "detail": "请确认网络可信、连接未被拦截，再恢复自动重连。"
+    },
+    "uncertain": {
+      "title": "登录结果不确定，自动重连已暂停",
+      "detail": "完整检测确认联网恢复后，可自动解除保护；也可手动恢复。"
+    },
+    "userPaused": {
+      "title": "自动重连已手动暂停",
+      "detail": "仍会检测网络，需要时点“继续自动重连”。"
+    },
+    "scope": {
+      "network": "仅限当前网络",
+      "sticky": "直到恢复或修改账号"
+    },
+    "area": {
+      "all": "所有区域",
+      "teaching": "教学 / 办公区",
+      "dormitory": "宿舍区"
+    }
+  },
+  "auto": {
+    "readOnly": {
+      "chip": "本次仅检测",
+      "detail": "这次只检测网络，不会登录。"
+    },
+    "manual": {
+      "chip": "手动检测",
+      "detail": "点击按钮后才会检测或登录。"
+    },
+    "observe": {
+      "chip": "定时检测",
+      "detail": "定时检测网络，不会自动登录。"
+    },
+    "needsAccount": {
+      "chip": "请保存账号",
+      "detail": "自动重连已开启，保存账号后才能自动登录。"
+    },
+    "paused": {
+      "chip": "已暂停",
+      "detail": "仍会检测网络，暂不自动登录。"
+    },
+    "needsTrust": {
+      "chip": "请确认网络",
+      "detail": "宿舍区自动登录前需要确认网络可信，可选择记住。"
+    },
+    "coolingDown": {
+      "chip": "请稍等",
+      "detail": "等待期间仍会检测。确认切换到另一物理连接后，会重新检查校园服务。"
+    },
+    "limited": {
+      "chip": "部分区域已暂停",
+      "detail": "登录被拒绝的区域已暂停自动重连，其他区域不受影响。"
+    },
+    "ready": {
+      "chip": "已开启",
+      "detail": "连续连接异常时尝试恢复，网站拒绝访问或要求登录不会触发校园登录。"
+    },
+    "awaitingProof": {
+      "chip": "正在检查网络",
+      "detail": "正在检查已记住的网络，确认校园服务前不发送账号密码。"
+    },
+    "prioritizeCampus": "先恢复校园连接，再更新常用网址结果。",
+    "knownRecovery": {
+      "chip": "正在自动恢复连接"
+    }
+  },
+  "banner": {
+    "readOnly": {
+      "title": "本次启动仅检测",
+      "detail": "本次仅检测，不会登录或修改网络信任。"
+    },
+    "needsTrust": {
+      "title": "请确认当前网络可信",
+      "detail": "可选择“信任并记住此网络”或“仅本次信任”。每次自动登录前仍会检查校园服务。"
+    },
+    "limited": {
+      "title": "部分区域已暂停自动重连",
+      "detail": "该区域拒绝了已保存的账号，其他区域仍可自动登录。"
+    },
+    "awaitingProof": {
+      "title": "正在检查已记住的网络",
+      "detail": "确认校园网登录服务正常后才会自动登录。"
+    },
+    "loginRejected": {
+      "title": "校园登录未通过",
+      "detail": "本次联网检测已通过，但校园服务未接受刚才的登录请求。"
+    },
+    "multipleNetworks": {
+      "title": "检测到多条网络连接",
+      "detail": "暂不自动登录。请只保留要使用的校园连接，再使用自动重连。"
+    },
+    "networkUnidentified": {
+      "title": "暂时无法识别实际网络连接",
+      "detail": "当前连接尚不明确，可继续检测。网络信息就绪后再确认信任。"
+    },
+    "sessionTrustOnly": {
+      "title": "请确认本次连接组合可信",
+      "detail": "当前有多条网络连接及隧道路由。可选择“仅本次信任此连接组合”，之后仍会核验校园服务。"
+    }
+  },
+  "mode": {
+    "manual": {
+      "title": "手动检测",
+      "detail": "点击按钮后才会检测或登录。"
+    },
+    "observe": {
+      "title": "定时检测",
+      "detail": "定时检测网络，不会自动登录。"
+    },
+    "recover": {
+      "title": "自动重连",
+      "detail": "连续连接异常时尝试恢复，网站拒绝访问或要求登录不会触发校园登录。"
+    }
+  },
+  "area": {
+    "automatic": {
+      "title": "自动选择",
+      "detail": "检查校园服务，判断教学／办公区或宿舍区。宿舍自动登录需先确认网络可信。"
+    },
+    "teaching": {
+      "title": "教学 / 办公区",
+      "detail": "只登录教学 / 办公区，连接使用 HTTPS 加密。"
+    },
+    "dormitory": {
+      "title": "宿舍区",
+      "detail": "宿舍登录使用 HTTP，不加密。自动登录前需确认网络可信。"
+    }
+  },
+  "probe": {
+    "quick": {
+      "title": "快速检测",
+      "detail": "Apple 或 Microsoft 任一项通过后就结束等待。"
+    },
+    "complete": {
+      "title": "完整检测",
+      "detail": "检查 Apple、Microsoft 和已选网址，全部通过才显示“本次检测全部通过”。"
+    },
+    "label": "检测方式"
+  },
+  "connection": {
+    "lastChecked": "上次检测 {time}",
+    "nextCheck": "下次检测 {time}",
+    "neverChecked": "尚未检测",
+    "tile": {
+      "auto": "自动重连",
+      "account": "校园账号",
+      "network": "网络详情",
+      "accountSaved": "已保存：{account}",
+      "accountNone": "尚未保存账号",
+      "accountDraft": "有未保存的修改",
+      "networkSummary": "{access} · {proxy} · {tunnel}"
+    },
+    "results": "检测结果",
+    "endpointApple": "Apple",
+    "endpointMicrosoft": "Microsoft",
+    "updatedAt": "{mode} · {time}"
+  },
+  "endpoint": {
+    "success": "通过 {ms} ms",
+    "successTitle": "通过",
+    "timeout": "超时",
+    "dns": "找不到地址",
+    "tls": "安全连接失败",
+    "redirect": "页面跳转",
+    "unexpectedResponse": "内容异常",
+    "network": "无法连接",
+    "cancelled": "已取消",
+    "notCompleted": "另一项已通过，未等待"
+  },
+  "env": {
+    "title": "网络详情",
+    "intro": "仅查看设置，不会改动网络。",
+    "layer": {
+      "access": "连接方式",
+      "internet": "联网检测",
+      "proxy": "代理",
+      "tunnel": "网络隧道"
+    },
+    "access": {
+      "wifi": "Wi-Fi",
+      "ethernet": "有线连接",
+      "multiple": "同时连接了多个网络",
+      "tunnelHidden": "暂时只能识别到网络隧道",
+      "none": "尚未连接网络",
+      "unknown": "暂时无法判断"
+    },
+    "internet": {
+      "notChecked": "未检测",
+      "quickPassed": "快速检测通过",
+      "completeAll": "完整检测全部通过",
+      "completePartial": "完整检测部分通过",
+      "failed": "未通过",
+      "incomplete": "无法完成"
+    },
+    "proxy": {
+      "on": "已开启",
+      "off": "未开启",
+      "unknown": "暂时无法读取",
+      "kinds": "类型：{kinds}",
+      "kind": {
+        "http": "HTTP",
+        "https": "HTTPS",
+        "socks": "SOCKS",
+        "pac": "自动配置（PAC）",
+        "autoDiscovery": "自动检测设置"
+      }
+    },
+    "bypass": {
+      "all": "校园地址均已设为系统代理例外",
+      "partial": "部分校园地址已设为系统代理例外",
+      "none": "校园地址未设为系统代理例外",
+      "unknown": "使用自动代理配置，暂时无法判断校园地址的连接路径",
+      "notApplicable": ""
+    },
+    "tunnel": {
+      "detected": "可能正在使用",
+      "notDetected": "未检测到",
+      "unknown": "无法确认",
+      "campusRoute": "校园网登录连接可能经过网络隧道"
+    },
+    "note": {
+      "access": "有线连接也可能来自 USB 网卡、扩展坞或热点。多个网络并用时，由系统选择出口，是否联网仍需检测。",
+      "internet": "检测结果只涵盖本次检查的地址。",
+      "proxy": "校园登录绕过系统代理，其他应用可能使用代理。",
+      "tunnel": "隧道可能来自 VPN 或代理工具的 TUN 模式，可与系统代理并用。"
+    },
+    "details": "详细信息与排查工具",
+    "interfaces": "网络接口：{list}",
+    "refreshed": "已更新 {time}",
+    "refresh": "刷新",
+    "systemPrimary": "系统主网络：{name}",
+    "connectedPhysical": "已连接的物理网络：{list}",
+    "tunnelSeparate": "TUN／VPN 虚拟通道单独显示，不计入实际网络连接数量。",
+    "campusPhysicalChannel": "校园登录会尝试通过已确认的网卡直连，TUN 无需关闭。",
+    "authenticationTarget": "认证使用的连接：{name}",
+    "authenticationTargetNote": "选中连接不代表已确认校园身份；Wi-Fi 名称和局域网地址不能代替校园服务核验。",
+    "physicalProbeNote": "基础检测使用选定的物理连接，可能与浏览器的代理／隧道路径不同。检测失败时先排查原因，无需反复登录。",
+    "systemOnline": {
+      "title": "当前网络可用",
+      "detail": "系统联网检测已通过，校园服务仍需单独核验。"
+    },
+    "systemProbe": "系统路径",
+    "physicalProbe": "校园直连",
+    "pathComparison": "检测路径对照",
+    "systemEndpoint": "系统 {name}",
+    "physicalEndpoint": "直连 {name}",
+    "systemProbeNote": "系统路径使用当前网络设置，只表示公共检测地址可达，不代表校园身份，也不会解除认证保护。",
+    "historyScope": "连接记录采用校园直连结果；系统路径结果见网络详情。",
+    "campusVerification": {
+      "notChecked": "校园服务：尚未核验。基础联网正常不代表已确认校园身份。",
+      "confirmed": "校园服务：本次连接已核验。自动恢复前仍会重新核验。",
+      "unconfirmed": "校园服务：本次未能确认。不会据此认定为校园网络。"
+    },
+    "systemChecking": {
+      "title": "正在检查系统路径…",
+      "detail": "正在检查当前系统网络，不会发送账号密码。"
+    }
+  },
+  "compat": {
+    "title": "排查代理与网络隧道",
+    "intro": "比较按系统设置与忽略 HTTP/HTTPS 代理时的响应。最多 4 次请求，每项最多 8 秒，不发送账号或 Cookie。\n\nDNS 和 VPN/TUN 仍可能影响结果。此工具只检查响应，不能代替校园认证或完整网页检查。",
+    "running": "正在诊断…",
+    "column": {
+      "direct": "忽略系统代理",
+      "system": "按系统设置"
+    },
+    "row": {
+      "campus": "校园网登录地址",
+      "public": "外网检测地址"
+    },
+    "result": {
+      "reachable": "可访问",
+      "tls": "安全连接失败",
+      "dns": "找不到地址",
+      "timeout": "超时",
+      "network": "连不上",
+      "cancelled": "已停止",
+      "notRun": "未检测",
+      "redirect": "页面跳转，未继续访问",
+      "authentication": "需要登录验证",
+      "httpStatus": "服务器返回异常状态",
+      "securityPolicy": "被系统安全设置阻止"
+    },
+    "verdict": {
+      "allReachable": {
+        "title": "校园网和外网地址均有回复",
+        "detail": "忽略系统代理时，两项均返回 2xx；未核对正文或校园身份，不能代替登录核验。"
+      },
+      "loginLikelyNeeded": {
+        "title": "校园地址有响应，外网检查未通过",
+        "detail": "原因可能在校园登录、DNS、代理或网站。请回连接页查看基础检测结果。"
+      },
+      "publicOnlyViaProxy": {
+        "title": "外网检查仅在按系统设置时通过",
+        "detail": "两种方式结果不同，请检查系统代理、自动代理规则和 VPN/TUN；不能据此判断校园登录或节点是否正常。"
+      },
+      "campusBlockedByTunnel": {
+        "title": "校园地址未通过，检测到网络隧道",
+        "detail": "检测到隧道不代表故障由它造成，请同时检查当前连接、DNS、规则和校园服务。"
+      },
+      "campusOnlyViaProxy": {
+        "title": "校园地址仅在按系统设置时通过",
+        "detail": "校园登录忽略 HTTP/HTTPS 系统代理，请检查两种方式的差异；本次结果不保证登录成功。"
+      },
+      "campusUnreachableWithProxy": {
+        "title": "校园地址未通过，系统代理已开启",
+        "detail": "请检查当前网络、DNS、规则和校园服务。系统代理已开启不代表它是故障原因。"
+      },
+      "notOnCampusNetwork": {
+        "title": "能连接外网，连不上校园网登录地址",
+        "detail": "外网可用不代表已接入校园网，请检查当前连接和校园服务。"
+      },
+      "campusUnreachable": {
+        "title": "校园网和外网检测均未通过",
+        "detail": "请先检查校园 Wi-Fi 或网线，再检查 DNS、规则和服务状态。原因尚未确认。"
+      },
+      "campusTLS": {
+        "title": "校园网登录地址的安全连接异常",
+        "detail": "无法验证服务器证书，已停止。请核对设备时间、证书或 HTTPS 检查设置，不应跳过 TLS 校验。"
+      },
+      "cancelled": {
+        "title": "诊断已停止",
+        "detail": "没有得到完整结果。"
+      }
+    },
+    "rec": {
+      "nothingToFix": "地址有响应，尚未确认网页功能或校园登录。请回连接页继续检测。",
+      "loginFirst": "确认需要校园认证后再登录；仅网址异常时先检查连接方式和规则。",
+      "proxyMayHideLogin": "代理与基础检测可能走不同路径。请检查校园服务和连接规则。",
+      "addDirectRules": "如需校园地址直连，可参考下方规则自行设置，再重新检测。",
+      "tunBypassCampus": "使用 TUN 时，请确认校园地址实际走直连；规则名称不代表实际路径。",
+      "retryAfterRules": "调整后重新检测，再到浏览器确认所需功能。",
+      "checkRouting": "检查 VPN/TUN 的路由及分流规则，确认校园登录地址能按预期由校园网访问。",
+      "confirmCampusNetwork": "确认连接的是校园 Wi-Fi 或校园网线。",
+      "checkCable": "检查网线、Wi-Fi 是否正常，必要时重新连接。",
+      "tunnelStateUnknown": "隧道状态未确认。如使用 VPN/TUN，请检查校园地址规则。",
+      "checkClock": "检查电脑的日期和时间是否正确。",
+      "checkInterception": "若代理或安全软件启用了 HTTPS 检查，请核对校园地址例外与证书；保持 TLS 校验。"
+    },
+    "rules": {
+      "title": "直连规则（Clash / Mihomo）",
+      "detail": "将这两行放在规则列表前部。深大随连不会修改代理或网络隧道设置。",
+      "copy": "复制规则",
+      "copied": "已复制"
+    }
+  },
+  "website": {
+    "title": "检测指定网站",
+    "intro": "检查网站是否响应，不加载网页或发送登录信息。网址不进入记录或导出。",
+    "placeholder": "例如 https://www.szu.edu.cn",
+    "run": "开始检测",
+    "running": "正在检测（最多 8 秒）…",
+    "elapsed": "用时 {ms} ms",
+    "strategy": {
+      "system": {
+        "title": "按系统设置",
+        "detail": "使用系统代理及自动代理规则，部分网址可能直连。DNS 和 VPN/TUN 仍可能影响结果。"
+      },
+      "direct": {
+        "title": "忽略系统代理",
+        "detail": "只忽略 HTTP/HTTPS 系统代理，DNS、VPN/TUN 和分流规则仍可能影响连接。"
+      }
+    },
+    "state": {
+      "accessible": {
+        "title": "收到网站响应",
+        "detail": "网站已回复（HTTP {code}）。本次未加载网页，不能确认登录、聊天等功能或网速。"
+      },
+      "redirected": {
+        "title": "收到跳转响应",
+        "detail": "收到 HTTP {code} 跳转，未继续访问。可能涉及网站页面或登录验证。"
+      },
+      "authenticationRequired": {
+        "title": "请求需要登录验证",
+        "detail": "网站或代理要求登录，未发送凭据。不能据此判断校园网需要登录。"
+      },
+      "forbidden": {
+        "title": "访问被拒绝",
+        "detail": "收到 HTTP 403，原因尚未确认。这不代表校园网掉线。"
+      },
+      "httpStatus": {
+        "title": "本次请求返回异常状态",
+        "detail": "收到 HTTP {code}，请检查网站状态和本次连接方式。该结果不能代表其他网站或校园登录。"
+      },
+      "dns": {
+        "title": "找不到网站地址",
+        "detail": "无法解析域名。请检查网址、DNS 和代理规则，不能据此判断校园网是否已登录。"
+      },
+      "tls": {
+        "title": "无法建立安全连接",
+        "detail": "安全连接验证失败，已停止请求。请检查电脑时间、证书和代理设置，勿跳过证书验证。"
+      },
+      "timeout": {
+        "title": "等待网站回复超时",
+        "detail": "未及时收到响应。请检查网站、网络、代理规则和节点。"
+      },
+      "cancelled": {
+        "title": "检测已取消",
+        "detail": "已停止检测，尚未确认能否连接网站。"
+      },
+      "securityPolicy": {
+        "title": "需要 HTTPS 网址",
+        "detail": "系统阻止了 HTTP 连接，请尝试该网站的 https:// 地址。"
+      },
+      "network": {
+        "title": "未能连接网站",
+        "detail": "未收到有效响应。请检查本次连接方式和网站状态；单个网址失败不代表校园网掉线。"
+      }
+    },
+    "error": {
+      "empty": "请填写网站地址，例如 https://www.szu.edu.cn。",
+      "tooLong": "地址过长，请使用网站首页地址。",
+      "unsupportedScheme": "仅支持 http:// 或 https:// 网站地址。",
+      "sensitiveComponents": "网址不能包含账号密码、? 后的参数或 # 后的内容，请删除后重试。",
+      "invalid": "地址格式无效，请检查域名或 IP 地址。"
+    },
+    "sample": "填入百度示例",
+    "privacy": "建议使用 HTTPS。最多等待 8 秒，不跳转、不使用已保存的登录信息或客户端证书。关闭后清除网址和结果；修改网址或换网后需重新检测。",
+    "result": {
+      "details": "查看本次结果",
+      "strategy": "本次连接方式",
+      "scope": "结果只代表本次网址响应，不代表网页、登录或聊天功能正常。浏览器设置可能不同。",
+      "route": "按系统设置：使用系统代理、自动代理和例外规则，部分网址可能直连，无法据此确认节点。\n\n忽略系统代理：只忽略 HTTP/HTTPS 代理，DNS、分流与 VPN/TUN 仍可能影响连接。"
+    }
+  },
+  "account": {
+    "title": "校园账号",
+    "intro": "填写校园网登录账号和密码，密码只保存在本机{store}中。",
+    "accountLabel": "账号",
+    "accountHint": "请使用校园网登录页的账号。",
+    "passwordLabel": "密码",
+    "passwordHint": "使用对应校园网登录页的密码。",
+    "saved": "已保存：{account}",
+    "notSaved": "尚未保存账号",
+    "unsaved": "有未保存的修改",
+    "savedDone": "已保存到本机{store}，用于自动登录。",
+    "saveNote": "保存账号不会立即登录。",
+    "loginOnceNote": "只用于本次登录，不会保存；自动重连仍使用已保存账号。",
+    "invalid": "请填写有效的校园账号和密码。",
+    "saveFailed": {
+      "mac": "保存失败，原账号密码已保留。请解锁 Mac 后重试。",
+      "windows": "保存失败，原账号密码已保留。请稍后重试。"
+    },
+    "readFailed": {
+      "mac": "无法读取钥匙串中的账号密码，请解锁 Mac 后重新打开。",
+      "windows": "无法读取 Windows 凭据管理器中的账号密码。"
+    },
+    "areaTitle": "登录区域",
+    "officialTitle": "官方入口",
+    "officialNote": "激活账号、找回密码或查询套餐，请使用学校及运营商网站。应用不代填账号密码，也不读取套餐。"
+  },
+  "link": {
+    "nc": "网络服务中心",
+    "download": "官方客户端",
+    "contact": "联系学校 / 运营商",
+    "identity": "统一身份说明",
+    "activation": "账号激活",
+    "forgot": "忘记密码",
+    "self": "账号与套餐",
+    "teachingGuide": "教学区上网指南",
+    "library": "图书馆 Wi-Fi",
+    "dormAccount": "宿舍开户说明",
+    "dormFAQ": "宿舍常见问题",
+    "leaveNote": "将在浏览器打开官网。登录、激活或缴费需自行完成，应用不代填账号密码。"
+  },
+  "guard": {
+    "title": "自动重连设置",
+    "modeTitle": "运行方式",
+    "areaTitle": "登录区域",
+    "thresholdNote": "连接异常时先复查，符合条件再恢复。同一阶段最多一次，当前连接提交后 90 秒内不重复。",
+    "trustTitle": "宿舍区网络确认",
+    "trustDetail": "宿舍登录使用 HTTP，自动登录前需确认网络可信。每次登录仍会检查校园服务，网络信息只存本机。",
+    "trustGranted": "本次已信任",
+    "trustNotGranted": "尚未信任此网络",
+    "trustUnavailable": "暂时无法识别当前网络，不能确认信任；仍可手动登录。",
+    "pauseTitle": "暂停与恢复",
+    "pauseDetail": "暂停期间仍会检测，恢复后才允许自动登录。",
+    "holdsTitle": "暂停原因",
+    "holdsEmpty": "没有暂停的登录区域。",
+    "holdLine": "{reason} · {area} · {scope}",
+    "cooldown": "当前连接还有 {seconds} 秒重复登录保护，期间仍可检测；确认换到另一物理连接后重新核验。"
+  },
+  "records": {
+    "title": "记录",
+    "search": "搜索记录",
+    "failuresOnly": "只看失败",
+    "empty": {
+      "title": "还没有记录",
+      "detail": "检测和登录的结果会出现在这里。"
+    },
+    "noMatch": {
+      "title": "没有符合条件的记录",
+      "detail": "请尝试其他关键词，或关闭“只看失败”。"
+    },
+    "health": {
+      "title": "最近检测",
+      "samples": "{count} 次检测",
+      "successRate": "检测通过比例 {percent}%",
+      "latency": "典型响应时间 {ms} ms",
+      "none": "暂无检测数据",
+      "note": "按当时启用的检测项目统计。"
+    },
+    "exportDone": "已导出排查报告，不含账号、密码和网络名称。",
+    "copyDone": "排查摘要已复制。",
+    "exportFailed": "导出失败，请换个位置重试。",
+    "activities": "操作记录",
+    "samples": "检测明细",
+    "sampleResult": {
+      "quick": "基础检测通过",
+      "all": "完整检测 · 全部通过",
+      "partial": "完整检测 · 部分通过",
+      "failed": "检测未通过"
+    },
+    "range": {
+      "retention": "保留最近 24 小时的检测，最多 {max} 次",
+      "stored": "已保存 {count} 次 · {from} – {to}",
+      "ribbon": "色块显示最近 {count} 次 · {from} – {to}",
+      "none": "暂无检测数据"
+    },
+    "ribbon": {
+      "hint": "点色块查看检测时间和结果。"
+    },
+    "detail": {
+      "title": "这次检测",
+      "close": "关闭详情",
+      "mode": "方式",
+      "result": "结果",
+      "time": "时间",
+      "link": "连接",
+      "sites": "自选网址",
+      "apple": "Apple",
+      "microsoft": "Microsoft",
+      "latency": "响应时间",
+      "technical": "接口编号"
+    },
+    "window": {
+      "title": "记录范围与色块说明"
+    },
+    "websiteWarning": "网址异常不等于校园网掉线。记录不保存具体网址或当时的代理设置，无法还原具体原因。"
+  },
+  "settings": {
+    "title": "设置",
+    "appearance": {
+      "title": "外观",
+      "system": "跟随系统",
+      "light": "浅色",
+      "dark": "深色"
+    },
+    "launch": {
+      "title": {
+        "mac": "登录时打开",
+        "windows": "开机启动"
+      },
+      "detail": {
+        "mac": "登录 macOS 后在菜单栏运行，默认关闭。",
+        "windows": "登录 Windows 后在系统托盘运行，默认关闭。"
+      }
+    },
+    "closeNote": {
+      "mac": "关闭窗口后仍在菜单栏运行。完全退出请点菜单栏图标，选择“退出”。",
+      "windows": "关闭窗口后仍在系统托盘运行。完全退出可在窗口内按 Ctrl+Q，或在托盘菜单选择“退出”。"
+    },
+    "helpTitle": "帮助",
+    "privacy": {
+      "mac": "密码只存本机钥匙串。导出不含账号、密码和网络名称，管理方式见“关于 → 账号存储与隐私”。",
+      "windows": "密码只存本机 Windows 凭据管理器。导出不含账号、密码和网络名称，管理方式见“关于 → 账号存储与隐私”。"
+    },
+    "readOnlyLaunch": "本次仅检测，不会登录或保存设置。",
+    "readOnlyMode": "只读检测",
+    "readOnlyBadge": "只读"
+  },
+  "help": {
+    "title": "帮助与学校网站",
+    "faqTitle": "常见问题",
+    "faq": {
+      "noInternet": {
+        "q": "连上 Wi-Fi 但打不开网页？",
+        "a": "先检查 Wi-Fi 或网线，再点击“检测连接”。开启自动重连后，应用会先复查，符合校园认证条件时尝试恢复；也可手动登录。\n\n仅个别网站返回 401、403 等错误时，请查看该项详情，不必反复校园登录。"
+      },
+      "rejected": {
+        "q": "提示登录被拒绝？",
+        "a": "请核对账号、密码和登录区域。忘记密码可打开下方官方入口。\n\n失败或超时不一定是欠费，套餐状态请查自助服务。"
+      },
+      "vpn": {
+        "q": "代理和 VPN 为什么会影响检测？",
+        "a": "系统路径按当前网络设置检测；校园直连检测与登录不使用 HTTP/HTTPS 系统代理。常用网址按所选方式连接。\n\nVPN/TUN 和 DNS 仍可能影响结果。浏览器的代理、扩展和登录状态也可能不同，请先查看具体检测结果。"
+      },
+      "dorm": {
+        "q": "宿舍区为什么要“信任此网络”？",
+        "a": "宿舍登录使用 HTTP，不加密。自动发送账号密码前，需确认当前网络可信。\n\n可记住网络或随时忘记，每次登录前仍会检查校园服务。"
+      },
+      "official": {
+        "q": "这是学校官方应用吗？",
+        "a": "这是非官方辅助工具。账号和套餐信息请以学校及运营商页面为准。"
+      },
+      "nonCampus": {
+        "q": "连接手机热点或校外 Wi-Fi 时会自动登录吗？",
+        "a": "正常联网时不会自动登录校园网。连接异常后，也要确认校园服务和网络资格，才会发送账号。\n\nWi-Fi 同名或登录地址可访问，都不能单独证明是校园网。"
+      },
+      "wifi": {
+        "q": "如何自动找回校园 Wi-Fi？",
+        "a": "先通过系统连接一次校园 Wi-Fi，再在应用中记住它。\n\n到“设置 → 校园 Wi-Fi 找网”选择目标并开启找网；自动打开 Wi-Fi 电源需另行允许。已有网线或其他 Wi-Fi 时不会抢网。"
+      },
+      "cooldown": {
+        "q": "为什么提示等待登录？",
+        "a": "90 秒用于避免重复提交，期间仍可检测。确认切换到另一物理连接后，会重新检查校园服务。\n\n结果不明、密码错误或安全异常时，自动登录仍会暂停。"
+      }
+    },
+    "linksTitle": "学校与运营商网站",
+    "links": {
+      "account": "账号与套餐",
+      "guides": "上网指南",
+      "support": "服务与支持"
+    }
+  },
+  "about": {
+    "title": "关于深大随连",
+    "version": "版本 {version}（{build}）",
+    "creditsTitle": "致谢与开源组件",
+    "creditsBody": "校园认证实现参考并改编自 AutoSZUWeb，感谢上游项目与贡献者。深大随连提供 macOS 与 Windows 原生客户端。",
+    "atmluck": {
+      "name": "ATMLuck/AutoSZUWeb",
+      "detail": "SRun 实现的来源与改编参考。MIT License © 2026 ATMLuck，完整许可随应用附带。"
+    },
+    "jennie": {
+      "name": "JennieYow/szu-net-autologin-mac",
+      "detail": "校园认证参数与挑战验证的研究参考，未复制代码，也不是运行依赖。"
+    },
+    "notices": {
+      "mac": "MIT 许可随应用附带。校园直连使用系统 libcurl，完整来源见第三方声明。",
+      "windows": "MIT 许可随程序附带。校园直连使用 libcurl 8.22.0，完整版权与许可见“说明与许可”文件夹。"
+    },
+    "developer": {
+      "title": "开发者与项目",
+      "description": "由 zhihebai 开发和维护。"
+    },
+    "project": {
+      "star": {
+        "mac": "项目源码与问题反馈见 GitHub。欢迎点亮 Star，支持项目。",
+        "windows": "项目源码与问题反馈见 GitHub。欢迎点亮 Star，支持项目。"
+      }
+    },
+    "storage": {
+      "title": "账号存储与隐私",
+      "body": {
+        "mac": "账号密码保存在系统钥匙串；设置保存在用户偏好设置，网络记忆和记录位于 ~/Library/Application Support/SZUConnect。\n\n删除账号请使用应用内入口；手动清理可在“钥匙串访问”中搜索 local.SZUConnect.credentials。",
+        "windows": "账号密码保存在 Windows 凭据管理器；设置、网络记忆和记录位于 %LOCALAPPDATA%\\SZUConnect。\n\n删除账号请使用应用内入口；手动清理可在“凭据管理器 → Windows 凭据 → 通用凭据”查找 local.SZUConnect.credentials。"
+      }
+    }
+  },
+  "tutorial": {
+    "progress": "第 {current} 步，共 {total} 步",
+    "skip": "跳过教程",
+    "back": "上一步",
+    "next": "下一步",
+    "finish": "开始使用",
+    "close": "关闭",
+    "resumeHint": "可随时在“设置”重新查看教程。",
+    "welcome": {
+      "title": "欢迎使用深大随连",
+      "p1": "检测联网，并在需要时登录深圳大学校园网。深大随连为非官方工具。",
+      "p2": "检测网络不会发送校园账号密码。",
+      "p3": {
+        "mac": "登录或允许自动重连时才会使用账号密码；密码保存在本机钥匙串中。",
+        "windows": "登录或允许自动重连时才会使用账号密码；密码保存在本机 Windows 凭据管理器中。"
+      },
+      "start": "查看教程",
+      "later": "直接使用"
+    },
+    "connection": {
+      "title": "检测网络连接",
+      "p1": "先通过系统连接校园 Wi-Fi 或网线，再点击“检测一次”。接入网络与登录校园网是两个步骤。",
+      "p2": "基础检测与网址检测分别显示结果。网址异常不等于校园网掉线，收到响应也不代表网页功能正常。",
+      "p3": "基础检测和校园登录不使用 HTTP/HTTPS 系统代理；常用网址按设置连接。VPN/TUN 仍可能影响连接。",
+      "p4": "完整检测检查已选网址，快速检测会跳过。点击结果查看详情，浏览器设置可能不同。",
+      "demo": "检测一次",
+      "demoNote": "会实际检查网络，不发送账号密码，也不会登录。",
+      "demoFailed": "本次检测未通过，可以继续下一步。",
+      "demoResult": "检测结果：{result}"
+    },
+    "account": {
+      "title": "填写校园账号",
+      "p1": "使用校园网登录账号。激活账号或找回密码，可从下方打开官方入口。",
+      "p2": "“自动选择”会检查校园服务，判断教学／办公区或宿舍区；也可手动指定。",
+      "p3": "保存只写入本机，不会立即登录。手动登录使用填写内容，自动重连使用已保存账号。",
+      "p4": "账号和登录区域都在首页，随时可以修改。",
+      "open": "打开账号设置"
+    },
+    "background": {
+      "title": "运行方式与后台",
+      "p1": "手动检测：点击后检查。\n定时检测：按间隔检查，不自动登录。\n自动重连：连续异常后检查校园服务，符合条件时恢复；网站拒绝访问不会触发登录。",
+      "p2": "关闭窗口后仍在{tray}运行，点击{tray}图标即可打开。",
+      "p3": "宿舍区自动登录需确认网络可信。记住后，重连、唤醒或重启仍会检查校园服务，可随时忘记。\n\n仅本次信任在换网、休眠或退出后失效。",
+      "p4": "需要自动选网时，在“设置 → 校园 Wi-Fi 找网”选择已记住的网络。自动打开 Wi-Fi 电源另行允许，只用网线可跳过。\n\n教程不会自动信任网络、打开 Wi-Fi 或启用{launch}。",
+      "open": "打开自动重连设置"
+    },
+    "whatsNew": {
+      "title": "检查自动恢复设置",
+      "body": "连接页会提示缺少的设置。自动重连、Wi-Fi 找网与电源选项可分别设置。",
+      "tour": "查看新手教程",
+      "dismiss": "知道了"
+    }
+  },
+  "tray": {
+    "open": "打开深大随连",
+    "check": "立即检测",
+    "login": "登录校园网",
+    "pause": "暂停自动重连",
+    "resume": "继续自动重连",
+    "quit": "退出",
+    "tooltip": "深大随连 · {status}",
+    "state": {
+      "online": "联网检测通过",
+      "offline": "联网检测未通过",
+      "attention": "需要处理",
+      "busy": "正在处理…",
+      "idle": "等待检测"
+    }
+  },
+  "error": {
+    "storage": "无法使用本地记录，请检查存储空间和文件权限。",
+    "healthUnreadable": "无法读取检测记录，原文件已保留；仍可检测网络。",
+    "eventsQuarantined": "无法读取操作记录，已另存备份；新记录会照常保存。",
+    "eventsUnreadable": "无法读取操作记录，原文件已保留；本次运行不再保存操作记录。",
+    "writeFailed": "记录保存失败，请检查可用存储空间。",
+    "launchUpdate": {
+      "mac": "无法更新登录项，请在系统设置中检查。",
+      "windows": "无法更新开机启动设置。"
+    },
+    "launchApproval": {
+      "mac": "请在系统设置的登录项中允许深大随连。",
+      "windows": "开机启动已被系统设置禁用，请在“设置 → 应用 → 启动”中允许深大随连。"
+    },
+    "alreadyRunning": "深大随连已在运行，主窗口已打开。",
+    "settingsUnreadable": "设置文件无法读取或版本不受支持，原文件已保留。本次以手动模式运行，设置更改仅在本次有效。请先备份原文件后检查。"
+  },
+  "event": {
+    "online": "基础检测通过。",
+    "offlineAfterOnline": "外网检测暂未通过，等待再次检测。",
+    "manualCheckFailed": "手动检测未通过：{reason}。没有发起登录。",
+    "accepted": "登录已被接受，联网检测尚未通过，稍后继续检测。",
+    "succeededTeaching": "教学 / 办公区登录成功。",
+    "succeededDormitory": "宿舍区登录成功。",
+    "trusted": "已信任当前网络，未立即登录。",
+    "trustRevoked": "已取消信任此网络，检测会继续。",
+    "pathLost": "网络连接暂不可用，已取消本次操作。",
+    "saved": "已保存到本机{store}，用于自动登录。",
+    "modeChanged": "运行方式已设为：{mode}。",
+    "paused": "已暂停自动重连，仍会检测网络。",
+    "resumed": "已继续自动重连，网络信任设置未变。",
+    "uncertainSettled": "联网检测已通过，不再等待此前的登录结果，自动重连已恢复。",
+    "holdReleased": "已保存的账号在{area}登录成功，该区域已恢复自动重连。",
+    "holdCreated": "{area}拒绝了登录：{scope}暂停该区域的自动重连。",
+    "failed": "登录未完成：{reason}",
+    "remembered": "已记住当前网络，未立即登录。",
+    "forgot": "已忘记当前网络，下次自动登录前需重新确认。",
+    "forgotAll": "已忘记所有网络。"
+  },
+  "portalError": {
+    "invalidCredentials": "请填写校园账号和密码。",
+    "network": "暂时无法连接校园登录服务。请检查网络和代理、VPN 的校园地址规则。",
+    "timeout": "校园登录服务响应超时。请先检测连接并查看登录状态，再检查网络或代理规则。",
+    "dns": "找不到校园登录地址。请检查网络、DNS 和代理规则，不能据此判断账号密码有误。",
+    "redirect": "校园服务要求跳转，已停止访问。请核对官方登录页及代理规则，不要向未知页面填写账号。",
+    "httpStatus": "校园网登录服务暂时无法处理请求。",
+    "responseTooLarge": "登录服务返回的内容过大，为安全起见已停止处理。",
+    "authenticationUncertain": "已提交登录，但无法确认结果。请先检测连接，再手动重试。",
+    "protocolConflict": "登录页面的信息前后不一致，已停止登录。请稍后重新检测，或使用学校官方登录页。",
+    "tls": "安全连接验证失败，已停止登录。请检查电脑时间、证书和代理设置，勿跳过证书验证。",
+    "response": "无法识别校园网登录服务返回的内容。",
+    "rejected": "登录未通过，请核对账号、密码和登录区域。",
+    "cryptography": "无法生成登录所需的数据，请重试。",
+    "forbiddenTarget": "无法确认服务器是否可信，已阻止连接。",
+    "challengeRefused": "登录服务未允许继续，未提交密码，也未发起正式登录。"
+  },
+  "internet": {
+    "basicPassed": {
+      "title": "基础检测通过",
+      "detail": "Apple 或 Microsoft 的检测已通过。"
+    },
+    "allPassed": {
+      "title": "本次检测全部通过",
+      "detail": "Apple、Microsoft 和已选网址均已通过。"
+    },
+    "partial": {
+      "title": "部分检测未通过",
+      "detail": "部分检测通过，仍有连接或网址异常。可打开单项结果查看提示。",
+      "canLogin": "仍有连接异常。可再次检测，或尝试登录校园网。",
+      "afterAttempt": "已尝试恢复，仍有连接异常。检测会继续，可查看单项结果。",
+      "confirming": "仍有连接异常，5 秒后复查；满足校园认证条件时尝试一次恢复。",
+      "loginWarning": {
+        "title": "确认需要校园网登录",
+        "body": "仅个别网站异常时，重新校园登录未必有效。请先查看结果和连接方式。\n\n继续会提交校园账号，仅在确认需要校园认证时操作。",
+        "cancel": "暂不登录",
+        "continue": "确认需要，继续登录"
+      }
+    },
+    "unavailable": {
+      "title": "本次检测未通过",
+      "detail": "本次检查的地址均未通过，请查看结果并检查网络和代理规则。"
+    },
+    "cancelled": {
+      "title": "本次检测已取消",
+      "detail": "本次结果不会用于判断连接状态。"
+    },
+    "pending": {
+      "title": "需要重新检测",
+      "detail": "检测设置或网络已改变，请再检测一次。"
+    },
+    "quickSkips": "快速检测跳过常用网址，勾选状态保留。",
+    "quickDetail": "Apple 或 Microsoft 任一项通过即结束，跳过常用网址。",
+    "completeDetail": "检查 Apple、Microsoft 和已勾选的网址。",
+    "targets": {
+      "title": "常用网址",
+      "detail": "最多保存 12 个网址，建议勾选不超过 3 个。点击结果查看详情。",
+      "privacy": "网址只存本机，不进入记录或导出。检测收到响应即停止，不加载网页、不跳转，也不发送 Cookie 或凭据。"
+    },
+    "addLabel": "网址",
+    "add": "添加",
+    "remove": "移除",
+    "duplicateOrLimit": "网址已存在，或已达到 12 个网址的上限。",
+    "strategy": "常用网址的连接方式",
+    "networkDetails": "网络详情与排查",
+    "settingsUnreadable": "无法读取网址清单，原文件已保留。重新添加并保存时，会先备份原文件。",
+    "settingsWriteFailed": "网址清单保存失败，请检查存储空间。当前检测项目未改变。",
+    "settingsBusy": "正在检测或登录，完成后即可修改检测项目。",
+    "historyScope": "保存内置检测结果和常用网址的通过数量，不保存具体网址。",
+    "addPlaceholder": "输入网址，例如 example.com",
+    "websiteIssues": {
+      "title": "基础检测通过，网址仍需检查",
+      "detail": "基础检测已通过，请点击异常网址查看连接方式和排查提示。"
+    },
+    "routingWarning": {
+      "title": "网址失败不等于校园网掉线",
+      "body": "先查看本次连接方式，再检查规则、节点和 DNS，或用浏览器对照。\n\n检测到代理或隧道不代表它是故障原因，重新校园登录也未必能解决网站问题。"
+    }
+  },
+  "dashboard": {
+    "whatsNew": "自动重连、Wi-Fi 找网和电源选项可分别设置。",
+    "guard": "自动重连",
+    "proxy": "代理",
+    "tunnel": "网络隧道",
+    "checking": "检测中…",
+    "skipped": "快速检测已跳过",
+    "areaLimited": "此区域已暂停自动重连，其他区域不受影响。",
+    "trustNote": "宿舍区自动登录前需确认网络可信。",
+    "accountPlaceholder": "校园网登录页使用的账号",
+    "accountSaved": "已保存到本机",
+    "accountNote": "手动登录使用填写的账号，自动重连使用已保存账号。",
+    "partialWithBase": "只有部分检测通过",
+    "completeHistory": "完整检测：{total} 次中有 {passed} 次全部通过",
+    "siteHistory": "常用网址：{passed}/{total} 项通过（记录不含网址）",
+    "network": "网络详情",
+    "details": "详情",
+    "notWaited": "未等待"
+  },
+  "memory": {
+    "remember": "核验并记住校园网络",
+    "rememberTeaching": "核验并记住校园网络",
+    "once": "仅本次信任",
+    "forget": "忘记此网络",
+    "forgetAll": "忘记全部网络",
+    "remembered": "已记住此网络",
+    "title": "记住的校园网络",
+    "count": "已记住 {count} 个网络",
+    "none": "还没有记住任何网络。",
+    "hint": {
+      "needsProof": "网络信息尚未就绪，暂时不能核验并记住。可先检测连接。",
+      "unreliable": "无法稳定识别这个网络，暂时只能选择“仅本次信任”。",
+      "readOnly": "本次只做检测，不能更改网络信任设置。",
+      "multiple": "同时连着多个网络，暂时无法记住。可以选择“仅本次信任”。",
+      "sessionOnly": "当前连接组合仅支持本次信任。只保留一条校园物理连接时，可单独记住；换网、休眠、退出或隧道路由变化后，本次信任失效。"
+    },
+    "wait": {
+      "unconfirmed": "已记住此网络，正在核验校园服务。确认前不会发送账号密码。",
+      "tunnel": "隧道可能影响校园登录。请检查 net.szu.edu.cn 和 172.30.255.42 的直连规则。\n\n应用不会更改代理、隧道、DNS 或路由。",
+      "conflict": "当前网络与之前记住的不一致。确认网络可信后，请重新信任。",
+      "physicalChannel": "正在检查校园网直连通道和服务，无法确认时会停止登录。应用不修改代理、VPN、DNS 或路由。"
+    },
+    "unreadable": "无法读取已记住的网络，原文件已保留；本次需要手动确认信任。",
+    "writeFailed": "网络记录没能保存，请稍后重试。",
+    "item": "待命名的校园网络",
+    "verified": "上次确认 {date}",
+    "rename": "改名",
+    "renameTitle": "网络名称",
+    "namePlaceholder": "例如：宿舍有线网络",
+    "legacyName": "该记录未保存名称，再次连接后可补全，也可手动命名。",
+    "namesPrivacy": "网络名称只保存在本机，不包含在诊断导出中。",
+    "nameSave": "保存名称",
+    "nameCancel": "取消",
+    "current": "当前网络",
+    "manage": "管理此网络",
+    "forgetConfirmDetail": {
+      "mac": "忘记“{name}”后，应用将撤销该网络记忆并停止自动找网。其他网络和 macOS 保存的 Wi-Fi 不受影响。",
+      "windows": "忘记“{name}”后，应用将撤销该网络记忆并停止自动找网。其他网络和 Windows 保存的 Wi-Fi 不受影响。"
+    },
+    "onceCombination": "仅本次信任此连接组合",
+    "automaticKnown": "此校园网络已记住，会自动核验并重连，无需重复信任。",
+    "sessionTrusted": "仅本次信任，尚未记住此网络。换网、休眠或退出后失效。",
+    "notRemembered": "当前网络尚未记住。只有校园服务核验通过后才会保存。",
+    "verification": {
+      "busy": "请等待当前操作结束，再核验并记住校园网络。",
+      "pending": "正在更新网络信息，请稍后重试。本次没有新增信任或记忆。",
+      "readOnly": "本次只做检测，不能更改网络信任或记忆。",
+      "unavailable": "当前网络信息尚未就绪，无法开始校园服务核验。请先检查连接。",
+      "unreliable": "无法稳定识别当前物理网络，暂时不能记住。可在确认可信后选择仅本次信任。",
+      "unreadable": "网络记忆数据暂时无法读取，原文件已保留。请先处理读取问题再重试。",
+      "checking": "正在核验校园服务，不会发送账号密码，也不会重复检测上方网站。",
+      "needsProof": "未能确认校园服务，没有记住此网络。本次信任保持不变；基础联网正常也不代表校园身份已确认。",
+      "remembered": "已记住此校园网络，未发送账号密码。今后仍会按条件重新核验校园服务。",
+      "writeFailed": "网络记录未能保存，没有新增网络记忆。本次信任保持不变，请稍后重试。",
+      "cancelled": "已取消本次校园服务核验，没有新增网络记忆，也没有断开网络。",
+      "changed": "网络已变化，本次核验结果已作废，没有新增网络记忆。请重新检查当前连接。"
+    }
+  },
+  "ready": {
+    "account": {
+      "saved": "账号已保存",
+      "missing": "请保存账号",
+      "draft": "账号修改未保存"
+    },
+    "network": {
+      "remembered": "网络已记住",
+      "trusted": "仅本次信任（未记住）",
+      "needsTrust": "请确认网络可信",
+      "awaiting": "等待确认网络",
+      "conflict": "网络与已记住的不符",
+      "notNeeded": "无需另行确认网络",
+      "identifying": "正在识别物理网络",
+      "trustedCombination": "本次已信任连接组合",
+      "sessionAvailable": "可选择本次信任",
+      "knownChecking": "已记住，正在自动检查"
+    },
+    "protection": {
+      "ok": "登录未暂停",
+      "cooldown": "重复登录保护中",
+      "limited": "部分区域已暂停",
+      "paused": "自动重连已暂停"
+    },
+    "title": {
+      "ready": "自动重连已开启",
+      "attention": "自动重连需要你处理",
+      "paused": "自动重连已暂停",
+      "off": "自动重连未开启",
+      "campusPending": "已启用，待校园核验"
+    }
+  },
+  "info": {
+    "close": "知道了",
+    "open": "说明",
+    "status": {
+      "title": "关于检测结果",
+      "body": "基础联网、常用网址和校园登录分别显示结果。\n\n持续连接失败时会按条件恢复，401、403 等网站回复不会触发自动登录。点击单项结果查看详情。"
+    },
+    "probe": {
+      "title": "选择检测方式",
+      "body": "快速检测：Apple 或 Microsoft 任一项通过即结束。另一项“未等待”不算失败，常用网址跳过。\n\n完整检测：检查两项基础及已选网址，全部通过才显示“本次检测全部通过”。\n\n后台和登录后沿用所选方式；登录结果不明时临时使用完整检测。"
+    },
+    "auto": {
+      "title": "运行方式与自动重连",
+      "body": "手动检测：点击后检查。\n定时检测：按间隔检查，不自动登录。\n自动重连：连续异常后检查校园服务，符合条件时恢复。\n\n连接异常会复查，同一阶段最多尝试一次；网站拒绝访问不会触发登录。当前连接提交后 90 秒内不重复，确认切换物理连接后重新核验。结果不明时先完整检测。"
+    },
+    "memory": {
+      "title": "记住网络",
+      "body": "网络信息只存本机，不上传或进入诊断。重连、唤醒或重启后，仍会先检查校园服务。\n\n可随时改名或忘记，改名不改变信任；同名 Wi-Fi 也不会直接沿用信任。"
+    },
+    "account": {
+      "title": "校园账号",
+      "body": "账号密码只存本机钥匙串或 Windows 凭据管理器。\n\n手动登录使用当前填写的账号，自动重连使用已保存账号。"
+    },
+    "websites": {
+      "title": "常用网址",
+      "body": "最多保存 12 个网址，建议勾选不超过 3 个，仅完整检测访问。\n\n只检查响应，不加载网页、不跳转、不发送 Cookie 或账号；网址不进入记录和诊断。\n\n网站报错只作提示，校园重定向仍按认证保护处理。"
+    },
+    "records": {
+      "title": "检测记录说明",
+      "body": "保留最近 24 小时内最多 360 次检测，色块显示最近 24 次。\n\n通过比例按当时的检测项目计算，不代表校园网在线时长。典型响应时间取检测用时的中间值，不代表下载网速。"
+    },
+    "network": {
+      "title": "系统代理与网络隧道",
+      "body": "系统路径按当前网络设置检测；校园直连检测与登录不使用 HTTP/HTTPS 系统代理。常用网址按所选方式连接。\n\nVPN/TUN 和 DNS 仍可能影响结果。检测到代理或隧道不代表它导致故障，应用不会修改网络设置。"
+    },
+    "area": {
+      "title": "选择登录区域",
+      "body": "自动选择先检查校园服务，再判断教学／办公区或宿舍区。教学区在正式提交前无法继续时，会检查宿舍服务。每轮最多提交一次正式登录。"
+    }
+  },
+  "wifiRecovery": {
+    "title": "校园 Wi-Fi 找网",
+    "autoJoin": "断连时寻找已记住的校园 Wi-Fi",
+    "autoJoinDetail": "只寻找已记住的校园 Wi-Fi，已有 Wi-Fi 或网线连接时不找网；连接后按自动重连设置登录。",
+    "powerOn": "找网时允许打开 Wi-Fi",
+    "powerDetail": "没有 Wi-Fi 或网线连接时，允许打开已关闭的 Wi-Fi，再检查权限和找网目标。",
+    "networksTitle": "自动找网的校园 Wi-Fi",
+    "noNetworks": "请先连接并记住一次校园 Wi-Fi。允许读取名称后，该网络会加入列表；未保存名称的记录也可重新连接补全。",
+    "noRememberedNetworks": "请先在连接页记住当前校园 Wi-Fi，再开启自动找网。",
+    "openOnly": {
+      "mac": "仅支持无需 Wi-Fi 密码的校园网络。其他网络请通过 macOS 连接。",
+      "windows": "仅自动连接已选定的开放校园 Wi-Fi；需要密码的网络请先通过 Windows 连接。"
+    },
+    "permissionButton": "允许读取 Wi-Fi 名称",
+    "permissionDenied": {
+      "mac": "请在系统设置的“隐私与安全性 → 定位服务”中允许深大随连读取 Wi-Fi 名称。",
+      "windows": "请检查 Windows 的位置与隐私权限，也可填写已记住 Wi-Fi 的准确名称。应用不请求管理员权限。"
+    },
+    "permissionDetail": {
+      "mac": "macOS 通过定位权限提供 Wi-Fi 名称。点击后才请求权限，不采集位置坐标。",
+      "windows": "请检查 Windows 的位置与隐私权限，也可填写已记住 Wi-Fi 的准确名称。应用不请求管理员权限。"
+    },
+    "unreadable": "找网设置无法读取，已保留原文件并停用自动找网。",
+    "saveFailed": "找网设置未能保存，请检查本机数据目录。",
+    "revokeSaveFailed": "找网设置未能保存，本次已撤销相关网络的选择。",
+    "status": {
+      "disabled": "自动找网已关闭",
+      "paused": "找网已暂停，请检查连接页的自动重连状态。",
+      "connected": "已有 Wi-Fi 或网线连接，暂不启动找网。",
+      "noSelection": "没有可用的找网目标，请按上方提示设置。",
+      "searching": "正在检查 Wi-Fi 并寻找已记住的网络…",
+      "waiting": "等待已记住的校园 Wi-Fi，未找到时会降低搜索频率。",
+      "wifiOff": "Wi-Fi 已关闭。可手动开启，或允许找网时自动开启。",
+      "poweredOn": "Wi-Fi 已打开，正在检查名称权限和找网目标。",
+      "joined": "已连接记住的 Wi-Fi，等待校园网登录服务核验。",
+      "systemConnectionRequired": {
+        "mac": "找到的已选网络需要 Wi-Fi 密码，请通过 macOS 连接。",
+        "windows": "已找到目标网络；如需 Wi-Fi 密码，请先通过 Windows 连接。"
+      },
+      "permissionRequired": "尚未允许读取 Wi-Fi 名称，暂时无法搜索和选择网络。",
+      "unavailable": "当前无法使用 Wi-Fi 网卡。",
+      "connectionUnclear": "暂时无法确认当前连接，已停止本次找网。",
+      "failed": "本次找网未完成，稍后会重试。"
+    },
+    "targetsDetail": "已记住的校园 Wi-Fi 默认参与找网，可取消不想自动连接的目标。",
+    "setupTitle": "自动找网还未就绪",
+    "setupPermission": "请先允许读取 Wi-Fi 名称。若已允许自动打开电源，找网时会先开启 Wi-Fi。",
+    "setupNoKnown": "尚无已记住 Wi-Fi 的名称。先连接一次校园 Wi-Fi，补全名称。",
+    "setupNoSelection": "尚未选定目标，请至少选择一个网络。",
+    "ready": "自动找网已准备好",
+    "windows": {
+      "permission": "请检查 Windows 的位置与隐私权限，也可填写已记住 Wi-Fi 的准确名称。应用不请求管理员权限。",
+      "manualSSID": "填写已记住 Wi-Fi 的准确名称",
+      "manualSSID.detail": "名称只用于查找已选定的开放校园 Wi-Fi，不能代替校园认证。",
+      "manualSSID.save": "保存找网名称",
+      "manualSSID.invalid": "Wi-Fi 名称为空、过长或含不可用字符，请按系统显示的名称填写。",
+      "openOnly": "仅自动连接已选定的开放校园 Wi-Fi；需要密码的网络请先通过 Windows 连接。",
+      "systemConnectionRequired": "已找到目标网络；如需 Wi-Fi 密码，请先通过 Windows 连接。"
+    }
+  },
+  "disclosure": {
+    "expanded": "已展开",
+    "collapsed": "已收起"
+  },
+  "guide": {
+    "exit": "退出引导",
+    "focus": "定位本步",
+    "skipStep": "跳过本步",
+    "start": "开始操作",
+    "welcome": {
+      "title": "首次使用引导",
+      "body": "先通过系统接入校园 Wi-Fi 或网线，再开始操作。引导会使用真实功能，可随时跳过或退出。"
+    },
+    "detection": {
+      "title": "1. 检测当前网络",
+      "body": "点击“检测连接”。快速检测检查基础联网，完整检测还会检查已选网址。\n\n网址异常不等于校园网掉线，点击结果查看详情。"
+    },
+    "account": {
+      "title": "2. 填写并保存账号",
+      "body": "在高亮区域填写账号密码，核对登录区域并保存。手动登录使用填写内容，自动重连使用已保存账号。",
+      "unsaved": "修改尚未保存，自动重连仍使用已保存账号。",
+      "saved": "账号已保存，可以继续下一步。",
+      "empty": "尚未保存账号，可填写后保存或跳过本步。"
+    },
+    "login": {
+      "title": "3. 需要时登录校园网",
+      "body": "需要校园认证时，点击“登录校园网”。应用会先重新检测，连接已恢复或仅网站拒绝访问时不会直接提交；仍需登录时再确认。",
+      "running": "正在处理，请查看下方状态；需要时可点击取消。",
+      "online": "基础检测已通过，无需为完成引导再次登录。",
+      "systemOnline": "系统路径已通过，无需为完成引导重复登录；校园直连仍需单独核验。",
+      "waiting": "请按下方状态提示操作，也可直接下一步。"
+    },
+    "recovery": {
+      "title": "4. 选择日常运行方式",
+      "body": "手动检测：点击后检查。\n定时检测：按间隔检查，不自动登录。\n自动重连：连续异常后按条件恢复。\n\n网站拒绝访问不会触发登录，现有认证保护保持有效。",
+      "mode": "当前方式：{mode}"
+    },
+    "memory": {
+      "title": "5. 记住可信的校园网络",
+      "body": "确认当前为校园网，再选择记住。宿舍自动登录需要网络记忆或本次信任，每次恢复前仍会检查校园服务。",
+      "saved": "已记住当前网络，无需重复保存。",
+      "waiting": "仅在确认属于可信校园网时操作，也可跳过本步。"
+    },
+    "websites": {
+      "title": "6. 添加常用网址",
+      "body": "可按需添加，建议不超过 3 项，仅完整检测访问。收到响应即结束，不检查登录或聊天功能。\n\n点击结果查看详情，浏览器设置可能不同。此步可跳过。"
+    },
+    "network": {
+      "title": "7. 查看网络与排查工具",
+      "body": "查看当前连接、代理与 VPN/TUN 状态。网址异常时，先核对本次结果，再用排查工具比较连接方式。\n\n发现代理或隧道不代表它是故障原因。"
+    },
+    "startup": {
+      "title": "8. 设置登录时启动",
+      "body": {
+        "mac": "开启“登录时打开”后，下次登录 macOS 时运行应用。自动校园登录仍需账号、自动重连和网络核验均满足条件。",
+        "windows": "开启“开机启动”后，下次登录 Windows 时运行应用。自动校园登录仍需账号、自动重连和网络核验均满足条件。"
+      }
+    },
+    "wifi": {
+      "title": "9. 设置 Wi-Fi 找网",
+      "body": "先连接并记住校园 Wi-Fi，再开启自动找网。需要打开已关闭的 Wi-Fi 时，另行允许电源选项。\n\n两个选项默认关闭，有网线或其他 Wi-Fi 时不会抢网；只用网线可跳过。"
+    },
+    "finish": {
+      "title": "查看设置是否就绪",
+      "body": {
+        "mac": "首页清单会提示未完成的设置。保存账号、记住网络并开启自动重连后，可按条件恢复；Wi-Fi 找网另行选择。\n\n可从“设置 → 使用教程”重开引导。关闭窗口后仍在菜单栏运行，从菜单选择“退出”才会完全关闭。",
+        "windows": "首页清单会提示未完成的设置。保存账号、记住网络并开启自动重连后，可按条件恢复；Wi-Fi 找网另行选择。\n\n可从“设置 → 使用教程”重开引导。关闭窗口后仍在系统托盘运行，从托盘菜单“退出”才会完全关闭。"
+      }
+    },
+    "check": {
+      "waiting": "请操作下方检测按钮，或跳过本步。",
+      "running": "检测或连接操作正在进行，请稍候。",
+      "done": "本次结果：{result}"
+    }
+  },
+  "setup": {
+    "title": "自动联网设置",
+    "progress": "已完成 {count}/3 项",
+    "ready": "自动联网设置已完成",
+    "steps": "查看使用步骤",
+    "network": {
+      "title": "1. 先接入校园网络",
+      "body": "先通过系统连接校园 Wi-Fi 或网线，再回到应用检测。尚未接入校园网时，登录页面可能无法打开。",
+      "action": "打开系统 Wi-Fi 设置"
+    },
+    "memory": {
+      "title": "2. 检测并记住网络",
+      "body": "在下方网络设置中核验并记住当前校园网络。普通互联网或仅本次信任不会完成此项。",
+      "action": "查看当前网络设置"
+    },
+    "account": {
+      "title": "3. 保存校园账号",
+      "body": "填写账号密码并保存。自动重连只使用已保存账号，未保存的修改不会生效。",
+      "action": "填写或保存账号"
+    },
+    "recovery": {
+      "title": "4. 开启自动重连",
+      "body": "开启“自动重连”后，连接异常时先核验校园服务，再按条件登录。定时检测不会自动登录。",
+      "action": "开启自动重连"
+    },
+    "wifi": {
+      "title": "可选：自动找回校园 Wi-Fi",
+      "optional": "需要自动找回 Wi-Fi？",
+      "manage": "查看 Wi-Fi 找网设置",
+      "body": "在“设置 → 校园 Wi-Fi 找网”选择目标并开启找网。自动打开 Wi-Fi 电源需另行允许。两个选项默认关闭，已有 Wi-Fi 或网线时不会抢网。"
+    },
+    "helpTitle": "首次使用步骤",
+    "helpDetail": "先接入 Wi-Fi 或网线，再登录校园网。完成设置后，应用会按保存的选择恢复连接。",
+    "helpNetwork": "先通过系统选择校园 Wi-Fi 或接入网线，再回到应用检测。应用不会自动选择陌生 Wi-Fi。",
+    "helpMemory": "在“自动重连”中核验并记住校园网络。仅本次信任不会保存记忆，同名 Wi-Fi 不代表同一网络。教学区可按核验结果恢复；Wi-Fi 找网仍需记住目标。",
+    "helpAccount": "填写账号密码并保存。密码只存本机，保存不会立即登录。",
+    "helpRecovery": "选择“自动重连”，应用会在需要时核验并登录，已联网时不重复提交。完全退出后无法自动恢复。",
+    "wifiOrder": "先接入并记住校园 Wi-Fi，再按需开启下面两个独立选项。只用网线可跳过。",
+    "powerNeedsJoin": "需先开启自动找网，自动打开 Wi-Fi 电源才会生效。",
+    "settingsAction": "设置 Wi-Fi 找网"
+  }
+}

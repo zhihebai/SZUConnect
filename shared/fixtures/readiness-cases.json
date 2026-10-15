@@ -1,0 +1,812 @@
+{
+ "schemaVersion": 1,
+ "description": "自动恢复条件用例，分别检查账号、网络和保护状态；由 Python、Swift Readiness 和 C++ status::readiness 校验。",
+ "cases": [
+  {
+   "id": "R01",
+   "title": "手动检测：不显示就绪清单",
+   "input": {
+    "mode": "manual",
+    "readOnly": false,
+    "hasSaved": true,
+    "unsavedChanges": false,
+    "autoLogin": "off",
+    "hold": null,
+    "sessionTrusted": false,
+    "remembered": false,
+    "memoryConflict": false,
+    "campusVerification": "confirmed"
+   },
+   "expected": {
+    "title": "ready.title.off",
+    "tone": "neutral",
+    "items": []
+   }
+  },
+  {
+   "id": "R02",
+   "title": "只读守护：不显示就绪清单",
+   "input": {
+    "mode": "observe",
+    "readOnly": false,
+    "hasSaved": true,
+    "unsavedChanges": false,
+    "autoLogin": "off",
+    "hold": null,
+    "sessionTrusted": false,
+    "remembered": false,
+    "memoryConflict": false,
+    "campusVerification": "confirmed"
+   },
+   "expected": {
+    "title": "ready.title.off",
+    "tone": "neutral",
+    "items": []
+   }
+  },
+  {
+   "id": "R03",
+   "title": "本次仅检测（只读启动）",
+   "input": {
+    "mode": "recover",
+    "readOnly": true,
+    "hasSaved": true,
+    "unsavedChanges": false,
+    "autoLogin": "ready",
+    "hold": null,
+    "sessionTrusted": false,
+    "remembered": false,
+    "memoryConflict": false,
+    "campusVerification": "confirmed"
+   },
+   "expected": {
+    "title": "ready.title.off",
+    "tone": "neutral",
+    "items": []
+   }
+  },
+  {
+   "id": "R04",
+   "title": "全部就绪：已保存账户、本次已信任",
+   "input": {
+    "mode": "recover",
+    "readOnly": false,
+    "hasSaved": true,
+    "unsavedChanges": false,
+    "autoLogin": "ready",
+    "hold": null,
+    "sessionTrusted": true,
+    "remembered": false,
+    "memoryConflict": false,
+    "campusVerification": "confirmed"
+   },
+   "expected": {
+    "title": "ready.title.ready",
+    "tone": "success",
+    "items": [
+     {
+      "kind": "account",
+      "key": "ready.account.saved",
+      "tone": "success"
+     },
+     {
+      "kind": "network",
+      "key": "ready.network.trusted",
+      "tone": "success"
+     },
+     {
+      "kind": "protection",
+      "key": "ready.protection.ok",
+      "tone": "success"
+     }
+    ]
+   }
+  },
+  {
+   "id": "R05",
+   "title": "全部就绪：网络来自记忆",
+   "input": {
+    "mode": "recover",
+    "readOnly": false,
+    "hasSaved": true,
+    "unsavedChanges": false,
+    "autoLogin": "ready",
+    "hold": null,
+    "sessionTrusted": false,
+    "remembered": true,
+    "memoryConflict": false,
+    "campusVerification": "confirmed"
+   },
+   "expected": {
+    "title": "ready.title.ready",
+    "tone": "success",
+    "items": [
+     {
+      "kind": "account",
+      "key": "ready.account.saved",
+      "tone": "success"
+     },
+     {
+      "kind": "network",
+      "key": "ready.network.remembered",
+      "tone": "success"
+     },
+     {
+      "kind": "protection",
+      "key": "ready.protection.ok",
+      "tone": "success"
+     }
+    ]
+   }
+  },
+  {
+   "id": "R06",
+   "title": "教学区或尚未见到宿舍区：网络无需信任",
+   "input": {
+    "mode": "recover",
+    "readOnly": false,
+    "hasSaved": true,
+    "unsavedChanges": false,
+    "autoLogin": "ready",
+    "hold": null,
+    "sessionTrusted": false,
+    "remembered": false,
+    "memoryConflict": false,
+    "campusVerification": "confirmed"
+   },
+   "expected": {
+    "title": "ready.title.ready",
+    "tone": "success",
+    "items": [
+     {
+      "kind": "account",
+      "key": "ready.account.saved",
+      "tone": "success"
+     },
+     {
+      "kind": "network",
+      "key": "ready.network.notNeeded",
+      "tone": "neutral"
+     },
+     {
+      "kind": "protection",
+      "key": "ready.protection.ok",
+      "tone": "success"
+     }
+    ]
+   }
+  },
+  {
+   "id": "R07",
+   "title": "没有保存账户",
+   "input": {
+    "mode": "recover",
+    "readOnly": false,
+    "hasSaved": false,
+    "unsavedChanges": false,
+    "autoLogin": "needsAccount",
+    "hold": null,
+    "sessionTrusted": false,
+    "remembered": false,
+    "memoryConflict": false,
+    "campusVerification": "confirmed"
+   },
+   "expected": {
+    "title": "ready.title.attention",
+    "tone": "warning",
+    "items": [
+     {
+      "kind": "account",
+      "key": "ready.account.missing",
+      "tone": "warning"
+     },
+     {
+      "kind": "network",
+      "key": "ready.network.notNeeded",
+      "tone": "neutral"
+     },
+     {
+      "kind": "protection",
+      "key": "ready.protection.ok",
+      "tone": "success"
+     }
+    ]
+   }
+  },
+  {
+   "id": "R08",
+   "title": "账户有未保存的修改",
+   "input": {
+    "mode": "recover",
+    "readOnly": false,
+    "hasSaved": true,
+    "unsavedChanges": true,
+    "autoLogin": "ready",
+    "hold": null,
+    "sessionTrusted": false,
+    "remembered": false,
+    "memoryConflict": false,
+    "campusVerification": "confirmed"
+   },
+   "expected": {
+    "title": "ready.title.attention",
+    "tone": "warning",
+    "items": [
+     {
+      "kind": "account",
+      "key": "ready.account.draft",
+      "tone": "warning"
+     },
+     {
+      "kind": "network",
+      "key": "ready.network.notNeeded",
+      "tone": "neutral"
+     },
+     {
+      "kind": "protection",
+      "key": "ready.protection.ok",
+      "tone": "success"
+     }
+    ]
+   }
+  },
+  {
+   "id": "R09",
+   "title": "宿舍区待信任",
+   "input": {
+    "mode": "recover",
+    "readOnly": false,
+    "hasSaved": true,
+    "unsavedChanges": false,
+    "autoLogin": "needsTrust",
+    "hold": null,
+    "sessionTrusted": false,
+    "remembered": false,
+    "memoryConflict": false,
+    "campusVerification": "confirmed"
+   },
+   "expected": {
+    "title": "ready.title.attention",
+    "tone": "warning",
+    "items": [
+     {
+      "kind": "account",
+      "key": "ready.account.saved",
+      "tone": "success"
+     },
+     {
+      "kind": "network",
+      "key": "ready.network.needsTrust",
+      "tone": "warning"
+     },
+     {
+      "kind": "protection",
+      "key": "ready.protection.ok",
+      "tone": "success"
+     }
+    ]
+   }
+  },
+  {
+   "id": "R10",
+   "title": "网关与记忆不符",
+   "input": {
+    "mode": "recover",
+    "readOnly": false,
+    "hasSaved": true,
+    "unsavedChanges": false,
+    "autoLogin": "needsTrust",
+    "hold": null,
+    "sessionTrusted": false,
+    "remembered": false,
+    "memoryConflict": true,
+    "campusVerification": "confirmed"
+   },
+   "expected": {
+    "title": "ready.title.attention",
+    "tone": "danger",
+    "items": [
+     {
+      "kind": "account",
+      "key": "ready.account.saved",
+      "tone": "success"
+     },
+     {
+      "kind": "network",
+      "key": "ready.network.conflict",
+      "tone": "danger"
+     },
+     {
+      "kind": "protection",
+      "key": "ready.protection.ok",
+      "tone": "success"
+     }
+    ]
+   }
+  },
+  {
+   "id": "R11",
+   "title": "已记住，等待校园服务核验",
+   "input": {
+    "mode": "recover",
+    "readOnly": false,
+    "hasSaved": true,
+    "unsavedChanges": false,
+    "autoLogin": "awaitingProof",
+    "hold": null,
+    "sessionTrusted": false,
+    "remembered": true,
+    "memoryConflict": false,
+    "campusVerification": "confirmed"
+   },
+   "expected": {
+    "title": "ready.title.attention",
+    "tone": "warning",
+    "items": [
+     {
+      "kind": "account",
+      "key": "ready.account.saved",
+      "tone": "success"
+     },
+     {
+      "kind": "network",
+      "key": "ready.network.awaiting",
+      "tone": "warning"
+     },
+     {
+      "kind": "protection",
+      "key": "ready.protection.ok",
+      "tone": "success"
+     }
+    ]
+   }
+  },
+  {
+   "id": "R12",
+   "title": "账户被拒绝而暂停",
+   "input": {
+    "mode": "recover",
+    "readOnly": false,
+    "hasSaved": true,
+    "unsavedChanges": false,
+    "autoLogin": "paused",
+    "hold": "credentials",
+    "sessionTrusted": false,
+    "remembered": false,
+    "memoryConflict": false,
+    "campusVerification": "confirmed"
+   },
+   "expected": {
+    "title": "ready.title.paused",
+    "tone": "danger",
+    "items": [
+     {
+      "kind": "account",
+      "key": "ready.account.saved",
+      "tone": "success"
+     },
+     {
+      "kind": "network",
+      "key": "ready.network.notNeeded",
+      "tone": "neutral"
+     },
+     {
+      "kind": "protection",
+      "key": "ready.protection.paused",
+      "tone": "danger"
+     }
+    ]
+   }
+  },
+  {
+   "id": "R13",
+   "title": "用户主动暂停",
+   "input": {
+    "mode": "recover",
+    "readOnly": false,
+    "hasSaved": true,
+    "unsavedChanges": false,
+    "autoLogin": "paused",
+    "hold": "userPaused",
+    "sessionTrusted": false,
+    "remembered": false,
+    "memoryConflict": false,
+    "campusVerification": "confirmed"
+   },
+   "expected": {
+    "title": "ready.title.paused",
+    "tone": "warning",
+    "items": [
+     {
+      "kind": "account",
+      "key": "ready.account.saved",
+      "tone": "success"
+     },
+     {
+      "kind": "network",
+      "key": "ready.network.notNeeded",
+      "tone": "neutral"
+     },
+     {
+      "kind": "protection",
+      "key": "ready.protection.paused",
+      "tone": "warning"
+     }
+    ]
+   }
+  },
+  {
+   "id": "R14",
+   "title": "刚提交过登录，等待生效",
+   "input": {
+    "mode": "recover",
+    "readOnly": false,
+    "hasSaved": true,
+    "unsavedChanges": false,
+    "autoLogin": "coolingDown",
+    "hold": null,
+    "sessionTrusted": true,
+    "remembered": false,
+    "memoryConflict": false,
+    "campusVerification": "confirmed"
+   },
+   "expected": {
+    "title": "ready.title.ready",
+    "tone": "success",
+    "items": [
+     {
+      "kind": "account",
+      "key": "ready.account.saved",
+      "tone": "success"
+     },
+     {
+      "kind": "network",
+      "key": "ready.network.trusted",
+      "tone": "success"
+     },
+     {
+      "kind": "protection",
+      "key": "ready.protection.cooldown",
+      "tone": "info"
+     }
+    ]
+   }
+  },
+  {
+   "id": "R15",
+   "title": "某区域被拒绝，其他区域继续",
+   "input": {
+    "mode": "recover",
+    "readOnly": false,
+    "hasSaved": true,
+    "unsavedChanges": false,
+    "autoLogin": "limited",
+    "hold": null,
+    "sessionTrusted": false,
+    "remembered": false,
+    "memoryConflict": false,
+    "campusVerification": "confirmed"
+   },
+   "expected": {
+    "title": "ready.title.attention",
+    "tone": "warning",
+    "items": [
+     {
+      "kind": "account",
+      "key": "ready.account.saved",
+      "tone": "success"
+     },
+     {
+      "kind": "network",
+      "key": "ready.network.notNeeded",
+      "tone": "neutral"
+     },
+     {
+      "kind": "protection",
+      "key": "ready.protection.limited",
+      "tone": "warning"
+     }
+    ]
+   }
+  },
+  {
+   "id": "R20",
+   "title": "仅本次信任，未核验校园服务",
+   "input": {
+    "mode": "recover",
+    "readOnly": false,
+    "hasSaved": true,
+    "unsavedChanges": false,
+    "autoLogin": "ready",
+    "hold": null,
+    "sessionTrusted": true,
+    "remembered": false,
+    "memoryConflict": false,
+    "campusVerification": "notChecked"
+   },
+   "expected": {
+    "title": "ready.title.campusPending",
+    "tone": "info",
+    "items": [
+     {
+      "kind": "account",
+      "key": "ready.account.saved",
+      "tone": "success"
+     },
+     {
+      "kind": "network",
+      "key": "ready.network.trusted",
+      "tone": "info"
+     },
+     {
+      "kind": "protection",
+      "key": "ready.protection.ok",
+      "tone": "success"
+     }
+    ]
+   }
+  },
+  {
+   "id": "R21",
+   "title": "仅本次信任，校园服务未确认",
+   "input": {
+    "mode": "recover",
+    "readOnly": false,
+    "hasSaved": true,
+    "unsavedChanges": false,
+    "autoLogin": "ready",
+    "hold": null,
+    "sessionTrusted": true,
+    "remembered": false,
+    "memoryConflict": false,
+    "campusVerification": "unconfirmed"
+   },
+   "expected": {
+    "title": "ready.title.campusPending",
+    "tone": "info",
+    "items": [
+     {
+      "kind": "account",
+      "key": "ready.account.saved",
+      "tone": "success"
+     },
+     {
+      "kind": "network",
+      "key": "ready.network.trusted",
+      "tone": "info"
+     },
+     {
+      "kind": "protection",
+      "key": "ready.protection.ok",
+      "tone": "success"
+     }
+    ]
+   }
+  },
+  {
+   "id": "R22",
+   "title": "已有记忆但没有当次校园证明",
+   "input": {
+    "mode": "recover",
+    "readOnly": false,
+    "hasSaved": true,
+    "unsavedChanges": false,
+    "autoLogin": "ready",
+    "hold": null,
+    "sessionTrusted": false,
+    "remembered": true,
+    "memoryConflict": false,
+    "campusVerification": "notChecked"
+   },
+   "expected": {
+    "title": "ready.title.campusPending",
+    "tone": "info",
+    "items": [
+     {
+      "kind": "account",
+      "key": "ready.account.saved",
+      "tone": "success"
+     },
+     {
+      "kind": "network",
+      "key": "ready.network.remembered",
+      "tone": "info"
+     },
+     {
+      "kind": "protection",
+      "key": "ready.protection.ok",
+      "tone": "success"
+     }
+    ]
+   }
+  },
+  {
+   "id": "R23",
+   "title": "普通联网不等于校园身份",
+   "input": {
+    "mode": "recover",
+    "readOnly": false,
+    "hasSaved": true,
+    "unsavedChanges": false,
+    "autoLogin": "ready",
+    "hold": null,
+    "sessionTrusted": false,
+    "remembered": false,
+    "memoryConflict": false,
+    "campusVerification": "unconfirmed"
+   },
+   "expected": {
+    "title": "ready.title.campusPending",
+    "tone": "info",
+    "items": [
+     {
+      "kind": "account",
+      "key": "ready.account.saved",
+      "tone": "success"
+     },
+     {
+      "kind": "network",
+      "key": "ready.network.notNeeded",
+      "tone": "neutral"
+     },
+     {
+      "kind": "protection",
+      "key": "ready.protection.ok",
+      "tone": "success"
+     }
+    ]
+   }
+  },
+  {
+   "id": "R24",
+   "title": "物理网络尚未识别",
+   "input": {
+    "mode": "recover",
+    "readOnly": false,
+    "hasSaved": true,
+    "unsavedChanges": false,
+    "autoLogin": "ready",
+    "hold": null,
+    "sessionTrusted": false,
+    "remembered": false,
+    "memoryConflict": false,
+    "networkIdentified": false,
+    "campusVerification": "notChecked"
+   },
+   "expected": {
+    "title": "ready.title.attention",
+    "tone": "warning",
+    "items": [
+     {
+      "kind": "account",
+      "key": "ready.account.saved",
+      "tone": "success"
+     },
+     {
+      "kind": "network",
+      "key": "ready.network.identifying",
+      "tone": "warning"
+     },
+     {
+      "kind": "protection",
+      "key": "ready.protection.ok",
+      "tone": "success"
+     }
+    ]
+   }
+  },
+  {
+   "id": "R25",
+   "title": "连接组合仅支持本次信任",
+   "input": {
+    "mode": "recover",
+    "readOnly": false,
+    "hasSaved": true,
+    "unsavedChanges": false,
+    "autoLogin": "ready",
+    "hold": null,
+    "sessionTrusted": false,
+    "remembered": false,
+    "memoryConflict": false,
+    "sessionOnlyNetwork": true,
+    "campusVerification": "notChecked"
+   },
+   "expected": {
+    "title": "ready.title.campusPending",
+    "tone": "info",
+    "items": [
+     {
+      "kind": "account",
+      "key": "ready.account.saved",
+      "tone": "success"
+     },
+     {
+      "kind": "network",
+      "key": "ready.network.sessionAvailable",
+      "tone": "info"
+     },
+     {
+      "kind": "protection",
+      "key": "ready.protection.ok",
+      "tone": "success"
+     }
+    ]
+   }
+  },
+  {
+   "id": "R26",
+   "title": "已信任连接组合仍需校园核验",
+   "input": {
+    "mode": "recover",
+    "readOnly": false,
+    "hasSaved": true,
+    "unsavedChanges": false,
+    "autoLogin": "ready",
+    "hold": null,
+    "sessionTrusted": true,
+    "remembered": false,
+    "memoryConflict": false,
+    "sessionOnlyNetwork": true,
+    "campusVerification": "unconfirmed"
+   },
+   "expected": {
+    "title": "ready.title.campusPending",
+    "tone": "info",
+    "items": [
+     {
+      "kind": "account",
+      "key": "ready.account.saved",
+      "tone": "success"
+     },
+     {
+      "kind": "network",
+      "key": "ready.network.trustedCombination",
+      "tone": "info"
+     },
+     {
+      "kind": "protection",
+      "key": "ready.protection.ok",
+      "tone": "success"
+     }
+    ]
+   }
+  },
+  {
+   "id": "R27",
+   "title": "同时已信任及记住，应展示持久记忆",
+   "input": {
+    "mode": "recover",
+    "readOnly": false,
+    "hasSaved": true,
+    "unsavedChanges": false,
+    "autoLogin": "ready",
+    "hold": null,
+    "sessionTrusted": true,
+    "remembered": true,
+    "memoryConflict": false,
+    "campusVerification": "confirmed"
+   },
+   "expected": {
+    "title": "ready.title.ready",
+    "tone": "success",
+    "items": [
+     {
+      "kind": "account",
+      "key": "ready.account.saved",
+      "tone": "success"
+     },
+     {
+      "kind": "network",
+      "key": "ready.network.remembered",
+      "tone": "success"
+     },
+     {
+      "kind": "protection",
+      "key": "ready.protection.ok",
+      "tone": "success"
+     }
+    ]
+   }
+  }
+ ]
+}

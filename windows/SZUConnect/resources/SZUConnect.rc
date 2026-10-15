@@ -1,0 +1,43 @@
+#pragma code_page(65001)
+#include <windows.h>
+#include "resource.h"
+
+IDI_APP                   ICON "icons/app.ico"
+IDI_TRAY_IDLE_LIGHT       ICON "icons/tray-idle-light.ico"
+IDI_TRAY_IDLE_DARK        ICON "icons/tray-idle-dark.ico"
+IDI_TRAY_ONLINE_LIGHT     ICON "icons/tray-online-light.ico"
+IDI_TRAY_ONLINE_DARK      ICON "icons/tray-online-dark.ico"
+IDI_TRAY_ATTENTION_LIGHT  ICON "icons/tray-attention-light.ico"
+IDI_TRAY_ATTENTION_DARK   ICON "icons/tray-attention-dark.ico"
+IDI_TRAY_PAUSED_LIGHT     ICON "icons/tray-paused-light.ico"
+IDI_TRAY_PAUSED_DARK      ICON "icons/tray-paused-dark.ico"
+IDI_TRAY_BUSY_LIGHT       ICON "icons/tray-busy-light.ico"
+IDI_TRAY_BUSY_DARK        ICON "icons/tray-busy-dark.ico"
+
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION 0,10,1,32
+ PRODUCTVERSION 0,10,1,32
+ FILEFLAGSMASK 0x3fL
+ FILEFLAGS 0x0L
+ FILEOS VOS_NT_WINDOWS32
+ FILETYPE VFT_APP
+ FILESUBTYPE VFT2_UNKNOWN
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "080404b0"
+        BEGIN
+            VALUE "CompanyName", "SZUConnect contributors"
+            VALUE "FileDescription", "深大随连 SZUConnect"
+            VALUE "FileVersion", "0.10.1.32"
+            VALUE "InternalName", "SZUConnect"
+            VALUE "OriginalFilename", "SZUConnect.exe"
+            VALUE "ProductName", "深大随连 SZUConnect（非深圳大学官方应用）"
+            VALUE "ProductVersion", "0.10.1 (32)"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x804, 1200
+    END
+END

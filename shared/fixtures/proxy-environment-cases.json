@@ -1,0 +1,350 @@
+{
+ "schemaVersion": 1,
+ "description": "只读代理摘要用例，由 Python、Swift ProxyEnvironment 和 C++ proxy 测试读取。windowsRawCases 单独校验 WinHTTP 配置解析。摘要只说明系统路径，不改变校园认证的直连要求。",
+ "campusHosts": [
+  "net.szu.edu.cn",
+  "172.30.255.42"
+ ],
+ "matcherCases": [
+  {
+   "pattern": "net.szu.edu.cn",
+   "host": "net.szu.edu.cn",
+   "matches": true
+  },
+  {
+   "pattern": "*.szu.edu.cn",
+   "host": "net.szu.edu.cn",
+   "matches": true
+  },
+  {
+   "pattern": "*.szu.edu.cn",
+   "host": "szu.edu.cn",
+   "matches": false
+  },
+  {
+   "pattern": ".szu.edu.cn",
+   "host": "net.szu.edu.cn",
+   "matches": true
+  },
+  {
+   "pattern": ".szu.edu.cn",
+   "host": "szu.edu.cn",
+   "matches": true
+  },
+  {
+   "pattern": "*szu*",
+   "host": "net.szu.edu.cn",
+   "matches": true
+  },
+  {
+   "pattern": "172.30.*",
+   "host": "172.30.255.42",
+   "matches": true
+  },
+  {
+   "pattern": "172.30.255.*",
+   "host": "172.30.255.42",
+   "matches": true
+  },
+  {
+   "pattern": "172.31.*",
+   "host": "172.30.255.42",
+   "matches": false
+  },
+  {
+   "pattern": "172.30/16",
+   "host": "172.30.255.42",
+   "matches": true
+  },
+  {
+   "pattern": "172.30.0.0/16",
+   "host": "172.30.255.42",
+   "matches": true
+  },
+  {
+   "pattern": "172.16.0.0/12",
+   "host": "172.30.255.42",
+   "matches": true
+  },
+  {
+   "pattern": "10.0.0.0/8",
+   "host": "172.30.255.42",
+   "matches": false
+  },
+  {
+   "pattern": "172.30/16",
+   "host": "net.szu.edu.cn",
+   "matches": false
+  },
+  {
+   "pattern": "<local>",
+   "host": "net.szu.edu.cn",
+   "matches": false
+  },
+  {
+   "pattern": "<local>",
+   "host": "intranet",
+   "matches": true
+  },
+  {
+   "pattern": "NET.SZU.EDU.CN",
+   "host": "net.szu.edu.cn",
+   "matches": true
+  },
+  {
+   "pattern": "",
+   "host": "net.szu.edu.cn",
+   "matches": false
+  },
+  {
+   "pattern": "*.local",
+   "host": "net.szu.edu.cn",
+   "matches": false
+  },
+  {
+   "pattern": "169.254/16",
+   "host": "172.30.255.42",
+   "matches": false
+  },
+  {
+   "pattern": "300.1/8",
+   "host": "172.30.255.42",
+   "matches": false
+  }
+ ],
+ "summaryCases": [
+  {
+   "id": "unreadable",
+   "snapshot": {
+    "readable": false
+   },
+   "expected": {
+    "state": "unknown",
+    "kinds": [],
+    "campusBypass": "unknown"
+   }
+  },
+  {
+   "id": "all-off",
+   "snapshot": {
+    "readable": true,
+    "exceptions": [
+     "*.local"
+    ]
+   },
+   "expected": {
+    "state": "off",
+    "kinds": [],
+    "campusBypass": "notApplicable"
+   }
+  },
+  {
+   "id": "clash-http-https",
+   "snapshot": {
+    "readable": true,
+    "http": true,
+    "https": true,
+    "exceptions": [
+     "127.0.0.1",
+     "localhost",
+     "*.local",
+     "169.254/16"
+    ]
+   },
+   "expected": {
+    "state": "on",
+    "kinds": [
+     "http",
+     "https"
+    ],
+    "campusBypass": "none"
+   }
+  },
+  {
+   "id": "clash-with-campus-bypass",
+   "snapshot": {
+    "readable": true,
+    "http": true,
+    "https": true,
+    "socks": true,
+    "exceptions": [
+     "*.szu.edu.cn",
+     "172.30.0.0/16"
+    ]
+   },
+   "expected": {
+    "state": "on",
+    "kinds": [
+     "http",
+     "https",
+     "socks"
+    ],
+    "campusBypass": "all"
+   }
+  },
+  {
+   "id": "only-domain-bypass",
+   "snapshot": {
+    "readable": true,
+    "https": true,
+    "exceptions": [
+     "*.szu.edu.cn"
+    ]
+   },
+   "expected": {
+    "state": "on",
+    "kinds": [
+     "https"
+    ],
+    "campusBypass": "partial"
+   }
+  },
+  {
+   "id": "pac-only",
+   "snapshot": {
+    "readable": true,
+    "pac": true,
+    "exceptions": []
+   },
+   "expected": {
+    "state": "on",
+    "kinds": [
+     "pac"
+    ],
+    "campusBypass": "unknown"
+   }
+  },
+  {
+   "id": "auto-discovery-only",
+   "snapshot": {
+    "readable": true,
+    "autoDiscovery": true
+   },
+   "expected": {
+    "state": "on",
+    "kinds": [
+     "autoDiscovery"
+    ],
+    "campusBypass": "unknown"
+   }
+  },
+  {
+   "id": "pac-plus-static",
+   "snapshot": {
+    "readable": true,
+    "pac": true,
+    "socks": true,
+    "exceptions": [
+     "172.30.255.42"
+    ]
+   },
+   "expected": {
+    "state": "on",
+    "kinds": [
+     "socks",
+     "pac"
+    ],
+    "campusBypass": "partial"
+   }
+  }
+ ],
+ "windowsRawCases": [
+  {
+   "id": "win-unreadable",
+   "raw": {
+    "readable": false
+   },
+   "expected": {
+    "state": "unknown",
+    "kinds": [],
+    "campusBypass": "unknown"
+   }
+  },
+  {
+   "id": "win-none",
+   "raw": {
+    "proxy": "",
+    "bypass": "",
+    "autoDetect": false
+   },
+   "expected": {
+    "state": "off",
+    "kinds": [],
+    "campusBypass": "notApplicable"
+   }
+  },
+  {
+   "id": "win-same-for-all",
+   "raw": {
+    "proxy": "127.0.0.1:7890",
+    "bypass": "localhost;127.*;10.*;172.16.*;172.17.*;<local>"
+   },
+   "expected": {
+    "state": "on",
+    "kinds": [
+     "http",
+     "https"
+    ],
+    "campusBypass": "none"
+   }
+  },
+  {
+   "id": "win-per-scheme",
+   "raw": {
+    "proxy": "http=127.0.0.1:7890;https=127.0.0.1:7890;socks=127.0.0.1:7891",
+    "bypass": "*.szu.edu.cn;172.30.*"
+   },
+   "expected": {
+    "state": "on",
+    "kinds": [
+     "http",
+     "https",
+     "socks"
+    ],
+    "campusBypass": "all"
+   }
+  },
+  {
+   "id": "win-empty-target-ignored",
+   "raw": {
+    "proxy": "http=;https=127.0.0.1:7890",
+    "bypass": ""
+   },
+   "expected": {
+    "state": "on",
+    "kinds": [
+     "https"
+    ],
+    "campusBypass": "none"
+   }
+  },
+  {
+   "id": "win-auto-detect",
+   "raw": {
+    "proxy": "",
+    "autoDetect": true
+   },
+   "expected": {
+    "state": "on",
+    "kinds": [
+     "autoDiscovery"
+    ],
+    "campusBypass": "unknown"
+   }
+  },
+  {
+   "id": "win-pac-url",
+   "raw": {
+    "proxy": "",
+    "autoConfigUrl": "http://127.0.0.1:33331/pac"
+   },
+   "expected": {
+    "state": "on",
+    "kinds": [
+     "pac"
+    ],
+    "campusBypass": "unknown"
+   }
+  }
+ ]
+}

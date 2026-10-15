@@ -1,0 +1,587 @@
+{
+ "schemaVersion": 1,
+ "description": "网络记忆共享用例，覆盖描述符匹配、校园重新核验、恢复计划和跨语言哈希。由 Python、Swift NetworkMemoryTests 和 C++ memory_tests 读取；盐与网络数据均为公开测试假值。",
+ "salt": "00112233445566778899aabbccddeeff",
+ "match": [
+  {
+   "id": "M01",
+   "title": "同一网关硬件 + 同网关地址 + 同网段",
+   "stored": {
+    "gw": "a4:5e:60:11:22:33",
+    "gwip": "172.30.0.1",
+    "net": "172.30.0.0/20"
+   },
+   "current": {
+    "gw": "a4:5e:60:11:22:33",
+    "gwip": "172.30.0.1",
+    "net": "172.30.0.0/20"
+   },
+   "expected": "strong"
+  },
+  {
+   "id": "M02",
+   "title": "网关硬件相同，地址与网段都变了，DHCP 服务器相同",
+   "stored": {
+    "gw": "a4:5e:60:11:22:33",
+    "gwip": "172.30.0.1",
+    "net": "172.30.0.0/20",
+    "dhcp": "172.30.0.2"
+   },
+   "current": {
+    "gw": "a4:5e:60:11:22:33",
+    "gwip": "172.30.16.1",
+    "net": "172.30.16.0/20",
+    "dhcp": "172.30.0.2"
+   },
+   "expected": "strong"
+  },
+  {
+   "id": "M03",
+   "title": "只有网关硬件相同，其他特征没有可比较项",
+   "stored": {
+    "gw": "a4:5e:60:11:22:33"
+   },
+   "current": {
+    "gw": "a4:5e:60:11:22:33",
+    "gwip": "172.30.0.1"
+   },
+   "expected": "medium"
+  },
+  {
+   "id": "M04",
+   "title": "同一地址但网关硬件不同（另一个网络借用同一 IP）",
+   "stored": {
+    "gw": "a4:5e:60:11:22:33",
+    "gwip": "192.168.1.1",
+    "net": "192.168.1.0/24"
+   },
+   "current": {
+    "gw": "b8:27:eb:44:55:66",
+    "gwip": "192.168.1.1",
+    "net": "192.168.1.0/24"
+   },
+   "expected": "conflict"
+  },
+  {
+   "id": "M05",
+   "title": "读不到网关硬件：网关地址与网段相同",
+   "stored": {
+    "gwip": "172.30.0.1",
+    "net": "172.30.0.0/20"
+   },
+   "current": {
+    "gwip": "172.30.0.1",
+    "net": "172.30.0.0/20"
+   },
+   "expected": "medium"
+  },
+  {
+   "id": "M06",
+   "title": "地址与网段相同但 DHCP 服务器矛盾",
+   "stored": {
+    "gwip": "192.168.1.1",
+    "net": "192.168.1.0/24",
+    "dhcp": "192.168.1.1"
+   },
+   "current": {
+    "gwip": "192.168.1.1",
+    "net": "192.168.1.0/24",
+    "dhcp": "192.168.1.254"
+   },
+   "expected": "weak"
+  },
+  {
+   "id": "M07",
+   "title": "只有网关地址相同，网段不同",
+   "stored": {
+    "gwip": "10.0.0.1",
+    "net": "10.0.0.0/24"
+   },
+   "current": {
+    "gwip": "10.0.0.1",
+    "net": "10.0.8.0/24"
+   },
+   "expected": "weak"
+  },
+  {
+   "id": "M08",
+   "title": "没有任何相同特征",
+   "stored": {
+    "gwip": "10.0.0.1",
+    "net": "10.0.0.0/24"
+   },
+   "current": {
+    "gwip": "10.9.0.1",
+    "net": "10.9.0.0/24"
+   },
+   "expected": "none"
+  },
+  {
+   "id": "M09",
+   "title": "当前读不到网关硬件（权限/缓存），地址与网段与记录相同",
+   "stored": {
+    "gw": "a4:5e:60:11:22:33",
+    "gwip": "172.30.0.1",
+    "net": "172.30.0.0/20"
+   },
+   "current": {
+    "gwip": "172.30.0.1",
+    "net": "172.30.0.0/20"
+   },
+   "expected": "medium"
+  },
+  {
+   "id": "M10",
+   "title": "网关硬件相同，仅 DNS 不同（软特征不能佐证）",
+   "stored": {
+    "gw": "a4:5e:60:11:22:33",
+    "dns": "a"
+   },
+   "current": {
+    "gw": "a4:5e:60:11:22:33",
+    "dns": "b"
+   },
+   "expected": "medium"
+  },
+  {
+   "id": "M11",
+   "title": "DHCP 重新编号：网关硬件相同，地址网段都变，没有 DHCP 特征",
+   "stored": {
+    "gw": "a4:5e:60:11:22:33",
+    "gwip": "172.30.0.1",
+    "net": "172.30.0.0/20"
+   },
+   "current": {
+    "gw": "a4:5e:60:11:22:33",
+    "gwip": "172.31.0.1",
+    "net": "172.31.0.0/20"
+   },
+   "expected": "medium"
+  },
+  {
+   "id": "M12",
+   "title": "另一个家用网络：同一地址和网段，网关硬件不同",
+   "stored": {
+    "gw": "a4:5e:60:11:22:33",
+    "gwip": "192.168.0.1",
+    "net": "192.168.0.0/24"
+   },
+   "current": {
+    "gw": "b8:27:eb:44:55:66",
+    "gwip": "192.168.0.1",
+    "net": "192.168.0.0/24"
+   },
+   "expected": "conflict"
+  },
+  {
+   "id": "M13",
+   "title": "只有 DNS 后缀相同（软特征单独不构成匹配）",
+   "stored": {
+    "sfx": "campus.example"
+   },
+   "current": {
+    "sfx": "campus.example"
+   },
+   "expected": "none"
+  },
+  {
+   "id": "M14",
+   "title": "网关硬件不同且地址、网段都不同：只是另一个网络",
+   "stored": {
+    "gw": "a4:5e:60:11:22:33",
+    "gwip": "172.30.0.1",
+    "net": "172.30.0.0/20"
+   },
+   "current": {
+    "gw": "b8:27:eb:44:55:66",
+    "gwip": "192.168.1.1",
+    "net": "192.168.1.0/24"
+   },
+   "expected": "none"
+  },
+  {
+   "id": "M15",
+   "title": "网关硬件不同，但网关地址相同",
+   "stored": {
+    "gw": "a4:5e:60:11:22:33",
+    "gwip": "192.168.1.1",
+    "net": "192.168.1.0/24"
+   },
+   "current": {
+    "gw": "b8:27:eb:44:55:66",
+    "gwip": "192.168.1.1",
+    "net": "192.168.5.0/24"
+   },
+   "expected": "conflict"
+  },
+  {
+   "id": "M16",
+   "title": "网关硬件不同，但网段相同",
+   "stored": {
+    "gw": "a4:5e:60:11:22:33",
+    "gwip": "192.168.1.1",
+    "net": "192.168.1.0/24"
+   },
+   "current": {
+    "gw": "b8:27:eb:44:55:66",
+    "gwip": "192.168.1.254",
+    "net": "192.168.1.0/24"
+   },
+   "expected": "conflict"
+  }
+ ],
+ "verdict": [
+  {
+   "id": "V01",
+   "level": "medium",
+   "teaching": "confirmed",
+   "dormitory": "confirmed",
+   "ambiguous": false,
+   "expected": "authorized"
+  },
+  {
+   "id": "V02",
+   "level": "medium",
+   "teaching": "unconfirmed",
+   "dormitory": "confirmed",
+   "ambiguous": false,
+   "expected": "awaitingProof"
+  },
+  {
+   "id": "V03",
+   "level": "strong",
+   "teaching": "unconfirmed",
+   "dormitory": "confirmed",
+   "ambiguous": false,
+   "expected": "authorized"
+  },
+  {
+   "id": "V04",
+   "level": "strong",
+   "teaching": "confirmed",
+   "dormitory": "unconfirmed",
+   "ambiguous": false,
+   "expected": "awaitingProof"
+  },
+  {
+   "id": "V05",
+   "level": "strong",
+   "teaching": "unconfirmed",
+   "dormitory": "confirmed",
+   "ambiguous": true,
+   "expected": "awaitingProof"
+  },
+  {
+   "id": "V06",
+   "level": "strong",
+   "teaching": "confirmed",
+   "dormitory": "confirmed",
+   "ambiguous": true,
+   "expected": "authorized"
+  },
+  {
+   "id": "V07",
+   "level": "weak",
+   "teaching": "confirmed",
+   "dormitory": "confirmed",
+   "ambiguous": false,
+   "expected": "notRemembered"
+  },
+  {
+   "id": "V08",
+   "level": "none",
+   "teaching": "confirmed",
+   "dormitory": "confirmed",
+   "ambiguous": false,
+   "expected": "notRemembered"
+  },
+  {
+   "id": "V09",
+   "level": "conflict",
+   "teaching": "confirmed",
+   "dormitory": "confirmed",
+   "ambiguous": false,
+   "expected": "conflict"
+  },
+  {
+   "id": "V10",
+   "level": "strong",
+   "teaching": "confirmed",
+   "dormitory": "notChecked",
+   "ambiguous": false,
+   "expected": "awaitingProof"
+  }
+ ],
+ "plan": [
+  {
+   "id": "P01",
+   "title": "自动选择：强记忆 + 只有宿舍门户确认（教学服务不可达）→ 提交宿舍区",
+   "kind": "automatic",
+   "choice": "automatic",
+   "discovery": {
+    "teaching": "unconfirmed",
+    "dormitory": "confirmed"
+   },
+   "trusted": false,
+   "memory": "strong",
+   "ambiguous": false,
+   "blocked": [],
+   "expected": {
+    "decision": "submit",
+    "target": "dormitory"
+   }
+  },
+  {
+   "id": "P02",
+   "title": "同上但没有记忆 → 未确认，不提交",
+   "kind": "automatic",
+   "choice": "automatic",
+   "discovery": {
+    "teaching": "unconfirmed",
+    "dormitory": "confirmed"
+   },
+   "trusted": false,
+   "memory": "none",
+   "ambiguous": false,
+   "blocked": [],
+   "expected": {
+    "decision": "unconfirmed",
+    "target": null
+   }
+  },
+  {
+   "id": "P03",
+   "title": "中等记忆需要双确认：教学 HTTPS 不可达 → 未确认",
+   "kind": "automatic",
+   "choice": "automatic",
+   "discovery": {
+    "teaching": "unconfirmed",
+    "dormitory": "confirmed"
+   },
+   "trusted": false,
+   "memory": "medium",
+   "ambiguous": false,
+   "blocked": [],
+   "expected": {
+    "decision": "unconfirmed",
+    "target": null
+   }
+  },
+  {
+   "id": "P04",
+   "title": "自动选择：强记忆 + 双确认，未做本次信任 → 直接提交宿舍区",
+   "kind": "automatic",
+   "choice": "automatic",
+   "discovery": {
+    "teaching": "confirmed",
+    "dormitory": "confirmed"
+   },
+   "trusted": false,
+   "memory": "strong",
+   "ambiguous": false,
+   "blocked": [],
+   "expected": {
+    "decision": "submit",
+    "target": "dormitory"
+   }
+  },
+  {
+   "id": "P05",
+   "title": "没有记忆、没有信任、双确认 → 仍需信任",
+   "kind": "automatic",
+   "choice": "automatic",
+   "discovery": {
+    "teaching": "confirmed",
+    "dormitory": "confirmed"
+   },
+   "trusted": false,
+   "memory": "none",
+   "ambiguous": false,
+   "blocked": [],
+   "expected": {
+    "decision": "needsTrust",
+    "target": "dormitory"
+   }
+  },
+  {
+   "id": "P06",
+   "title": "固定宿舍区：强记忆 + 宿舍门户确认 → 提交",
+   "kind": "automatic",
+   "choice": "dormitory",
+   "discovery": {
+    "teaching": "unconfirmed",
+    "dormitory": "confirmed"
+   },
+   "trusted": false,
+   "memory": "strong",
+   "ambiguous": false,
+   "blocked": [],
+   "expected": {
+    "decision": "submit",
+    "target": "dormitory"
+   }
+  },
+  {
+   "id": "P07",
+   "title": "固定宿舍区：强记忆但 TUN/多接口不确定，只有宿舍门户 → 未确认",
+   "kind": "automatic",
+   "choice": "dormitory",
+   "discovery": {
+    "teaching": "unconfirmed",
+    "dormitory": "confirmed"
+   },
+   "trusted": false,
+   "memory": "strong",
+   "ambiguous": true,
+   "blocked": [],
+   "expected": {
+    "decision": "unconfirmed",
+    "target": null
+   }
+  },
+  {
+   "id": "P08",
+   "title": "网关不一致（冲突）：不复用授权 → 需要信任",
+   "kind": "automatic",
+   "choice": "dormitory",
+   "discovery": {
+    "teaching": "confirmed",
+    "dormitory": "confirmed"
+   },
+   "trusted": false,
+   "memory": "conflict",
+   "ambiguous": false,
+   "blocked": [],
+   "expected": {
+    "decision": "needsTrust",
+    "target": "dormitory"
+   }
+  },
+  {
+   "id": "P09",
+   "title": "强记忆，宿舍区被暂停，教学区可用 → 改提交教学区",
+   "kind": "automatic",
+   "choice": "automatic",
+   "discovery": {
+    "teaching": "confirmed",
+    "dormitory": "confirmed"
+   },
+   "trusted": false,
+   "memory": "strong",
+   "ambiguous": false,
+   "blocked": [
+    "dormitory"
+   ],
+   "expected": {
+    "decision": "submit",
+    "target": "teaching"
+   }
+  },
+  {
+   "id": "P10",
+   "title": "强记忆，只有宿舍门户确认，但宿舍区被暂停 → 已暂停",
+   "kind": "automatic",
+   "choice": "automatic",
+   "discovery": {
+    "teaching": "unconfirmed",
+    "dormitory": "confirmed"
+   },
+   "trusted": false,
+   "memory": "strong",
+   "ambiguous": false,
+   "blocked": [
+    "dormitory"
+   ],
+   "expected": {
+    "decision": "paused",
+    "target": null
+   }
+  },
+  {
+   "id": "P11",
+   "title": "手动登录 + 自动选择：强记忆且教学不可达 → 允许宿舍区",
+   "kind": "manual",
+   "choice": "automatic",
+   "discovery": {
+    "teaching": "unconfirmed",
+    "dormitory": "confirmed"
+   },
+   "trusted": false,
+   "memory": "strong",
+   "ambiguous": false,
+   "blocked": [],
+   "expected": {
+    "decision": "submit",
+    "target": "dormitory"
+   }
+  },
+  {
+   "id": "P12",
+   "title": "教学区不受记忆影响，也不需要信任",
+   "kind": "automatic",
+   "choice": "teaching",
+   "discovery": {
+    "teaching": "confirmed",
+    "dormitory": "notChecked"
+   },
+   "trusted": false,
+   "memory": "none",
+   "ambiguous": false,
+   "blocked": [],
+   "expected": {
+    "decision": "submit",
+    "target": "teaching"
+   }
+  },
+  {
+   "id": "P13",
+   "title": "强记忆但宿舍门户不可达：教学服务可用 → 提交教学区",
+   "kind": "automatic",
+   "choice": "automatic",
+   "discovery": {
+    "teaching": "confirmed",
+    "dormitory": "unconfirmed"
+   },
+   "trusted": false,
+   "memory": "strong",
+   "ambiguous": false,
+   "blocked": [],
+   "expected": {
+    "decision": "submit",
+    "target": "teaching"
+   }
+  }
+ ],
+ "hash": [
+  {
+   "label": "gw",
+   "raw": "a4:5e:60:11:22:33",
+   "expected": "58dbc6cdf0f47209f8d126f930eb0b95"
+  },
+  {
+   "label": "gwip",
+   "raw": "172.30.0.1",
+   "expected": "828396ab3d52c695ebafe77ccce46108"
+  },
+  {
+   "label": "net",
+   "raw": "172.30.0.0/20",
+   "expected": "5d9ff846acff1a2b63d523c32e007605"
+  },
+  {
+   "label": "dhcp",
+   "raw": "172.30.0.2",
+   "expected": "d441202dd99a647b0387e61b6374013e"
+  },
+  {
+   "label": "dns",
+   "raw": "202.96.134.133,202.96.128.166",
+   "expected": "2c83e42e311a0b0e37da1b6be898ec23"
+  },
+  {
+   "label": "sfx",
+   "raw": "szu.edu.cn",
+   "expected": "30eef6cca521fa2ceb1564f037aea1e3"
+  }
+ ]
+}

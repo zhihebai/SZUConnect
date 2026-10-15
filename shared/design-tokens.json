@@ -1,0 +1,262 @@
+{
+  "_meta": {
+    "schemaVersion": 1,
+    "description": "Shared visual tokens for macOS (SwiftUI) and Windows (Win32/Direct2D). Generated into macos/SZUConnect/Sources/Generated/SharedTokens.swift and windows/SZUConnect/core/generated/shared_tokens.hpp by tools/generate_shared.py. Colors are sRGB hex; sizes are logical points (macOS) / DIPs at 100% (Windows)."
+  },
+  "color": {
+    "background": {
+      "light": "#F2F4F8",
+      "dark": "#0E131A"
+    },
+    "sidebar": {
+      "light": "#EAEEF5",
+      "dark": "#131A22"
+    },
+    "surface": {
+      "light": "#FFFFFF",
+      "dark": "#161D26"
+    },
+    "surfaceMuted": {
+      "light": "#F5F7FB",
+      "dark": "#1B2430"
+    },
+    "surfacePressed": {
+      "light": "#E6EAF2",
+      "dark": "#232E3B"
+    },
+    "border": {
+      "light": "#DCE1EA",
+      "dark": "#263241"
+    },
+    "borderStrong": {
+      "light": "#848992",
+      "dark": "#65707E"
+    },
+    "textPrimary": {
+      "light": "#121C2B",
+      "dark": "#E8EDF4"
+    },
+    "textSecondary": {
+      "light": "#4A5769",
+      "dark": "#A6B2C2"
+    },
+    "textTertiary": {
+      "light": "#5F6C82",
+      "dark": "#8996A8"
+    },
+    "accent": {
+      "light": "#2456B8",
+      "dark": "#6C9BFF"
+    },
+    "accentHover": {
+      "light": "#1D479A",
+      "dark": "#86AEFF"
+    },
+    "accentPressed": {
+      "light": "#163A80",
+      "dark": "#5484E6"
+    },
+    "onAccent": {
+      "light": "#FFFFFF",
+      "dark": "#071633"
+    },
+    "accentSurface": {
+      "light": "#E7EEFB",
+      "dark": "#172640"
+    },
+    "focusRing": {
+      "light": "#0B63F6",
+      "dark": "#9DBBFF"
+    },
+    "success": {
+      "light": "#1E7A3C",
+      "dark": "#5CC47D"
+    },
+    "successSurface": {
+      "light": "#E6F4EA",
+      "dark": "#16291D"
+    },
+    "warning": {
+      "light": "#8A5300",
+      "dark": "#E6AE4E"
+    },
+    "warningSurface": {
+      "light": "#FCF0D9",
+      "dark": "#2E2510"
+    },
+    "danger": {
+      "light": "#B3261E",
+      "dark": "#F58B84"
+    },
+    "dangerSurface": {
+      "light": "#FCE8E6",
+      "dark": "#38201F"
+    },
+    "info": {
+      "light": "#3F5B85",
+      "dark": "#8FAAD6"
+    },
+    "infoSurface": {
+      "light": "#E9EEF6",
+      "dark": "#1A2436"
+    },
+    "neutral": {
+      "light": "#56627A",
+      "dark": "#A6B2C2"
+    },
+    "neutralSurface": {
+      "light": "#EDF0F5",
+      "dark": "#212A36"
+    },
+    "busy": {
+      "light": "#2456B8",
+      "dark": "#6C9BFF"
+    },
+    "busySurface": {
+      "light": "#E7EEFB",
+      "dark": "#172640"
+    },
+    "selectionFill": {
+      "light": "#2456B8",
+      "dark": "#315FC4"
+    },
+    "onSelection": {
+      "light": "#FFFFFF",
+      "dark": "#FFFFFF"
+    }
+  },
+  "tone": {
+    "neutral": {
+      "foreground": "neutral",
+      "surface": "neutralSurface",
+      "icon": "info"
+    },
+    "info": {
+      "foreground": "info",
+      "surface": "infoSurface",
+      "icon": "clock"
+    },
+    "busy": {
+      "foreground": "busy",
+      "surface": "busySurface",
+      "icon": "loader"
+    },
+    "success": {
+      "foreground": "success",
+      "surface": "successSurface",
+      "icon": "checkCircle"
+    },
+    "warning": {
+      "foreground": "warning",
+      "surface": "warningSurface",
+      "icon": "alertTriangle"
+    },
+    "danger": {
+      "foreground": "danger",
+      "surface": "dangerSurface",
+      "icon": "xCircle"
+    }
+  },
+  "font": {
+    "family": {
+      "mac": "system",
+      "windows": [
+        "Microsoft YaHei UI",
+        "Microsoft YaHei",
+        "Segoe UI Variable Text",
+        "Segoe UI"
+      ]
+    },
+    "hero": {
+      "size": 22,
+      "weight": 600
+    },
+    "title": {
+      "size": 18,
+      "weight": 600
+    },
+    "headline": {
+      "size": 15,
+      "weight": 600
+    },
+    "body": {
+      "size": 14,
+      "weight": 400
+    },
+    "callout": {
+      "size": 13,
+      "weight": 400
+    },
+    "calloutStrong": {
+      "size": 13,
+      "weight": 500
+    },
+    "caption": {
+      "size": 12,
+      "weight": 400
+    },
+    "lineHeight": 1.45
+  },
+  "space": {
+    "xxs": 2,
+    "xs": 4,
+    "s": 8,
+    "m": 12,
+    "l": 16,
+    "xl": 20,
+    "xxl": 24,
+    "xxxl": 32
+  },
+  "radius": {
+    "small": 6,
+    "medium": 10,
+    "large": 14
+  },
+  "size": {
+    "minTarget": 44,
+    "sidebarWidth": 208,
+    "contentMaxWidth": 880,
+    "iconSmall": 16,
+    "iconMedium": 20,
+    "iconLarge": 28,
+    "sheetBrandIcon": 48,
+    "sheetAccessoryIcon": 14,
+    "sheetMaxWidth": 520,
+    "heroIcon": 36,
+    "borderWidth": 1,
+    "focusRingWidth": 2,
+    "tileMinWidth": 200,
+    "windowDefaultWidth": 920,
+    "windowDefaultHeight": 740,
+    "windowCompactWidth": 760,
+    "windowCompactHeight": 600,
+    "windowWideWidth": 1280,
+    "windowWideHeight": 800,
+    "panelMaxWidth": 760,
+    "topBarHeight": 56,
+    "desktopNavigationItemWidth": 74,
+    "desktopNavigationVisualHeight": 32,
+    "desktopPickerVisualHeight": 28,
+    "desktopInputVisualHeight": 32,
+    "chipHeight": 28,
+    "windowsDefaultClientWidth": 500,
+    "windowsDefaultClientHeight": 700,
+    "windowsCaptionButtonWidth": 46,
+    "windowsNavigationTextItemWidth": 60,
+    "desktopNavigationIconSize": 18,
+    "desktopNavigationIconGap": 6,
+    "desktopNavigationHorizontalPadding": 8,
+    "windowsSectionTitleVisualHeight": 28,
+    "infoPopoverWidth": 320,
+    "infoPopoverMaxWidth": 480,
+    "infoPopoverMinWidth": 240,
+    "infoPopoverMinHeight": 132,
+    "websiteDetailsWidth": 340,
+    "networkNameDialogWidth": 380
+  },
+  "motion": {
+    "fastMs": 120,
+    "normalMs": 200,
+    "reducedMs": 0
+  }
+}

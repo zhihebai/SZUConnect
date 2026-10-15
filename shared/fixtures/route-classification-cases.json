@@ -1,0 +1,646 @@
+{
+ "schemaVersion": 1,
+ "description": "隧道路由证据用例，由 Python、Swift TunnelRouteSnapshot 和 C++ route 校验。views 指定适用平台：mac 按接口名称识别，windows 按接口类型识别。路由证据不证明 VPN 已连接或网站可达。",
+ "flagVocabulary": [
+  "up",
+  "gateway",
+  "scoped",
+  "reject",
+  "blackhole",
+  "cloned",
+  "llinfo",
+  "local",
+  "broadcast",
+  "multicast",
+  "condemned",
+  "dead"
+ ],
+ "cases": [
+  {
+   "id": "wifi-only-default",
+   "title": "只有 Wi-Fi 默认路由",
+   "interfaces": {
+    "en0": {
+     "up": true,
+     "running": true,
+     "kind": "physical"
+    }
+   },
+   "routes": [
+    {
+     "family": 4,
+     "destination": "0.0.0.0",
+     "prefix": 0,
+     "interface": "en0",
+     "flags": [
+      "up",
+      "gateway"
+     ]
+    }
+   ],
+   "tunnelEvidence": false,
+   "evidenceCount": 0
+  },
+  {
+   "id": "full-tunnel-default",
+   "title": "VPN 接管 IPv4 默认路由",
+   "interfaces": {
+    "en0": {
+     "up": true,
+     "running": true,
+     "kind": "physical"
+    },
+    "utun4": {
+     "up": true,
+     "running": true,
+     "kind": "tunnel"
+    }
+   },
+   "routes": [
+    {
+     "family": 4,
+     "destination": "0.0.0.0",
+     "prefix": 0,
+     "interface": "utun4",
+     "flags": [
+      "up"
+     ]
+    },
+    {
+     "family": 4,
+     "destination": "0.0.0.0",
+     "prefix": 0,
+     "interface": "en0",
+     "flags": [
+      "up",
+      "gateway",
+      "scoped"
+     ]
+    }
+   ],
+   "tunnelEvidence": true,
+   "evidenceCount": 1
+  },
+  {
+   "id": "split-default-halves",
+   "title": "TUN 用 0/1 + 128/1 分半默认，Wi-Fi 仍是默认网卡",
+   "interfaces": {
+    "en0": {
+     "up": true,
+     "running": true,
+     "kind": "physical"
+    },
+    "utun6": {
+     "up": true,
+     "running": true,
+     "kind": "tunnel"
+    }
+   },
+   "routes": [
+    {
+     "family": 4,
+     "destination": "0.0.0.0",
+     "prefix": 0,
+     "interface": "en0",
+     "flags": [
+      "up",
+      "gateway"
+     ]
+    },
+    {
+     "family": 4,
+     "destination": "0.0.0.0",
+     "prefix": 1,
+     "interface": "utun6",
+     "flags": [
+      "up"
+     ]
+    },
+    {
+     "family": 4,
+     "destination": "128.0.0.0",
+     "prefix": 1,
+     "interface": "utun6",
+     "flags": [
+      "up"
+     ]
+    }
+   ],
+   "tunnelEvidence": true,
+   "evidenceCount": 2
+  },
+  {
+   "id": "specific-public-split",
+   "title": "默认网卡是 Wi-Fi，但有指向隧道的具体公网路由",
+   "interfaces": {
+    "en0": {
+     "up": true,
+     "running": true,
+     "kind": "physical"
+    },
+    "utun3": {
+     "up": true,
+     "running": true,
+     "kind": "tunnel"
+    }
+   },
+   "routes": [
+    {
+     "family": 4,
+     "destination": "0.0.0.0",
+     "prefix": 0,
+     "interface": "en0",
+     "flags": [
+      "up",
+      "gateway"
+     ]
+    },
+    {
+     "family": 4,
+     "destination": "8.8.8.0",
+     "prefix": 24,
+     "interface": "utun3",
+     "flags": [
+      "up"
+     ]
+    }
+   ],
+   "tunnelEvidence": true,
+   "evidenceCount": 1
+  },
+  {
+   "id": "private-p2p-only",
+   "title": "隧道只有私有点对点子网（空闲附着）",
+   "interfaces": {
+    "en0": {
+     "up": true,
+     "running": true,
+     "kind": "physical"
+    },
+    "utun1": {
+     "up": true,
+     "running": true,
+     "kind": "tunnel"
+    }
+   },
+   "routes": [
+    {
+     "family": 4,
+     "destination": "10.8.0.0",
+     "prefix": 24,
+     "interface": "utun1",
+     "flags": [
+      "up"
+     ]
+    }
+   ],
+   "tunnelEvidence": false,
+   "evidenceCount": 0
+  },
+  {
+   "id": "idle-scoped-ipv6-defaults",
+   "title": "系统空闲 utun 的 scoped IPv6 默认",
+   "interfaces": {
+    "en0": {
+     "up": true,
+     "running": true,
+     "kind": "physical"
+    },
+    "utun0": {
+     "up": true,
+     "running": true,
+     "kind": "tunnel"
+    },
+    "utun1": {
+     "up": true,
+     "running": true,
+     "kind": "tunnel"
+    }
+   },
+   "routes": [
+    {
+     "family": 6,
+     "destination": "::",
+     "prefix": 0,
+     "interface": "utun0",
+     "flags": [
+      "up",
+      "scoped"
+     ]
+    },
+    {
+     "family": 6,
+     "destination": "::",
+     "prefix": 0,
+     "interface": "utun1",
+     "flags": [
+      "up",
+      "scoped"
+     ]
+    }
+   ],
+   "tunnelEvidence": false,
+   "evidenceCount": 0
+  },
+  {
+   "id": "scoped-public-split",
+   "title": "scoped 但有具体公网目的",
+   "interfaces": {
+    "en0": {
+     "up": true,
+     "running": true,
+     "kind": "physical"
+    },
+    "utun2": {
+     "up": true,
+     "running": true,
+     "kind": "tunnel"
+    }
+   },
+   "routes": [
+    {
+     "family": 4,
+     "destination": "1.1.1.0",
+     "prefix": 24,
+     "interface": "utun2",
+     "flags": [
+      "up",
+      "scoped"
+     ]
+    }
+   ],
+   "tunnelEvidence": true,
+   "evidenceCount": 1
+  },
+  {
+   "id": "ipv6-split-default",
+   "title": "IPv6 2000::/3 走隧道",
+   "interfaces": {
+    "en0": {
+     "up": true,
+     "running": true,
+     "kind": "physical"
+    },
+    "utun5": {
+     "up": true,
+     "running": true,
+     "kind": "tunnel"
+    }
+   },
+   "routes": [
+    {
+     "family": 6,
+     "destination": "2000::",
+     "prefix": 3,
+     "interface": "utun5",
+     "flags": [
+      "up"
+     ]
+    }
+   ],
+   "tunnelEvidence": true,
+   "evidenceCount": 1
+  },
+  {
+   "id": "ipv6-link-local",
+   "title": "IPv6 链路本地不算",
+   "interfaces": {
+    "en0": {
+     "up": true,
+     "running": true,
+     "kind": "physical"
+    },
+    "utun5": {
+     "up": true,
+     "running": true,
+     "kind": "tunnel"
+    }
+   },
+   "routes": [
+    {
+     "family": 6,
+     "destination": "fe80::",
+     "prefix": 64,
+     "interface": "utun5",
+     "flags": [
+      "up"
+     ]
+    },
+    {
+     "family": 6,
+     "destination": "ff00::",
+     "prefix": 8,
+     "interface": "utun5",
+     "flags": [
+      "up"
+     ]
+    }
+   ],
+   "tunnelEvidence": false,
+   "evidenceCount": 0
+  },
+  {
+   "id": "ipv6-documentation",
+   "title": "IPv6 文档地址不算公网证据",
+   "interfaces": {
+    "en0": {
+     "up": true,
+     "running": true,
+     "kind": "physical"
+    },
+    "utun5": {
+     "up": true,
+     "running": true,
+     "kind": "tunnel"
+    }
+   },
+   "routes": [
+    {
+     "family": 6,
+     "destination": "2001:db8::",
+     "prefix": 48,
+     "interface": "utun5",
+     "flags": [
+      "up"
+     ]
+    }
+   ],
+   "tunnelEvidence": false,
+   "evidenceCount": 0
+  },
+  {
+   "id": "interface-down",
+   "title": "隧道接口未运行",
+   "interfaces": {
+    "en0": {
+     "up": true,
+     "running": true,
+     "kind": "physical"
+    },
+    "utun4": {
+     "up": true,
+     "running": false,
+     "kind": "tunnel"
+    }
+   },
+   "routes": [
+    {
+     "family": 4,
+     "destination": "0.0.0.0",
+     "prefix": 0,
+     "interface": "utun4",
+     "flags": [
+      "up"
+     ]
+    }
+   ],
+   "tunnelEvidence": false,
+   "evidenceCount": 0
+  },
+  {
+   "id": "reject-and-cloned",
+   "title": "拒绝/黑洞/克隆路由被过滤",
+   "interfaces": {
+    "en0": {
+     "up": true,
+     "running": true,
+     "kind": "physical"
+    },
+    "utun4": {
+     "up": true,
+     "running": true,
+     "kind": "tunnel"
+    }
+   },
+   "routes": [
+    {
+     "family": 4,
+     "destination": "0.0.0.0",
+     "prefix": 1,
+     "interface": "utun4",
+     "flags": [
+      "up",
+      "reject"
+     ]
+    },
+    {
+     "family": 4,
+     "destination": "128.0.0.0",
+     "prefix": 1,
+     "interface": "utun4",
+     "flags": [
+      "up",
+      "blackhole"
+     ]
+    },
+    {
+     "family": 4,
+     "destination": "8.8.8.8",
+     "prefix": 32,
+     "interface": "utun4",
+     "flags": [
+      "up",
+      "cloned",
+      "gateway"
+     ]
+    }
+   ],
+   "tunnelEvidence": false,
+   "evidenceCount": 0
+  },
+  {
+   "id": "route-down",
+   "title": "路由未启用",
+   "interfaces": {
+    "en0": {
+     "up": true,
+     "running": true,
+     "kind": "physical"
+    },
+    "utun4": {
+     "up": true,
+     "running": true,
+     "kind": "tunnel"
+    }
+   },
+   "routes": [
+    {
+     "family": 4,
+     "destination": "0.0.0.0",
+     "prefix": 0,
+     "interface": "utun4",
+     "flags": []
+    }
+   ],
+   "tunnelEvidence": false,
+   "evidenceCount": 0
+  },
+  {
+   "id": "loopback-multicast",
+   "title": "回环/组播目的不算",
+   "interfaces": {
+    "en0": {
+     "up": true,
+     "running": true,
+     "kind": "physical"
+    },
+    "utun4": {
+     "up": true,
+     "running": true,
+     "kind": "tunnel"
+    }
+   },
+   "routes": [
+    {
+     "family": 4,
+     "destination": "127.0.0.0",
+     "prefix": 8,
+     "interface": "utun4",
+     "flags": [
+      "up"
+     ]
+    },
+    {
+     "family": 4,
+     "destination": "224.0.0.0",
+     "prefix": 4,
+     "interface": "utun4",
+     "flags": [
+      "up"
+     ]
+    }
+   ],
+   "tunnelEvidence": false,
+   "evidenceCount": 0
+  },
+  {
+   "id": "gateway-private",
+   "title": "经网关的私有网段路由仍是隧道分流证据",
+   "interfaces": {
+    "en0": {
+     "up": true,
+     "running": true,
+     "kind": "physical"
+    },
+    "ppp0": {
+     "up": true,
+     "running": true,
+     "kind": "tunnel"
+    }
+   },
+   "routes": [
+    {
+     "family": 4,
+     "destination": "172.16.0.0",
+     "prefix": 12,
+     "interface": "ppp0",
+     "flags": [
+      "up",
+      "gateway"
+     ]
+    }
+   ],
+   "tunnelEvidence": true,
+   "evidenceCount": 1
+  },
+  {
+   "id": "campus-route-via-tunnel",
+   "title": "校园认证地址 /32 被 TUN 接管",
+   "interfaces": {
+    "en0": {
+     "up": true,
+     "running": true,
+     "kind": "physical"
+    },
+    "utun7": {
+     "up": true,
+     "running": true,
+     "kind": "tunnel"
+    }
+   },
+   "routes": [
+    {
+     "family": 4,
+     "destination": "172.30.255.42",
+     "prefix": 32,
+     "interface": "utun7",
+     "flags": [
+      "up",
+      "gateway"
+     ]
+    }
+   ],
+   "tunnelEvidence": true,
+   "evidenceCount": 1
+  },
+  {
+   "id": "physical-named-like-tunnel",
+   "title": "Windows 视角：物理网卡即使名字像 tun 也不算",
+   "views": [
+    "windows"
+   ],
+   "interfaces": {
+    "tun0": {
+     "up": true,
+     "running": true,
+     "kind": "physical"
+    }
+   },
+   "routes": [
+    {
+     "family": 4,
+     "destination": "0.0.0.0",
+     "prefix": 0,
+     "interface": "tun0",
+     "flags": [
+      "up"
+     ]
+    }
+   ],
+   "tunnelEvidence": false,
+   "evidenceCount": 0
+  },
+  {
+   "id": "windows-wintun-default",
+   "title": "Windows 视角：Wintun 接口承载默认路由",
+   "views": [
+    "windows"
+   ],
+   "interfaces": {
+    "Wi-Fi": {
+     "up": true,
+     "running": true,
+     "kind": "physical"
+    },
+    "Meta": {
+     "up": true,
+     "running": true,
+     "kind": "tunnel"
+    }
+   },
+   "routes": [
+    {
+     "family": 4,
+     "destination": "0.0.0.0",
+     "prefix": 0,
+     "interface": "Wi-Fi",
+     "flags": [
+      "up",
+      "gateway"
+     ]
+    },
+    {
+     "family": 4,
+     "destination": "0.0.0.0",
+     "prefix": 1,
+     "interface": "Meta",
+     "flags": [
+      "up"
+     ]
+    }
+   ],
+   "tunnelEvidence": true,
+   "evidenceCount": 1
+  }
+ ]
+}
