@@ -469,7 +469,7 @@ enum OfficialLinks {
         ("dormFAQ", "https://www1.szu.edu.cn/nc/view.asp?id=241"),
     ]
     static let credits: [(key: String, url: String)] = [
-        ("atmluck", "https://github.com/ATMLuck/AutoSZUWeb"), ("jennie", "https://github.com/JennieYow/szu-net-autologin-mac"),
+        ("atmluck", "https://github.com/ATMLuck/AutoSZUWeb"),
     ]
     static func url(_ key: String) -> URL? { official.first { $0.key == key }.flatMap { URL(string: $0.url) } }
 }

@@ -253,7 +253,6 @@ void network_sheet(Builder& b, ViewContext& ctx, const EngineSnapshot& snap, boo
         b.text(F("env.interfaces", {{"list", net.path.interfaces}}), TextStyle::callout, "textPrimary");
         b.gap(tokens::kSpaceXs);
     }
-    b.text(T("env.note.access"), TextStyle::caption, "textSecondary");
     if (snap.authentication_route) {
         b.gap(tokens::kSpaceXs);
         b.text(F("env.authenticationTarget", {{"name", snap.authentication_route->display_name}}), TextStyle::callout_strong, "textPrimary");
@@ -261,18 +260,16 @@ void network_sheet(Builder& b, ViewContext& ctx, const EngineSnapshot& snap, boo
     if (!snap.system_interfaces.empty()) {
         b.gap(tokens::kSpaceXs); b.text(F("env.systemPrimary", {{"name", snap.system_interfaces}}), TextStyle::caption, "textSecondary");
     }
-    b.gap(tokens::kSpaceXs); b.text(T("env.authenticationTargetNote"), TextStyle::caption, "textSecondary");
     b.gap(tokens::kSpaceXs); b.text(T(status::campus_verification_key(snap)), TextStyle::caption, "textSecondary");
 
     b.gap(tokens::kSpaceM);
-    std::wstring proxy_text = T("env.proxy." + proxy.state);
+    std::wstring proxy_text = T("dashboard.proxy") + L"：" + T("env.proxy." + proxy.state);
     std::string kinds;
     for (const auto& kind : proxy.kinds) kinds += (kinds.empty() ? "" : "、") + U("env.proxy.kind." + kind);
     if (!kinds.empty()) proxy_text += L"（" + win::widen(kinds) + L"）";
     if (proxy.state == "on") proxy_text += L" · " + T("env.bypass." + proxy.campus_bypass);
     b.text(proxy_text, TextStyle::callout, "textPrimary");
     b.gap(tokens::kSpaceXs); b.text(T("env.note.proxy"), TextStyle::caption, "textSecondary");
-    b.gap(tokens::kSpaceXs); b.text(T("env.note.tunnel"), TextStyle::caption, "textSecondary");
 
     // Windows exposes both actual probe paths; neither is campus identity proof.
     const auto system = app.system_connectivity();

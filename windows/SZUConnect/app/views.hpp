@@ -70,7 +70,7 @@ struct Link {
     const char* url;
 };
 extern const Link kOfficialLinks[11];
-extern const Link kCreditLinks[2];
+extern const Link kCreditLinks[1];
 
 void build_scene(Scene& scene, Canvas& canvas, ViewContext& ctx, float width, float height);
 

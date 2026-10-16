@@ -52,12 +52,6 @@
       "url": "https://github.com/ATMLuck/AutoSZUWeb",
       "commit": "7fed1a589f5bd1a42d77e323a85046c8a95a1a8f",
       "license": "MIT © 2026 ATMLuck"
-    },
-    {
-      "key": "jennie",
-      "url": "https://github.com/JennieYow/szu-net-autologin-mac",
-      "commit": "da29bc418193d259fe7c9cdc54e4d685ffd45f37",
-      "license": "MIT © 2026 JennieYow（仅作研究参考，未复制代码）"
     }
   ],
   "project": {

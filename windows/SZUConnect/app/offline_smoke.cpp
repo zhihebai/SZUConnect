@@ -90,7 +90,7 @@ bool SmokeReceipt::finish(const SmokeResult& r, const RuntimeEvidence* e) {
         const bool about_label = frame.page == "about" || frame.page == "about-detail" || frame.page == "about-text150";
         const bool help_label = frame.page == "help" || frame.page == "help-expanded" || frame.page == "help-detail" || frame.page == "help-text150";
         const bool selection_checked = about_label || help_label ? !frame.selection_check_applicable && frame.selection_samples == 0 &&
-            frame.about_links_checked == (about_label ? 3 : 0) :
+            frame.about_links_checked == (about_label ? 2 : 0) :
             frame.selection_check_applicable && frame.selection_samples > 0 && frame.about_links_checked == 0;
         const bool branding_checked = frame.branding_pixel_samples >= 12 &&
             (frame.navigation_tier == "brand" ? !frame.app_icon_painted :
@@ -159,7 +159,7 @@ bool SmokeReceipt::finish(const SmokeResult& r, const RuntimeEvidence* e) {
     }
     if (frames.size() != kSmokeFrameLabels.size() && unavailable.empty()) unavailable = isolated ? "captureIncomplete" : "captureIsolationUnavailable";
     const bool visual_passed = unavailable.empty() && frames.size() == kSmokeFrameLabels.size() &&
-        r.checked_layouts == static_cast<int>(kSmokeFrameLabels.size()) && r.about_links_checked == 9 &&
+        r.checked_layouts == static_cast<int>(kSmokeFrameLabels.size()) && r.about_links_checked == 6 &&
         r.fixed_sheet_headers_checked == 7 && r.help_layouts_checked == 4 && r.records_layouts_checked == 3 && r.network_layouts_checked == 7 &&
         r.navigation_tiers_checked[0] > 0 && r.navigation_tiers_checked[1] > 0 && r.navigation_tiers_checked[2] == 3 &&
         r.navigation_tiers_checked[0] + r.navigation_tiers_checked[1] + r.navigation_tiers_checked[2] == static_cast<int>(kSmokeFrameLabels.size()) &&
