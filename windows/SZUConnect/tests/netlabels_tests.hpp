@@ -5,7 +5,7 @@ inline void netlabels_tests(Harness& t) {
     t.begin("network-labels");
     NetworkLabels labels;
     const std::string one = "01234567", two = "89abcdef";
-    t.equal(labels.display_name(one), std::string("待命名的校园网络"), "old hash cannot invent a name");
+    t.equal(labels.display_name(one), std::string(copy::text("memory.item")), "old hash cannot invent a name");
     t.check(labels.update_automatic(one, {"SZU", "wifi", "SZU", false}), "capture real SSID metadata");
     t.equal(labels.display_name(one), std::string("SZU"), "actual SSID displayed");
     t.check(labels.rename(one, "宿舍 Wi-Fi"), "manual rename succeeds");

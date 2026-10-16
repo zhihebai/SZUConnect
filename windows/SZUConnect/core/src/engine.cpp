@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <utility>
 #include <cmath>
+#include <chrono>
+#include <condition_variable>
 #include "szu/json.hpp"
 
 #include "../generated/shared_copy.hpp"
@@ -12,6 +14,7 @@ namespace szu {
 // ---------------- CancelToken ----------------
 struct CancelToken::State {
     std::mutex mutex;
+    std::condition_variable changed;
     bool cancelled = false;
     std::uint64_t next = 1;
     std::vector<std::pair<std::uint64_t, std::function<void()>>> callbacks;
@@ -27,12 +30,18 @@ void CancelToken::cancel() const {
         state_->cancelled = true;
         callbacks.swap(state_->callbacks);
     }
+    state_->changed.notify_all();
     for (auto& entry : callbacks) entry.second();
 }
 
 bool CancelToken::cancelled() const {
     std::lock_guard<std::mutex> lock(state_->mutex);
     return state_->cancelled;
+}
+
+bool CancelToken::wait_for(double seconds) const {
+    std::unique_lock<std::mutex> lock(state_->mutex);
+    return state_->changed.wait_for(lock, std::chrono::duration<double>(seconds), [this] { return state_->cancelled; });
 }
 
 std::uint64_t CancelToken::on_cancel(std::function<void()> fn) const {
@@ -828,7 +837,10 @@ void ConnectionEngine::perform(const ConnectionPolicy::Operation& op, const Canc
         pending_change_ = true;
         lock.unlock();
         flush();
-        if (delay > 0) hooks_.sleep(delay);
+        if (delay > 0) {
+            if (hooks_.sleep_cancellable) hooks_.sleep_cancellable(delay, token);
+            else hooks_.sleep(delay);
+        }
         if (token.cancelled()) return;
         const ConnectivityReport verify = service_.probe_with_scope(bound ? ProbeMode::complete : probe_mode, token, false, bound);
         lock.lock();

@@ -92,7 +92,7 @@ AppController::AppController(HWND window, RuntimeMode mode, std::unique_ptr<Runt
     }) {
     ConnectionEngine::Hooks hooks;
     hooks.now = [] { return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count(); };
-    hooks.sleep = [this](double seconds) { sleep_interruptible(seconds); };
+    hooks.sleep_cancellable = [](double seconds, const CancelToken& token) { token.wait_for(seconds); };
     hooks.persist_credentials = [this](const Credentials& c) { return !read_only_ && runtime_->write_credentials(c); };
     hooks.wall_now = [] { return wall_now(); };
     hooks.persist_recovery = [this](const std::string& data) { return runtime_->write(L"recovery.json", data); };
@@ -253,11 +253,6 @@ void AppController::shutdown() {
     if (logs_dirty_) persist_logs();
 }
 
-void AppController::sleep_interruptible(double seconds) {
-    std::unique_lock<std::mutex> lock(worker_mutex_);
-    worker_cv_.wait_for(lock, std::chrono::milliseconds(static_cast<long long>(seconds * 1000)), [this] { return stopping_; });
-}
-
 void AppController::post_changed() {
     if (!shutting_down_ && !posted_.exchange(true)) PostMessageW(window_, kMsgChanged, 0, 0);
 }
@@ -276,6 +271,7 @@ void AppController::run_engine(std::function<void()> job, bool automatic) {
     if (automatic && (engine_busy_ || !jobs_.empty())) return;  // never queue background rounds behind other work
     if (!automatic && (manual_queued_ || !jobs_.empty())) return;
     if (!automatic) {
+        if (!memory_verification_pending()) clear_memory_verification_message();
         manual_queued_ = true;
         jobs_.push_back([this, job = std::move(job)] {
             struct ClearPending {
@@ -435,11 +431,13 @@ void AppController::on_timer(UINT_PTR id) {
 }
 
 void AppController::on_suspend() {
-    if (!memory_verification_message_.empty()) invalidate_memory_verification("memory.verification.changed");
+    const bool remembering = memory_verification_pending();
     clear_system_connectivity();
     { std::lock_guard<std::mutex> lock(wifi_mutex_); wifi_schedule_.cancel(); }
     internet_service_.invalidate();
     engine_->set_sleeping(true);  // cancels work and revokes network trust
+    if (remembering) invalidate_memory_verification("memory.verification.changed");
+    else clear_memory_verification_message();
     KillTimer(window_, kTimerAuto);
     auto_armed_ = false;
     next_due_.reset();
@@ -811,7 +809,7 @@ void AppController::revoke_trust() {
 
 std::string AppController::memory_verification_message() const {
     if (memory_verification_epoch_ && *memory_verification_epoch_ != engine_->snapshot().epoch)
-        return "memory.verification.changed";
+        return memory_verification_pending() ? "memory.verification.changed" : "";
     return memory_verification_message_;
 }
 
@@ -820,14 +818,27 @@ void AppController::set_memory_verification_message(std::string key) {
     memory_verification_epoch_ = engine_->snapshot().epoch;
 }
 
+void AppController::clear_memory_verification_message() {
+    ++memory_verification_generation_;
+    memory_verification_message_.clear();
+    memory_verification_epoch_.reset();
+}
+
+bool AppController::memory_verification_pending() const {
+    return memory_verification_message_ == "memory.verification.checking" ||
+        memory_verification_message_ == "memory.verification.pending";
+}
+
 void AppController::invalidate_memory_verification(const char* key) {
     ++memory_verification_generation_;
     set_memory_verification_message(key);
 }
 
 void AppController::sync_memory_verification_epoch() {
-    if (memory_verification_epoch_ && *memory_verification_epoch_ != engine_->snapshot().epoch)
-        invalidate_memory_verification("memory.verification.changed");
+    if (memory_verification_epoch_ && *memory_verification_epoch_ != engine_->snapshot().epoch) {
+        if (memory_verification_pending()) invalidate_memory_verification("memory.verification.changed");
+        else clear_memory_verification_message();
+    }
 }
 
 bool AppController::remember_network() {
@@ -869,7 +880,7 @@ bool AppController::remember_network() {
 
 void AppController::forget_network() {
     if (engine_->snapshot().verifying_memory) invalidate_memory_verification("memory.verification.cancelled");
-    else { ++memory_verification_generation_; memory_verification_message_.clear(); memory_verification_epoch_.reset(); }
+    else clear_memory_verification_message();
     const auto ids = engine_->current_remembered_ids();
     engine_->forget_current_network();
     auto next = wifi_preferences();
@@ -881,7 +892,7 @@ void AppController::forget_network() {
 
 void AppController::forget_all_networks() {
     if (engine_->snapshot().verifying_memory) invalidate_memory_verification("memory.verification.cancelled");
-    else { ++memory_verification_generation_; memory_verification_message_.clear(); memory_verification_epoch_.reset(); }
+    else clear_memory_verification_message();
     engine_->forget_all_networks();
     auto next = wifi_preferences(); next.manual_names.clear(); next.auto_join = false;
     save_wifi_preferences(next, true);

@@ -24,6 +24,8 @@ public:
     CancelToken();
     void cancel() const;
     bool cancelled() const;
+    // Waits for cancellation or the interval to elapse; true means cancelled.
+    bool wait_for(double seconds) const;
     // Runs fn on cancel (immediately when already cancelled). Returns an id for remove().
     std::uint64_t on_cancel(std::function<void()> fn) const;
     void remove(std::uint64_t id) const;
@@ -134,6 +136,7 @@ public:
         std::function<void(const ConnectivityReport&)> report;       // every accepted probe (health samples)
         std::function<bool(const std::string&)> persist_memory;      // atomic write of network-memory.json; false keeps the old file
         std::function<std::string()> random_hex;                     // 32 random hex chars (salt / record id); absent: memory disabled
+        std::function<void(double, const CancelToken&)> sleep_cancellable; // optional replacement for sleep, follows operation cancellation
     };
 
     ConnectionEngine(ConnectionService& service, Hooks hooks, bool read_only_session = false);

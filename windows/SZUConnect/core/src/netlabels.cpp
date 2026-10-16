@@ -1,5 +1,6 @@
 #include "szu/netlabels.hpp"
 #include "szu/json.hpp"
+#include "shared_copy.hpp"
 #include <algorithm>
 #include <cstdint>
 
@@ -49,7 +50,7 @@ std::optional<std::string> NetworkLabels::valid_ssid(const std::optional<std::st
     return value;
 }
 std::string NetworkLabels::fallback(const std::string& kind) {
-    return kind == "wifi" ? "校园 Wi-Fi（名称待补全）" : kind == "ethernet" ? "校园有线网络" : "待命名的校园网络";
+    return std::string(copy::text(kind == "wifi" ? "memory.item.wifi" : kind == "ethernet" ? "memory.item.ethernet" : "memory.item"));
 }
 std::string NetworkLabels::display_name(const std::string& id) const {
     const auto it = entries_.find(id);
