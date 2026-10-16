@@ -422,10 +422,18 @@ void AppController::on_timer(UINT_PTR id) {
             if (settings_.mode != MonitoringMode::manual) schedule_auto(1);
             post_changed();
             break;
-        case kTimerWiFi:
+        case kTimerWiFi: {
+            const auto previous_status = wifi_status();
+            const auto previous_notice = notice_;
             update_wifi_context();
-            if (!engine_busy_) run_engine([this] { run_wifi_recovery(); }, true);
+            bool ready = false;
+            { std::lock_guard<std::mutex> lock(wifi_mutex_); ready = wifi_schedule_.ready(wall_now()); }
+            // The worker rechecks admission in begin(); this only avoids empty jobs
+            // while disabled, connected, paused or waiting for the retry deadline.
+            if (ready && !engine_busy_) run_engine([this] { run_wifi_recovery(); }, true);
+            if (previous_status != wifi_status() || previous_notice != notice_) post_changed();
             break;
+        }
         default: break;
     }
 }

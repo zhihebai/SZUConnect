@@ -55,4 +55,6 @@ UDP／TCP 绑定源 IPv4 并设置 `IP_UNICAST_IF`，连接及 HTTP 发送前再
 
 Windows CMake 使用固定 libcurl 源码、静态运行库和 Schannel，不携带另一套 CA 文件。TLS 主机名和证书链验证保持开启。原生绑定和配置检查采用不连接外网的 loopback 测试，真实校园环境另行验收。
 
+等待 HTTP 响应时，取消操作会唤醒传输循环；快速检测已有结果后，可及时结束另一项等待。每次物理通道检查保留完整双快照，并在检查前后确认操作仍有效，避免在同一位置重复枚举。DNS、连接建立、发送及返回时的核验均保留。
+
 参考接口：[源接口绑定](https://learn.microsoft.com/en-us/windows/win32/winsock/ipproto-ip-socket-options) · [网卡状态](https://learn.microsoft.com/en-us/windows/win32/api/netioapi/ns-netioapi-mib_if_row2) · [套接字回调](https://curl.se/libcurl/c/CURLOPT_OPENSOCKETFUNCTION.html) · [发送前回调](https://curl.se/libcurl/c/CURLOPT_PREREQFUNCTION.html)

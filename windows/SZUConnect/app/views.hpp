@@ -13,7 +13,7 @@
 namespace szu::app {
 
 enum class Page { connection, records, settings };
-inline constexpr std::array<const char*, 11> kGuideSteps{"welcome", "detection", "account", "login", "recovery", "memory", "websites", "network", "startup", "wifi", "finish"};
+inline constexpr std::array<const char*, 11> kGuideSteps{"welcome", "account", "detection", "login", "memory", "recovery", "websites", "network", "startup", "wifi", "finish"};
 
 struct WebsiteDetails {
     WebsiteCheck check;
@@ -29,7 +29,7 @@ struct UiState {
     WPARAM pressed_caption = 0;
     bool maximized = false;
     std::vector<std::string> overlays;  // modal sheets above the real page and optional guide
-    int tutorial_step = 1;              // same ordered guide as macOS TourStep
+    int tutorial_step = 1;              // one-based index into kGuideSteps
     bool tutorial_visible = false;
     double tutorial_entered_at = 0;
     bool show_password = false;

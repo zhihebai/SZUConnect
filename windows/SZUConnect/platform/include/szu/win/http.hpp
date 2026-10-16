@@ -76,7 +76,9 @@ public:
 
 class PhysicalHttpSession final : public FixedHttpSession {
 public:
-    PhysicalHttpSession(physical::Route route, bool cookies, std::function<bool()> scope_current);
+    // The callback checks binding ownership; the transport independently validates
+    // the full physical lease before, during and after every request.
+    PhysicalHttpSession(physical::Route route, bool cookies, std::function<bool()> binding_current);
     ~PhysicalHttpSession();
     PhysicalHttpSession(const PhysicalHttpSession&) = delete;
     PhysicalHttpSession& operator=(const PhysicalHttpSession&) = delete;

@@ -136,6 +136,21 @@ int main() {
                 backend.count("/eportal/portal/login") == 0 && backend.count("/cgi-bin/srun_portal") == 0, "TLS preflight failure cannot submit or create uncertain submission");
     }
     {
+        Backend backend;
+        auto hooks = backend.hooks();
+        WinHttpService* active = nullptr;
+        bool repin_during_read = false;
+        hooks.route_current = [&](const physical::Route&) {
+            if (repin_during_read) { repin_during_read = false; active->set_expected_physical_route(route("B")); }
+            return true;
+        };
+        WinHttpService service(std::move(hooks)); active = &service;
+        service.set_expected_physical_route(route("A")); repin_during_read = true;
+        const auto discovery = service.discover(CampusArea::automatic, CancelToken{});
+        t.check(discovery.teaching == Discovery::unconfirmed && backend.calls.empty() && backend.cookie_sessions.empty(),
+            "binding replacement during session lease validation cannot construct or use a stale session");
+    }
+    {
         Backend backend; WinHttpService service(backend.hooks()); service.set_expected_physical_route(route("A")); CancelToken token;
         const auto attempt = service.attempt(credentials, CampusArea::dormitory, token);
         t.check(attempt.outcome == Outcome::success && backend.calls.size() == 3 && backend.calls[0].path == "/srun_portal_pc" &&

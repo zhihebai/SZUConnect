@@ -4,6 +4,8 @@ Windows 端使用 C++20、Win32、Direct2D／DirectWrite、UI Automation 和 Win
 
 首次构建需联网获取固定源码，发行包无需额外 DLL。
 
+MSVC Release 构建在编译器支持时启用跨文件优化，Debug 保持原有调试方式。
+
 ## 环境
 
 - Windows 11 x64。

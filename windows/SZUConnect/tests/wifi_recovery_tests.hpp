@@ -132,16 +132,20 @@ inline void run_wifi_recovery_tests(szutest::Harness& t) {
     }
     t.begin("wifi-recovery-schedule");
     Schedule schedule;
-    t.check(!schedule.begin(0),"default schedule never runs");
+    t.check(!schedule.ready(0) && !schedule.begin(0),"default schedule never runs");
     schedule.update({one},true,false,true,true,false);
-    t.check(!schedule.begin(0) && schedule.status()=="connected","connected context prevents finding other networks");
+    t.check(!schedule.ready(0) && !schedule.begin(0) && schedule.status()=="connected","connected context prevents finding other networks");
     schedule.update({one},true,false,true,false,false);
+    t.check(schedule.ready(0) && schedule.ready(0) && !schedule.active() && schedule.status()=="waiting",
+        "checking readiness neither admits work nor changes its display state");
     auto request=schedule.begin(0);
-    t.check(request && schedule.status()=="searching" && !schedule.begin(1),"one worker admission at a time");
+    t.check(request && schedule.status()=="searching" && !schedule.ready(1) && !schedule.begin(1),"one worker admission at a time");
     auto display_only=one; display_only.display_name="renamed local label";
     schedule.update({display_only},true,false,true,false,false);
     t.check(request && !request->token.cancelled() && schedule.active(),"display-only rename cannot cancel an association or change retry scheduling");
     schedule.finish(Result::notFound,0);
+    t.check(!schedule.ready(14.999) && schedule.ready(15) && schedule.status()=="waiting",
+        "readiness honors the retry boundary without clearing the previous result");
     t.check(!schedule.begin(14) && schedule.begin(15).has_value(),"first missing target backs off 15 seconds");
     schedule.finish(Result::notFound,15);
     t.check(!schedule.begin(44) && schedule.begin(45).has_value(),"second missing target backs off 30 seconds");
@@ -159,11 +163,11 @@ inline void run_wifi_recovery_tests(szutest::Harness& t) {
     auto running = schedule.begin(602);
     t.check(running.has_value(),"powered-on recheck begins at two seconds");
     schedule.update({},false,false,true,false,false);
-    t.check(running && running->token.cancelled() && !schedule.begin(700) && schedule.status()=="disabled","disabling revokes outstanding association authorization");
+    t.check(running && running->token.cancelled() && !schedule.ready(700) && !schedule.begin(700) && schedule.status()=="disabled","disabling revokes outstanding association authorization");
     schedule.update({one},true,false,false,false,false);
-    t.check(!schedule.begin(800) && schedule.status()=="paused","manual/observe or credential hold pauses finding networks");
+    t.check(!schedule.ready(800) && !schedule.begin(800) && schedule.status()=="paused","manual/observe or credential hold pauses finding networks");
     schedule.update({one},true,false,true,false,true);
-    t.check(!schedule.begin(900) && schedule.status()=="paused","sleep blocks radio activity");
+    t.check(!schedule.ready(900) && !schedule.begin(900) && schedule.status()=="paused","sleep blocks radio activity");
     schedule.update({one},true,false,true,false,false);
     auto forgotten=schedule.begin(1000);
     schedule.update({},true,false,true,false,false);

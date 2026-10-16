@@ -30,7 +30,7 @@ inline constexpr UINT kMsgChanged = WM_APP + 1;
 inline constexpr UINT kMsgNetwork = WM_APP + 2;
 inline constexpr UINT kMsgTray = WM_APP + 3;
 inline constexpr UINT kMsgActivateWidget = WM_APP + 4;
-inline constexpr UINT_PTR kTimerAuto = 1, kTimerNetwork = 2, kTimerPersist = 3, kTimerSpin = 4, kTimerFeedback = 5, kTimerWake = 6, kTimerWiFi = 7;
+inline constexpr UINT_PTR kTimerAuto = 1, kTimerNetwork = 2, kTimerPersist = 3, kTimerSpin = 4, kTimerFeedback = 5, kTimerWake = 6, kTimerWiFi = 7, kTimerUiClock = 8;
 
 inline constexpr const char* kVersion = "0.10.1";
 inline constexpr const char* kBuild = "32";
