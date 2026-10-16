@@ -6,7 +6,7 @@
 namespace szu::copy {
 namespace {
 struct Entry { std::string_view key; std::string_view value; };
-constexpr std::array<Entry, 861> kEntries = {{
+constexpr std::array<Entry, 870> kEntries = {{
     Entry{"about.atmluck.detail", "校园认证实现的来源。MIT License © 2026 ATMLuck，完整许可随应用附带。"},
     Entry{"about.atmluck.name", "ATMLuck/AutoSZUWeb"},
     Entry{"about.creditsBody", "校园认证实现参考并改编自 AutoSZUWeb，感谢上游项目及贡献者。"},
@@ -22,6 +22,7 @@ constexpr std::array<Entry, 861> kEntries = {{
     Entry{"account.accountHint", "请使用校园网登录页的账号。"},
     Entry{"account.accountLabel", "账号"},
     Entry{"account.areaTitle", "登录区域"},
+    Entry{"account.credentialComment", "深大随连：校园网账号，仅保存在本机"},
     Entry{"account.intro", "使用校园网登录页的账号和密码。账号密码只保存在本机Windows 凭据管理器中。"},
     Entry{"account.invalid", "请填写有效的校园账号和密码。"},
     Entry{"account.loginOnceNote", "使用当前填写的账号，不保存；自动重连使用已保存账号。"},
@@ -619,6 +620,7 @@ constexpr std::array<Entry, 861> kEntries = {{
     Entry{"records.empty.title", "还没有记录"},
     Entry{"records.exportDone", "已导出排查报告，不含账号、密码和网络名称。"},
     Entry{"records.exportFailed", "导出失败，请换个位置重试。"},
+    Entry{"records.exportPrivacy", "报告不含账号、密码、网络名称、检测网址或 IP 地址。"},
     Entry{"records.failuresOnly", "只看失败"},
     Entry{"records.health.latency", "响应时间 {ms} ms"},
     Entry{"records.health.none", "暂无检测数据"},
@@ -658,12 +660,19 @@ constexpr std::array<Entry, 861> kEntries = {{
     Entry{"setup.account.action", "填写或保存账号"},
     Entry{"setup.account.body", "填写校园网账号和密码后保存，供自动重连使用。"},
     Entry{"setup.account.title", "3. 保存校园账号"},
-    Entry{"setup.helpAccount", "填写校园网账号和密码后保存。保存不会立即登录。"},
+    Entry{"setup.helpAccount", "填写校园网账号和密码后保存。登录区域推荐“自动选择”，保存不会立即登录。"},
+    Entry{"setup.helpAccountTitle", "2. 保存校园账号"},
+    Entry{"setup.helpCheck", "点击“检测连接”。需要校园认证时，按提示点击“登录校园网”；已联网时无需再次登录。"},
+    Entry{"setup.helpCheckTitle", "3. 检测连接"},
     Entry{"setup.helpDetail", "先接入校园 Wi-Fi 或网线，再完成以下设置。"},
-    Entry{"setup.helpMemory", "在连接页核验并记住校园网络。Wi-Fi 和网线需分别记住；自动找网使用已记住的校园 Wi-Fi。"},
-    Entry{"setup.helpNetwork", "先在系统中连接校园 Wi-Fi 或网线，再回到应用检测。"},
+    Entry{"setup.helpMemory", "确认当前接入校园网后，点击“核验并记住校园网络”。核验通过后保存，Wi-Fi 和网线需分别记住。"},
+    Entry{"setup.helpMemoryTitle", "4. 核验并记住校园网络"},
+    Entry{"setup.helpNetwork", "先在系统中连接校园 Wi-Fi 或校园网线。"},
+    Entry{"setup.helpNetworkTitle", "1. 连接校园网"},
     Entry{"setup.helpRecovery", "选择“自动重连”，断线后核验校园服务并尝试登录。完全退出应用后，自动重连停止。"},
+    Entry{"setup.helpRecoveryTitle", "5. 开启自动重连"},
     Entry{"setup.helpTitle", "首次使用步骤"},
+    Entry{"setup.helpWifiTitle", "可选：自动找网"},
     Entry{"setup.memory.action", "查看当前网络设置"},
     Entry{"setup.memory.body", "在下方点击“核验并记住校园网络”。核验通过后，网络记忆会保存在本机。"},
     Entry{"setup.memory.title", "2. 核验并记住校园网络"},

@@ -478,12 +478,13 @@ void help_sheet(Builder& b, ViewContext& ctx) {
     b.gap(tokens::kSpaceM);
     b.text(T("setup.helpDetail"), TextStyle::caption, "textSecondary");
     const std::pair<const char*, const char*> steps[] = {
-        {"network", "setup.helpNetwork"}, {"memory", "setup.helpMemory"}, {"account", "setup.helpAccount"},
-        {"recovery", "setup.helpRecovery"}, {"wifi", "setup.wifi.body"}
+        {"setup.helpNetworkTitle", "setup.helpNetwork"}, {"setup.helpAccountTitle", "setup.helpAccount"},
+        {"setup.helpCheckTitle", "setup.helpCheck"}, {"setup.helpMemoryTitle", "setup.helpMemory"},
+        {"setup.helpRecoveryTitle", "setup.helpRecovery"}, {"setup.helpWifiTitle", "setup.wifi.body"}
     };
     for (const auto& step : steps) {
         b.gap(tokens::kSpaceM);
-        b.text(T(std::string("setup.") + step.first + ".title"), TextStyle::callout_strong, "textPrimary", Role::heading);
+        b.text(T(step.first), TextStyle::callout_strong, "textPrimary", Role::heading);
         b.gap(tokens::kSpaceXs);
         b.text(T(step.second), TextStyle::caption, "textSecondary");
     }

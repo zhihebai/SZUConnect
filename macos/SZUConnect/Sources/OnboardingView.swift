@@ -94,10 +94,10 @@ struct QuickStartHelpView: View {
             Text(SharedCopy.t("setup.helpDetail"))
                 .font(AppFont.caption).foregroundStyle(Color.token("textSecondary"))
                 .fixedSize(horizontal: false, vertical: true)
-            ForEach(["network", "memory", "account", "recovery", "wifi"], id: \.self) { step in
+            ForEach(["setup.helpNetwork", "setup.helpAccount", "setup.helpCheck", "setup.helpMemory", "setup.helpRecovery", "setup.helpWifi"], id: \.self) { key in
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(SharedCopy.t("setup." + step + ".title")).font(AppFont.callout.weight(.medium))
-                    Text(SharedCopy.t(step == "wifi" ? "setup.wifi.body" : "setup.help" + step.prefix(1).uppercased() + String(step.dropFirst())))
+                    Text(SharedCopy.t(key + "Title")).font(AppFont.callout.weight(.medium))
+                    Text(SharedCopy.t(key == "setup.helpWifi" ? "setup.wifi.body" : key))
                         .font(AppFont.caption).foregroundStyle(Color.token("textSecondary"))
                         .fixedSize(horizontal: false, vertical: true)
                 }
