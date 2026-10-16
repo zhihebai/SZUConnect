@@ -56,7 +56,23 @@ jobs:
         run: |
           python3 tools/generate_shared.py --check
           python3 macos/SZUConnect/Scripts/generate_project.py
-          SZU_COMPILE_OUTPUT_DIR="$RUNNER_TEMP/mac-compile" SZU_DERIVED_DATA_DIR="$RUNNER_TEMP/mac-derived" bash macos/SZUConnect/Scripts/compile-local-mac.sh
+          if SZU_COMPILE_OUTPUT_DIR="$RUNNER_TEMP/mac-compile" SZU_DERIVED_DATA_DIR="$RUNNER_TEMP/mac-derived" bash macos/SZUConnect/Scripts/compile-local-mac.sh; then
+            :
+          else
+            result=$?
+            if [ -f "$RUNNER_TEMP/mac-compile/build.log" ]; then
+              cat "$RUNNER_TEMP/mac-compile/build.log"
+            fi
+            exit "$result"
+          fi
+      - name: Preserve macOS build log
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: macos-build-log
+          path: ${{ runner.temp }}/mac-compile/build.log
+          if-no-files-found: warn
+          retention-days: 14
       - name: Test shared contracts and authentication protocol offline
         run: |
           sh macos/SZUConnect/Tests/run-shared-contract.sh

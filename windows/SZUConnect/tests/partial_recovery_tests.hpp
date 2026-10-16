@@ -390,7 +390,7 @@ inline void website_recovery_signal_tests(Harness& t) {
     InternetCheckReport report{base_report, {{{"a", "https://fixture.example/", true}, {"forbidden", 403, 0}}}, 1, false};
     t.check(report.verdict() == InternetVerdict::partial && !report.has_recovery_evidence() && report.transport_recovered(),
         "403 is a business failure with recovered transport, not a campus recovery candidate");
-    for (const auto pair : {std::pair{"authenticationRequired", 401}, std::pair{"authenticationRequired", 407},
+    for (const auto& pair : {std::pair{"authenticationRequired", 401}, std::pair{"authenticationRequired", 407},
                            std::pair{"httpStatus", 500}, std::pair{"redirected", 302}, std::pair{"accessible", 204}}) {
         report.websites[0].result = {pair.first, pair.second, 0};
         t.check(report.transport_recovered() && !report.has_recovery_evidence(),

@@ -30,7 +30,8 @@ struct TunParityService final : ConnectionService {
     }
     CampusDiscovery discover(CampusArea, const CancelToken&) override {
         ++discoveries;
-        if (during_discovery) during_discovery(); return proof;
+        if (during_discovery) during_discovery();
+        return proof;
     }
     LoginAttempt attempt(const Credentials&, CampusArea, const CancelToken&) override {
         submissions.push_back(bound ? bound->interface_key : "system");
