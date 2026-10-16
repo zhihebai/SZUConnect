@@ -182,12 +182,21 @@ struct ConnectionPage: View {
             .help(SharedCopy.t("website.result.details"))
             .accessibilityLabel(target.displayName + "，" + text + "，" + SharedCopy.t("website.result.details"))
             .accessibilityIdentifier("website.result." + target.id)
-            .popover(isPresented: Binding(get: { selectedWebsiteResult == target.id }, set: { if !$0 { selectedWebsiteResult = nil } }), arrowEdge: .bottom) {
+            .popover(isPresented: websiteResultIsPresented(for: target.id), arrowEdge: .bottom) {
                 WebsiteResultDetails(name: target.displayName, result: result, close: { selectedWebsiteResult = nil })
             }
         } else {
             resultChip(target.displayName, text: text, tone: tone)
         }
+    }
+
+    private func websiteResultIsPresented(for targetID: String) -> Binding<Bool> {
+        Binding<Bool>(
+            get: { selectedWebsiteResult == targetID },
+            set: { isPresented in
+                if !isPresented { selectedWebsiteResult = nil }
+            }
+        )
     }
 
     private func resultChip(_ name: String, text: String, tone: String, showsDetails: Bool = false) -> some View {
