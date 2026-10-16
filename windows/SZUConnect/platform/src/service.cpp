@@ -147,11 +147,12 @@ std::unique_ptr<WinHttpService::Scope> WinHttpService::scope(const CancelToken& 
 std::unique_ptr<FixedHttpSession> WinHttpService::session(const Scope& scope, bool cookies) {
     if (!scope.binding || !scope.binding->route || scope.token.cancelled() || !hooks_.route_current || !hooks_.session_factory) return nullptr;
     const auto binding = scope.binding;
-    const auto current_route = hooks_.route_current;
-    const auto current = [binding, current_route] {
-        return !binding->lifetime.cancelled() && binding->route && current_route(*binding->route);
+    const auto current = [binding] {
+        return !binding->lifetime.cancelled() && binding->route.has_value();
     };
-    if (!current()) return nullptr;
+    if (!current() || !hooks_.route_current(*binding->route) || !current()) return nullptr;
+    // The transport checks the exact physical lease between ownership checks.
+    // Keeping this callback ownership-only avoids repeating the same double snapshot.
     return hooks_.session_factory(*binding->route, cookies, current);
 }
 

@@ -49,6 +49,7 @@ private:
     bool validate_smoke_scene();
     void capture_smoke_frame(const std::string& page);
     void rebuild();
+    void update_visual_timers();
     void request_rebuild();
     void layout_edits();
     HWND ensure_edit(const std::string& id, bool secret);
@@ -84,6 +85,7 @@ private:
     SmokeResult smoke_result_;
     unsigned smoke_capture_stage_ = 0;
     bool smoke_capture_ready_ = false;
+    unsigned smoke_scene_builds_ = 0;
     bool smoke_dark_ = false;
     float smoke_text_scale_ = 1.0f;
     int exit_code_ = 0;

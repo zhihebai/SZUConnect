@@ -51,7 +51,7 @@ enum ConnectionSetupStep: String {
 }
 
 enum TourStep: String, CaseIterable, Identifiable {
-    case welcome, detection, account, login, recovery, memory, websites, network, startup, wifi, finish
+    case welcome, account, detection, login, memory, recovery, websites, network, startup, wifi, finish
     var id: String { rawValue }
     var target: TourTarget? {
         switch self {

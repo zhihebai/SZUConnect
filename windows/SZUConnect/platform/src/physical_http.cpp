@@ -62,6 +62,48 @@ struct Easy {
     CURL* value = curl_easy_init();
     ~Easy() { if (value) curl_easy_cleanup(value); }
 };
+CURLcode perform_cancellable(CURL* handle, const CancelToken& token) {
+    if (token.cancelled()) return CURLE_ABORTED_BY_CALLBACK;
+    struct Multi {
+        CURLM* value = curl_multi_init();
+        ~Multi() { if (value) curl_multi_cleanup(value); }
+    };
+    const auto multi = std::make_shared<Multi>();
+    if (!multi->value) return CURLE_OUT_OF_MEMORY;
+    const auto error = [](CURLMcode code) {
+        return code == CURLM_OUT_OF_MEMORY ? CURLE_OUT_OF_MEMORY : CURLE_FAILED_INIT;
+    };
+    const auto added = curl_multi_add_handle(multi->value, handle);
+    if (added != CURLM_OK) return error(added);
+    struct Attachment {
+        CURLM* multi;
+        CURL* easy;
+        ~Attachment() { curl_multi_remove_handle(multi, easy); }
+    } attachment{multi->value, handle};
+    // Removal does not wait for a cancellation callback already copied by cancel().
+    // Its shared ownership keeps the multi handle alive until wakeup returns.
+    struct Registration {
+        const CancelToken& token;
+        std::uint64_t id;
+        ~Registration() { token.remove(id); }
+    } registration{token, token.on_cancel([multi] { curl_multi_wakeup(multi->value); })};
+    while (true) {
+        if (token.cancelled()) return CURLE_ABORTED_BY_CALLBACK;
+        int running = 0;
+        auto code = curl_multi_perform(multi->value, &running);
+        if (code != CURLM_OK) return error(code);
+        if (token.cancelled()) return CURLE_ABORTED_BY_CALLBACK;
+        if (!running) {
+            int remaining = 0;
+            while (const auto* message = curl_multi_info_read(multi->value, &remaining)) {
+                if (message->msg == CURLMSG_DONE && message->easy_handle == handle) return message->data.result;
+            }
+            return CURLE_FAILED_INIT;
+        }
+        code = curl_multi_poll(multi->value, nullptr, 0, 1000, nullptr);
+        if (code != CURLM_OK) return error(code);
+    }
+}
 struct List {
     curl_slist* value = nullptr;
     ~List() { curl_slist_free_all(value); }
@@ -394,20 +436,27 @@ struct CookieJar {
         return true;
     }
 };
+
+template<class ReadRoute>
+bool binding_and_route_current(const std::function<bool()>& binding_current, ReadRoute&& read_route) {
+    return binding_current && binding_current() && read_route() && binding_current();
+}
 }  // namespace
 
 struct PhysicalHttpSession::State {
     physical::Route route;
     bool cookies;
-    std::function<bool()> scope_current;
+    std::function<bool()> binding_current;
     std::mutex mutex;  // serializes one auth cookie jar, never shared by probe sessions
     CookieJar jar;
-    bool current() const { return scope_current && scope_current() && physical_route_current(route); }
+    bool current() const {
+        return binding_and_route_current(binding_current, [this] { return physical_route_current(route); });
+    }
 };
 
-PhysicalHttpSession::PhysicalHttpSession(physical::Route route, bool cookies, std::function<bool()> scope_current)
+PhysicalHttpSession::PhysicalHttpSession(physical::Route route, bool cookies, std::function<bool()> binding_current)
     : state_(std::make_unique<State>()) {
-    state_->route = std::move(route); state_->cookies = cookies; state_->scope_current = std::move(scope_current);
+    state_->route = std::move(route); state_->cookies = cookies; state_->binding_current = std::move(binding_current);
 }
 PhysicalHttpSession::~PhysicalHttpSession() = default;
 
@@ -480,7 +529,7 @@ HttpResponse PhysicalHttpSession::get(const HttpRequest& request, const CancelTo
     const auto path = parsed_path.empty() ? std::string("/") : parsed_path;
     const std::string cookie_header = state_->cookies && request.allow_cookies ? state_->jar.header(target, path, wall_seconds()) : "";
     if (!cookie_header.empty()) SZU_SET(CURLOPT_COOKIE, cookie_header.c_str());
-    if (code == CURLE_OK) code = curl_easy_perform(easy.value);
+    if (code == CURLE_OK) code = perform_cancellable(easy.value, token);
     response.request_started = transfer.request_started;
     HttpError error = classify(code, transfer);
     if (token.cancelled() || !state_->current()) { state_->jar.clear(); return finish(HttpError::cancelled); }
@@ -504,6 +553,64 @@ HttpResponse PhysicalHttpSession::get(const HttpRequest& request, const CancelTo
 }
 
 #ifdef SZU_PHYSICAL_HTTP_TESTING
+// Loopback-only fixture for the same execution loop and transfer callbacks.
+// Only test targets compile this entry point; its URL is fixed to 127.0.0.1.
+HttpResponse physical_http_loopback_test(std::uint32_t index, std::uint64_t luid, unsigned short port,
+                                        int timeout_ms, const CancelToken& token) {
+    HttpResponse response;
+    if (token.cancelled()) { response.error = HttpError::cancelled; return response; }
+    static std::once_flag initialized;
+    static CURLcode initialization = CURLE_FAILED_INIT;
+    std::call_once(initialized, [] { initialization = curl_global_init(CURL_GLOBAL_DEFAULT); });
+    if (initialization != CURLE_OK) { response.error = HttpError::network; return response; }
+    const auto started = Clock::now();
+    physical::Route route; route.interface_index = index; route.interface_luid = luid; route.source_ipv4 = "127.0.0.1";
+    const std::function<bool()> current = [] { return true; };
+    Transfer transfer{route, token, current, 1024, {}, {}};
+    const std::string url = "http://127.0.0.1:" + std::to_string(port) + '/';
+    Easy easy;
+    if (!easy.value) { response.error = HttpError::network; return response; }
+    CURLcode code = configure_security(easy.value);
+#define SZU_TEST_SET(option, setting) do { if (code == CURLE_OK) code = curl_easy_setopt(easy.value, option, setting); } while (0)
+    SZU_TEST_SET(CURLOPT_URL, url.c_str());
+    SZU_TEST_SET(CURLOPT_TIMEOUT_MS, static_cast<long>(timeout_ms));
+    SZU_TEST_SET(CURLOPT_CONNECTTIMEOUT_MS, static_cast<long>(timeout_ms));
+    SZU_TEST_SET(CURLOPT_WRITEFUNCTION, write_body); SZU_TEST_SET(CURLOPT_WRITEDATA, &transfer);
+    SZU_TEST_SET(CURLOPT_HEADERFUNCTION, write_header); SZU_TEST_SET(CURLOPT_HEADERDATA, &transfer);
+    SZU_TEST_SET(CURLOPT_OPENSOCKETFUNCTION, open_socket); SZU_TEST_SET(CURLOPT_OPENSOCKETDATA, &transfer);
+    SZU_TEST_SET(CURLOPT_XFERINFOFUNCTION, progress); SZU_TEST_SET(CURLOPT_XFERINFODATA, &transfer);
+    SZU_TEST_SET(CURLOPT_NOPROGRESS, 0L);
+    SZU_TEST_SET(CURLOPT_PREREQFUNCTION, prerequisite); SZU_TEST_SET(CURLOPT_PREREQDATA, &transfer);
+    if (code == CURLE_OK) code = perform_cancellable(easy.value, token);
+#undef SZU_TEST_SET
+    response.error = classify(code, transfer);
+    long status = 0;
+    if (curl_easy_getinfo(easy.value, CURLINFO_RESPONSE_CODE, &status) == CURLE_OK) response.status = static_cast<int>(status);
+    response.request_started = transfer.request_started;
+    response.body = std::move(transfer.body);
+    response.elapsed = std::chrono::duration<double>(Clock::now() - started).count();
+    return response;
+}
+
+bool physical_http_current_test(const physical::Route& route) {
+    return binding_and_route_current([] { return true; }, [&route] { return physical_route_current(route); });
+}
+
+bool physical_http_native_scope_test() {
+    bool owned = true, route_current = true;
+    int reads = 0;
+    const std::function<bool()> binding = [&] { return owned; };
+    const auto read_route = [&] { ++reads; return route_current; };
+    if (!binding_and_route_current(binding, read_route) || reads != 1) return false;
+    owned = false; reads = 0;
+    if (binding_and_route_current(binding, read_route) || reads != 0) return false;
+    owned = true; route_current = false;
+    if (binding_and_route_current(binding, read_route) || reads != 1) return false;
+    route_current = true; reads = 0;
+    const auto revoke_during_read = [&] { ++reads; owned = false; return route_current; };
+    return !binding_and_route_current(binding, revoke_during_read) && reads == 1;
+}
+
 // Called only by the native Windows isolation target. It opens and binds a
 // loopback socket, never connects it and never reads a credential or user file.
 bool physical_http_native_socket_test(std::uint32_t index, std::uint64_t luid) {

@@ -20,6 +20,8 @@ class WinHttpService final : public ConnectionService {
 public:
     struct Hooks {
         std::function<bool(const physical::Route&)> route_current;
+        // The final callback reports binding ownership, not physical lease validity.
+        // Native sessions independently validate their route at every transport gate.
         std::function<std::unique_ptr<FixedHttpSession>(const physical::Route&, bool, std::function<bool()>)> session_factory;
     };
     WinHttpService();

@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 
@@ -67,6 +68,7 @@ bool MainWindow::create() {
 
 void MainWindow::show() {
     ShowWindow(hwnd_, SW_SHOWNORMAL);
+    rebuild();
     UpdateWindow(hwnd_);
 }
 
@@ -278,6 +280,21 @@ void MainWindow::prepare_smoke_scene() {
     if (smoke_capture_stage_ == 16) if (const auto* faq = scene_.find("help.faq.wifi")) scroll_into_view(*faq);
     if (ui_.advanced_network) if (const auto* network = scene_.find("network.technical")) scroll_into_view(*network);
     if (smoke_capture_stage_ == 21) if (const auto* close = scene_.find("records.detail.close")) scroll_into_view(*close);
+    if (smoke_capture_stage_ == 0) {
+        const auto before = smoke_scene_builds_;
+        for (int i = 0; i < 10; ++i) handle(WM_TIMER, kTimerWiFi, 0);
+        const auto builds = smoke_scene_builds_ - before;
+        std::printf("Idle Wi-Fi: %u scene builds for 10 timer ticks\n", builds);
+        if (builds != 0) { smoke_result_.failure = "idleWifiTimerRebuiltScene." + std::to_string(builds); return; }
+        if (!IsWindowVisible(hwnd_)) {
+            const auto angle = spin_;
+            handle(WM_TIMER, kTimerSpin, 0);
+            handle(WM_TIMER, kTimerUiClock, 0);
+            if (spin_ != angle || smoke_scene_builds_ != before) {
+                smoke_result_.failure = "hiddenVisualTimerUpdatedScene"; return;
+            }
+        }
+    }
     if (smoke_capture_stage_ == 0) {
         // Test real ribbon widgets without changing the displayed scene or
         // retaining another bitmap. A constrained monitor may be narrower than
@@ -981,8 +998,9 @@ void MainWindow::request_rebuild() {
 
 void MainWindow::rebuild() {
     if (!app_ || !ctx_) return;
-    if (offline_smoke_) smoke_capture_ready_ = false; // A changed scene must paint before its pixels are sampled.
+    if (offline_smoke_) { smoke_capture_ready_ = false; ++smoke_scene_builds_; } // A changed scene must paint before its pixels are sampled.
     if (!theme_applied_ || app_->settings().appearance != applied_appearance_) apply_theme();
+    update_visual_timers();
     const float w = width_dip(), h = height_dip();
     RECT caption{};
     const float scale = dpi_ / 96.0f;
@@ -1038,13 +1056,6 @@ void MainWindow::rebuild() {
         }
     }
     layout_edits();
-    const EngineSnapshot snap = app_->snapshot();
-    if ((snap.busy || app_->system_connectivity_running()) && !reduce_motion_) {
-        SetTimer(hwnd_, kTimerSpin, 50, nullptr);
-    } else {
-        KillTimer(hwnd_, kTimerSpin);
-        spin_ = 0;
-    }
     if (const Widget* headline = scene_.find("status.headline"); headline && headline->text != last_headline_) {
         last_headline_ = headline->text;
         access_->live_region("status.headline");
@@ -1052,6 +1063,20 @@ void MainWindow::rebuild() {
     access_->structure_changed();
     refresh_info();
     InvalidateRect(hwnd_, nullptr, FALSE);
+}
+
+void MainWindow::update_visual_timers() {
+    if (!app_) return;
+    const bool visible = IsWindowVisible(hwnd_) && !IsIconic(hwnd_);
+    const auto snap = app_->snapshot();
+    if (visible && (snap.busy || app_->system_connectivity_running()) && !reduce_motion_)
+        SetTimer(hwnd_, kTimerSpin, 50, nullptr);
+    else { KillTimer(hwnd_, kTimerSpin); spin_ = 0; }
+    // Cooldown text must advance even when Wi-Fi recovery has no work to do.
+    // The final tick also rebuilds once after expiration to refresh enabled actions.
+    if (visible && !snap.online && snap.cooldown_remaining)
+        SetTimer(hwnd_, kTimerUiClock, 1000, nullptr);
+    else KillTimer(hwnd_, kTimerUiClock);
 }
 
 // ---------------- native text fields ----------------
@@ -1558,6 +1583,7 @@ void MainWindow::update_tray() {
 
 void MainWindow::show_and_focus() {
     ShowWindow(hwnd_, IsIconic(hwnd_) ? SW_RESTORE : SW_SHOW);
+    rebuild();
     SetForegroundWindow(hwnd_);
 }
 
@@ -1677,6 +1703,9 @@ LRESULT MainWindow::handle(UINT message, WPARAM wparam, LPARAM lparam) {
             canvas_.resize(LOWORD(lparam), HIWORD(lparam));
             if (app_) rebuild();
             return 0;
+        case WM_SHOWWINDOW:
+            if (!wparam) { KillTimer(hwnd_, kTimerSpin); KillTimer(hwnd_, kTimerUiClock); spin_ = 0; }
+            break;
         case WM_GETMINMAXINFO: {
             auto* info = reinterpret_cast<MINMAXINFO*>(lparam);
             info->ptMinTrackSize.x = MulDiv(480, static_cast<int>(dpi_), 96);
@@ -1832,6 +1861,7 @@ LRESULT MainWindow::handle(UINT message, WPARAM wparam, LPARAM lparam) {
                 smoke_result_.failure = "timeout"; smoke_step(); return 0;
             }
             if (wparam == kTimerSpin) {
+                if (!IsWindowVisible(hwnd_) || IsIconic(hwnd_)) { update_visual_timers(); return 0; }
                 spin_ = std::fmod(spin_ + 18.0f, 360.0f);
                 InvalidateRect(hwnd_, nullptr, FALSE);
                 return 0;
@@ -1842,7 +1872,14 @@ LRESULT MainWindow::handle(UINT message, WPARAM wparam, LPARAM lparam) {
                 rebuild();
                 return 0;
             }
+            if (wparam == kTimerUiClock) {
+                if (!IsWindowVisible(hwnd_) || IsIconic(hwnd_)) { update_visual_timers(); return 0; }
+                rebuild();
+                update_tray();
+                return 0;
+            }
             if (app_) app_->on_timer(wparam);
+            if (wparam == kTimerWiFi) return 0; // Actual recovery/status changes post kMsgChanged.
             rebuild();
             update_tray();
             return 0;

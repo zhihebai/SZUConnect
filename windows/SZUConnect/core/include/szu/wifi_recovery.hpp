@@ -52,6 +52,7 @@ public:
     struct Request { std::vector<Network> networks; bool power_on; CancelToken token; };
     void update(std::vector<Network> selected, bool enabled, bool power_on,
                 bool allow_recovery, bool has_physical, bool sleeping);
+    bool ready(double now) const;
     std::optional<Request> begin(double now);
     void finish(Result, double now);
     void cancel();

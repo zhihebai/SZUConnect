@@ -49,9 +49,10 @@ public:
     bool launch_approved() override { return true; }
     bool set_launch(bool) override { return false; }
     szu::win::NetworkSnapshot capture_network() override {
-        szu::win::NetworkSnapshot snapshot; snapshot.access="none"; snapshot.path.link_active=false;
-        snapshot.path.usable=virtual_path; snapshot.path.tunnel=virtual_path;
-        snapshot.path.identity="fake-disconnected"; return snapshot;
+        szu::win::NetworkSnapshot snapshot; snapshot.access=physical_path ? "wifi" : "none";
+        snapshot.path.link_active=physical_path;
+        snapshot.path.usable=virtual_path || physical_path; snapshot.path.tunnel=virtual_path;
+        snapshot.path.identity=physical_path ? "fake-connected" : "fake-disconnected"; return snapshot;
     }
     szu::proxy::WindowsRaw read_proxy() override { return base_->read_proxy(); }
     std::string random_hex(std::size_t n) override { return base_->random_hex(n); }
@@ -66,7 +67,7 @@ public:
     }
     const std::string id="01234567";
     std::map<std::wstring,std::string> files;
-    bool fail_write=false, permitted_power=false, virtual_path=false;
+    bool fail_write=false, permitted_power=false, virtual_path=false, physical_path=false;
     std::atomic<bool> block{false};
     std::atomic<bool> release_wifi{false}, wifi_cancelled{false};
     int quarantines=0;
@@ -82,6 +83,61 @@ inline void wait_for(const std::function<bool()>& condition) {
 template<class Check> void run_wifi_runtime_tests(Check& check) {
     using namespace szu;
     using namespace szu::app;
+#ifdef _WIN32
+    {
+        const HWND window = CreateWindowExW(0, L"STATIC", L"Offline Wi-Fi notification fixture", 0,
+            0, 0, 0, 0, HWND_MESSAGE, nullptr, GetModuleHandleW(nullptr), nullptr);
+        check(window != nullptr, "isolated notification window is available");
+        if (window) {
+            auto services = std::make_unique<wifiruntime::Fake>(); auto* fake = services.get();
+            AppController app(window, RuntimeMode::normal, std::move(services)); app.start();
+            const auto drain_changes = [&] {
+                int count = 0; MSG message{};
+                while (PeekMessageW(&message, window, kMsgChanged, kMsgChanged, PM_REMOVE)) {
+                    ++count; app.on_changed();
+                }
+                return count;
+            };
+            drain_changes();
+            int changes = 0;
+            for (int i = 0; i < 10; ++i) {
+                app.on_timer(kTimerWiFi);
+                std::this_thread::sleep_for(std::chrono::milliseconds(20));
+                changes += drain_changes();
+            }
+            std::printf("Disabled Wi-Fi: %d worker-change notifications for 10 timer ticks\n", changes);
+            check(changes == 0 && fake->evidence().fake_wifi_calls == 0,
+                "disabled finding neither queues empty recovery work nor requests a display refresh");
+            app.set_wifi_auto_join(true); drain_changes();
+            fake->block = true;
+            app.on_timer(kTimerWiFi);
+            wifiruntime::wait_for([&] { return fake->evidence().fake_wifi_calls > 0; });
+            check(fake->evidence().fake_wifi_calls == 1 && app.wifi_status() == "searching" && drain_changes() > 0,
+                "enabling finding still admits due work and publishes the searching state");
+            fake->release_wifi = true;
+            wifiruntime::wait_for([&] { return app.wifi_status() != "searching"; });
+            std::this_thread::sleep_for(std::chrono::milliseconds(20)); drain_changes();
+            changes = 0;
+            for (int i = 0; i < 10; ++i) {
+                app.on_timer(kTimerWiFi);
+                std::this_thread::sleep_for(std::chrono::milliseconds(20));
+                changes += drain_changes();
+            }
+            check(changes == 0 && fake->evidence().fake_wifi_calls == 1 && app.wifi_status() == "waiting",
+                "retry backoff retains the result without empty work or redundant notifications");
+            fake->physical_path = true; app.refresh_environment(); drain_changes();
+            changes = 0;
+            for (int i = 0; i < 10; ++i) {
+                app.on_timer(kTimerWiFi);
+                std::this_thread::sleep_for(std::chrono::milliseconds(20));
+                changes += drain_changes();
+            }
+            check(changes == 0 && fake->evidence().fake_wifi_calls == 1 && app.wifi_status() == "connected",
+                "an existing physical connection suppresses empty work without changing the connection");
+            app.shutdown(); DestroyWindow(window);
+        }
+    }
+#endif
     {
         auto services=std::make_unique<wifiruntime::Fake>(); auto* fake=services.get();
         AppController app(nullptr,RuntimeMode::normal,std::move(services)); app.start();

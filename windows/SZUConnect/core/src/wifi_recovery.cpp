@@ -179,8 +179,11 @@ void Schedule::update(std::vector<Network> selected, bool enabled, bool power, b
     cancel(); selected_ = std::move(selected); enabled_ = enabled; power_on_ = power; allowed_ = allow; physical_ = physical; sleeping_ = sleeping;
     next_ = 0; failures_ = 0;
 }
+bool Schedule::ready(double now) const {
+    return !active_ && enabled_ && allowed_ && !physical_ && !sleeping_ && now >= next_ && (!selected_.empty() || power_on_);
+}
 std::optional<Schedule::Request> Schedule::begin(double now) {
-    if (active_ || !enabled_ || !allowed_ || physical_ || sleeping_ || now < next_ || (selected_.empty() && !power_on_)) return std::nullopt;
+    if (!ready(now)) return std::nullopt;
     token_ = CancelToken(); active_ = true;
     return Request{selected_, power_on_, token_};
 }
