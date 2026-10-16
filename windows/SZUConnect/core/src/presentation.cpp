@@ -429,7 +429,7 @@ json::Value diagnostics_export(const ExportContext& c, const HealthLog& health, 
     const json::Value events_json = events.to_json();
     root.set("samples", *health_json.find("samples"));
     root.set("events", *events_json.find("events"));
-    root.set("privacy", json::Value::string("No account, password, network name (SSID), website-check address or IP address is included."));
+    root.set("privacy", json::Value::string(std::string(copy::text("records.exportPrivacy"))));
     return root;
 }
 

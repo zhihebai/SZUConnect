@@ -13,6 +13,7 @@ using namespace szu::app;
 #include "manual_priority_runtime_tests.hpp"
 #include "settings_runtime_tests.hpp"
 #include "settings_preservation_runtime_tests.hpp"
+#include "verification_wait_runtime_tests.hpp"
 
 namespace {
 class NetworkNotificationFake final : public wifiruntime::Fake {
@@ -171,6 +172,7 @@ int main() {
     run_manual_priority_runtime_tests(check);
     run_settings_runtime_tests(check);
     run_settings_preservation_runtime_tests(check);
+    run_verification_wait_runtime_tests(check);
     for (const bool with_account : {true, false}) {
         auto services = std::make_unique<RecoveryPrerequisiteFake>(with_account); auto* fake = services.get();
         AppController app(nullptr, RuntimeMode::normal, std::move(services)); app.start();
@@ -435,6 +437,9 @@ int main() {
             check(fake->files == before, "failed or unconfirmed memory verification preserves every original fixture file");
         check(fake->discoveries == 1 && fake->evidence().fake_auth_submissions == 0 && fake->evidence().network_calls == 0,
               "memory verification makes one injected credential-free discovery and performs no authentication or native request");
+        fake->next_path = true; app.refresh_environment(); app.on_changed();
+        check(app.memory_verification_message().empty(),
+              "a completed memory result expires on a new path instead of becoming a false interrupted-verification warning");
         app.shutdown();
     }
     {
@@ -462,20 +467,25 @@ int main() {
               "failed campus-memory verification explains its result without erasing independent explicit session trust or persisting it");
         app.shutdown();
     }
-    for (const bool changed : {false, true}) {
+    for (const auto interruption : {"cancel", "path", "sleep"}) {
         auto services = std::make_unique<MemoryFeedbackFake>(); auto* fake = services.get();
         fake->confirmed = true; fake->block = true;
         AppController app(nullptr, RuntimeMode::normal, std::move(services)); app.start();
         const auto before = fake->files;
         app.remember_network(); wifiruntime::wait_for([&] { return fake->discoveries == 1; });
-        if (changed) { fake->next_path = true; app.on_network_signal(); app.on_timer(kTimerNetwork); }
+        if (std::string(interruption) == "path") { fake->next_path = true; app.on_network_signal(); app.on_timer(kTimerNetwork); }
+        else if (std::string(interruption) == "sleep") app.on_suspend();
         else app.cancel();
         fake->unblock();
         wifiruntime::wait_for([&] { app.on_changed(); return !app.snapshot().busy; });
         app.on_changed();
-        check(app.memory_verification_message() == (changed ? "memory.verification.changed" : "memory.verification.cancelled") &&
+        check(app.memory_verification_message() == (std::string(interruption) == "cancel" ? "memory.verification.cancelled" : "memory.verification.changed") &&
               !app.snapshot().remembered && !app.snapshot().trusted && fake->files == before,
               "cancel or a confirmed path boundary retains inline feedback and rejects late proof without remembering or trusting");
+        if (std::string(interruption) == "sleep") { app.on_resume(); app.on_timer(kTimerWake); }
+        wifiruntime::wait_for([&] { if (!fake->probes) app.check(); return fake->probes > 0; });
+        check(app.memory_verification_message().empty() && fake->discoveries == 1,
+              "a fresh manual check clears old memory feedback without retrying memory verification");
         app.shutdown();
     }
     {

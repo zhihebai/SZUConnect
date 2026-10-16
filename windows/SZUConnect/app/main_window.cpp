@@ -14,6 +14,7 @@
 
 #include "../resources/resource.h"
 #include "shared_copy.hpp"
+#include "shared_icons.hpp"
 #include "shared_tokens.hpp"
 #include "szu/win/system.hpp"
 
@@ -555,6 +556,10 @@ bool MainWindow::validate_smoke_scene() {
         }
     }
     for (const Widget& widget : scene_.widgets) {
+        if (!widget.icon.empty() && widget.icon != "appBrand" && icons::path(widget.icon).empty()) {
+            smoke_result_.failure = "missingIcon." + widget.id + "." + widget.icon;
+            return false;
+        }
         const auto& r = widget.rect;
         const bool finite = std::isfinite(r.left) && std::isfinite(r.top) && std::isfinite(r.right) && std::isfinite(r.bottom);
         const bool layer = widget.layer >= 0 && static_cast<std::size_t>(widget.layer) < scene_.layers.size();

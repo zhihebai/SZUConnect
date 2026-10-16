@@ -24,9 +24,8 @@ const Link kOfficialLinks[11] = {
     {"dormAccount", "https://www1.szu.edu.cn/nc/view.asp?id=249"},
     {"dormFAQ", "https://www1.szu.edu.cn/nc/view.asp?id=241"},
 };
-const Link kCreditLinks[2] = {
+const Link kCreditLinks[1] = {
     {"atmluck", "https://github.com/ATMLuck/AutoSZUWeb"},
-    {"jennie", "https://github.com/JennieYow/szu-net-autologin-mac"},
 };
 
 std::string U(std::string_view key) { return std::string(copy::text(key)); }

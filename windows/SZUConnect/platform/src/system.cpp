@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "szu/portal_wire.hpp"
+#include "shared_copy.hpp"
 
 #pragma comment(lib, "advapi32.lib")
 #pragma comment(lib, "bcrypt.lib")
@@ -49,7 +50,7 @@ bool CredentialVault::write(const Credentials& credentials) {
     if (!credentials.complete()) return false;
     std::wstring user = widen(credentials.account);
     std::string blob = credentials.password;
-    std::wstring comment = L"深大随连：校园网账户，仅保存在本机";
+    std::wstring comment = widen(copy::text("account.credentialComment"));
     CREDENTIALW credential{};
     credential.Type = CRED_TYPE_GENERIC;
     credential.TargetName = const_cast<LPWSTR>(kCredentialTarget);

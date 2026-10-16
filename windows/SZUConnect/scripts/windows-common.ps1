@@ -137,7 +137,7 @@ function Assert-SzuReceipt($Receipt, $Version) {
     if ($frameLabels.Count -ne $expectedFrames.Count -or (@($frameLabels | Sort-Object -Unique) -join ',') -cne (@($expectedFrames | Sort-Object) -join ',')) {
         throw 'Native visual layout scenarios are incomplete.'
     }
-    if ($Receipt.checks.aboutLinksChecked -ne 9) { throw 'About canonical link checks are incomplete.' }
+    if ($Receipt.checks.aboutLinksChecked -ne 6) { throw 'About canonical link checks are incomplete.' }
     if ($Receipt.visualQA.expectedFrames -ne $expectedFrames.Count -or $Receipt.checks.checkedLayouts -ne $expectedFrames.Count -or
         $Receipt.checks.fixedSheetHeadersChecked -ne 7 -or $Receipt.checks.helpLayoutsChecked -ne 4 -or
         $Receipt.checks.recordsLayoutsChecked -ne 3 -or $Receipt.checks.networkLayoutsChecked -ne 7) {
@@ -200,7 +200,7 @@ function Assert-SzuReceipt($Receipt, $Version) {
         $aboutFrame = @('about', 'about-detail', 'about-text150') -ccontains $frame.page
         $helpFrame = @('help', 'help-expanded', 'help-detail', 'help-text150') -ccontains $frame.page
         if ($aboutFrame -or $helpFrame) {
-            $expectedLinks = if ($aboutFrame) { 3 } else { 0 }
+            $expectedLinks = if ($aboutFrame) { 2 } else { 0 }
             if ($frame.selectionPixelCheck -cne 'notApplicableModal' -or $frame.selectionPixelSamples -ne 0 -or $frame.aboutLinksChecked -ne $expectedLinks) { throw 'Modal link or selection applicability check failed.' }
         } elseif ($frame.selectionPixelCheck -cne 'sampled' -or $frame.selectionPixelSamples -le 0) {
             throw 'Native choice selection pixels were not sampled.'

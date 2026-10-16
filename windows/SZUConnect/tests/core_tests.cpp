@@ -737,7 +737,8 @@ void engine_tests(Harness& t) {
         f.service.attempts["teaching"] = "success";
         f.engine->check();
         t.check(f.service.attempt_log.empty() && f.engine->snapshot().status == EngineStatus::offline, "manual check never authenticates");
-        t.check(!f.events.empty() && f.events.back().find("没有发起登录") != std::string::npos, "manual check explains no login");
+        t.check(!f.events.empty() && f.events.back() == copy::format("event.manualCheckFailed",
+            {{"reason", std::string(copy::text("diagnosis.unreachable.title"))}}), "manual check records its diagnostic result");
     }
     {
         EngineFixture f(MonitoringMode::observe, CampusArea::teaching, true);

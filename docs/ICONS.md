@@ -8,4 +8,4 @@
 | `python3 tools/make_icons.py` | 从几何母版生成 SVG、PNG、ICNS 与 ICO |
 | `python3 tools/generate_shared.py` | 生成平台图标路径表 |
 
-普通构建使用已提交资源。重新生成位图需要 Pillow、Node.js 和可解析的 `sharp` 模块；可通过 `SZU_SHARP` 指定模块位置。资产变化后检查小尺寸、浅色／深色主题和菜单栏模板效果。
+普通构建使用已提交的资源。重新生成位图需要 Pillow、Node.js 和 `sharp` 模块；可通过 `SZU_SHARP` 指定模块位置。修改后检查小尺寸、浅色／深色主题和菜单栏效果。

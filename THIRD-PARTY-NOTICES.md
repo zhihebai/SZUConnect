@@ -1,6 +1,6 @@
 # 第三方声明
 
-深大随连（SZUConnect）按 [MIT License](LICENSE) 发布。项目是非官方校园网工具，不代表深圳大学或上游项目提供官方背书。
+深大随连（SZUConnect）采用 [MIT 许可](LICENSE)，与深圳大学及上游项目无官方隶属关系。
 
 ## AutoSZUWeb
 
@@ -10,10 +10,6 @@
 - 用途：macOS 与 Windows 的 SRun 协议兼容实现。
 
 上游完整许可同时作为 `macos/SZUConnect/Resources/AutoSZUWeb-LICENSE.txt` 随 Apple 平台应用分发。再分发相关代码或实质部分时，应保留上游版权和完整许可文本。
-
-## 研究参考
-
-[JennieYow/szu-net-autologin-mac](https://github.com/JennieYow/szu-net-autologin-mac) 是校园认证参数与挑战校验的研究参考，链接保存在 `shared/links.json`。该链接不构成应用运行依赖。
 
 ## 系统框架与开发工具
 
@@ -49,6 +45,6 @@ SOFTWARE.
 
 ## libcurl
 
-Windows 的固定校园物理通道静态链接 libcurl 8.22.0，使用 Windows Schannel 和系统证书验证。上游来源为 https://curl.se/download/curl-8.22.0.tar.xz。构建使用固定源码，不下载任意预编译运行库。
+Windows 的校园直连通道静态链接 libcurl 8.22.0，使用 Windows Schannel 和系统证书验证。构建从固定版本的[上游源码](https://curl.se/download/curl-8.22.0.tar.xz)生成运行库。
 
 完整版权及许可见 [curl COPYING](docs/licenses/curl-COPYING.txt)，Windows 便携包同时包含 `curl-COPYING.txt`。

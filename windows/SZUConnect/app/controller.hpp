@@ -161,11 +161,12 @@ private:
     void persist_logs();
     bool is_failure_event(const std::string& text) const;
     records::ExportContext export_context() const;
-    void sleep_interruptible(double seconds);
     void clear_system_connectivity(bool recheck_after_network_refresh = false);
     void refresh_system_connectivity(bool recheck_only = false);
     void check_with_system_connectivity();
     void set_memory_verification_message(std::string key);
+    void clear_memory_verification_message();
+    bool memory_verification_pending() const;
     void invalidate_memory_verification(const char* key);
     void sync_memory_verification_epoch();
 
