@@ -8,7 +8,7 @@
 - Xcode 15.4+，含 macOS SDK；普通编译无需 iOS SDK。
 - Python 3，用于工程生成、资源检查与打包测试。
 
-校园通道使用 macOS 自带的 libcurl（SDK `-lcurl`），不附带代理引擎或外部命令行工具。普通编译使用仓库内已有图标；重新生成位图时才需要 Pillow、Node.js 和 `sharp`。
+校园通道使用系统 libcurl（SDK `-lcurl`）。普通编译使用仓库内已有图标；重新生成位图时需要 Pillow、Node.js 和 `sharp`。
 
 最低运行版本由工程配置和 `Info-*.plist` 定义。应用标识与系统凭据标识须保持兼容，避免影响已有数据访问。
 
@@ -20,7 +20,7 @@ python3 Scripts/generate_project.py
 bash Scripts/compile-local-mac.sh
 ```
 
-也可在 Xcode 中打开 `SZUConnect.xcodeproj`，选择 `SZUConnect-macOS` scheme。
+也可在 Xcode 中打开 `SZUConnect.xcodeproj`，选择 `SZUConnect-macOS` 构建方案（scheme）。
 
 编译脚本只生成未签名应用，不安装或启动。脚本会移除可执行文件中的本地调试映射；此步骤完成后，再签名和打包。
 
@@ -35,13 +35,13 @@ python3 Tests/test_artifact_scripts.py
 - `--observe-only`：检测真实网络，不读取钥匙串或请求 Wi-Fi 权限，也不提交账号密码、写入正式数据；主题可临时切换，退出后失效。
 - `--offline-preview`：使用隔离演示状态，不执行真实认证或网络恢复。
 
-可选 HTML 预览需要 Node.js、Playwright 和 Chromium。设置 `SZU_PREVIEW_BROWSER_CHANNEL=chrome` 可使用已安装的 Chrome；预览使用独立临时浏览器资料，不读取个人登录状态。
+HTML 预览需要 Node.js、Playwright 和 Chromium。设置 `SZU_PREVIEW_BROWSER_CHANNEL=chrome` 可使用已安装的 Chrome。预览使用独立临时浏览器配置，不读取个人登录状态。
 
 ## 分发
 
 公开分发使用发行者自己的 Developer ID 签名并完成 Apple 公证，保留定位权限配置（Location entitlement）与用途说明。Apple Development 和 ad hoc 签名仅用于开发测试。
 
-以下命令在 `macos/SZUConnect` 目录运行。尖括号内容为占位符，请替换为应用路径和源码仓库外的输出目录。脚本拒绝覆盖已有输出，不会安装或启动应用。
+以下命令在 `macos/SZUConnect` 目录运行。尖括号内容需替换为应用路径和仓库外的输出目录。打包不会安装或启动应用，也不覆盖已有输出。
 
 ### 本地打包
 
@@ -59,7 +59,7 @@ python3 Scripts/package-dmg.py \
   --notices '../../docs/DISTRIBUTION-NOTICES.txt'
 ```
 
-`--sign -` 与 `--sign-identity -` 表示 ad hoc 签名。打包脚本验证源应用签名与定位权限，为暂存副本签名，并核对两种架构的代码段及挂载、复制后的签名，最后生成 DMG 与回执。未签名应用会被拒绝。
+`--sign -` 与 `--sign-identity -` 表示 ad hoc 签名。脚本要求源应用已签名且保留定位权限，再为暂存副本签名。核对两种架构的代码段及挂载、复制后的签名后，生成 DMG 与回执。
 
 ### Developer ID 分发
 
@@ -73,7 +73,7 @@ python3 Scripts/package-dmg.py \
   --notices '../../docs/DISTRIBUTION-NOTICES.txt'
 ```
 
-脚本在源应用、暂存、挂载和复制阶段检查签名与公证票据，并分别验证应用和外层 DMG 的公证。
+脚本在源应用、暂存、挂载和复制阶段检查应用签名与公证票据。外层 DMG 的签名、公证需另行完成和核验。
 
 正式下载包的签名与公证状态见下载页。安装步骤见[安装说明](docs/INSTALLATION.md)。
 
@@ -81,7 +81,7 @@ python3 Scripts/package-dmg.py \
 
 工程保留 `SZUConnect-iOS` scheme，最低目标为 iOS／iPadOS 17，仅用于代码复用与编译探索，尚未发行。
 
-安装 iOS 与 iOS Simulator SDK 后，在 Xcode 中选择该 scheme。先检查模拟器编译，再按需验证设备签名、界面、权限与校园认证。
+安装 iOS 与 iOS Simulator SDK 后，在 Xcode 中选择该构建方案。先检查模拟器编译，再按需验证设备签名、界面、权限与校园认证。
 
 菜单栏、登录项、Wi-Fi 找网及后台运行需按 iOS 重新适配。编译完成后，设备功能仍需逐项验证。
 
