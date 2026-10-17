@@ -112,7 +112,8 @@ struct ConnectionPage: View {
         var parts = [SharedCopy.t(model.systemPathIsLeading || model.systemPathIsChecking ? "env.systemProbe" : "env.physicalProbe"), model.connectionKindTitle]
         if model.systemProxyActive { parts.append(SharedCopy.t("dashboard.proxy")) }
         if model.tunnelActive { parts.append(SharedCopy.t("dashboard.tunnel")) }
-        if let date = model.systemPathIsLeading ? model.systemConnectivityCheckedAt : model.lastCheckedAt {
+        if model.displayedConnectivity != nil,
+           let date = model.systemPathIsLeading ? model.systemConnectivityCheckedAt : model.lastCheckedAt {
             let mode = model.displayedConnectivity?.mode ?? model.lastProbeMode
             parts.append((mode?.title ?? "") + " " + date.formatted(date: .omitted, time: .standard))
         }

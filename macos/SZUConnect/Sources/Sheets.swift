@@ -137,9 +137,9 @@ struct NetworkDetailsView: View {
         Grid(alignment: .leading, horizontalSpacing: SharedTokens.spaceM, verticalSpacing: SharedTokens.spaceM) {
             GridRow(alignment: .top) {
                 Color.clear.frame(width: 70, height: 1).accessibilityHidden(true)
-                pathHeading("env.systemProbe", checkedAt: model.systemConnectivityCheckedAt,
+                pathHeading("env.systemProbe", checkedAt: model.systemConnectivity == nil ? nil : model.systemConnectivityCheckedAt,
                             running: model.systemConnectivityChecking)
-                pathHeading("env.physicalProbe", checkedAt: model.lastCheckedAt,
+                pathHeading("env.physicalProbe", checkedAt: model.lastInternetCheck == nil ? nil : model.lastCheckedAt,
                             running: model.physicalConnectivityChecking)
             }
             Divider().gridCellUnsizedAxes(.horizontal)
