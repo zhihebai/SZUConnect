@@ -685,9 +685,13 @@ D2D1_RECT_F centered_square(const D2D1_RECT_F& r, float size) {
     return D2D1::RectF(cx - size / 2, cy - size / 2, cx + size / 2, cy + size / 2);
 }
 
-void draw(Canvas& c, const Palette& p, const Widget& w, const D2D1_RECT_F& r, const Interaction& s, float spin) {
-    const bool hover = !w.id.empty() && s.hovered == w.id && w.enabled;
-    const bool pressed = hover && s.pressed == w.id;
+struct VisualState {
+    bool hovered, pressed, focused;
+};
+
+void draw(Canvas& c, const Palette& p, const Widget& w, const D2D1_RECT_F& r, const VisualState& s, float spin) {
+    const bool hover = s.hovered;
+    const bool pressed = s.pressed;
     const float alpha = w.enabled ? 1.0f : 0.45f;
     switch (w.kind) {
         case Kind::panel:
@@ -896,7 +900,7 @@ void draw(Canvas& c, const Palette& p, const Widget& w, const D2D1_RECT_F& r, co
             break;
         }
         case Kind::field: {
-            const bool focused = s.focused == w.id;
+            const bool focused = s.focused;
             const float inset = std::max(0.0f, (r.bottom - r.top - std::max(tokens::kSizeDesktopInputVisualHeight, c.line_height(TextStyle::body) + 8)) / 2);
             const auto visual = D2D1::RectF(r.left, r.top + inset, r.right, r.bottom - inset);
             c.fill_round(visual, tokens::kRadiusSmall, p.surface);
@@ -909,6 +913,15 @@ void draw(Canvas& c, const Palette& p, const Widget& w, const D2D1_RECT_F& r, co
 }  // namespace
 
 void paint(Canvas& canvas, const Palette& palette, const Scene& scene, const Interaction& state, float width, float height, float spin) {
+    // Resolve feedback through the same top-layer target used by activation.
+    const auto target = [&scene](const std::string& id) -> const Widget* {
+        const Widget* widget = scene.find(id);
+        return widget && widget->enabled && widget->layer == scene.top_layer() ? widget : nullptr;
+    };
+    const Widget* hovered = target(state.hovered);
+    const Widget* pressed = target(state.pressed);
+    const Widget* focused = target(state.focused);
+    if (focused && !focused->focusable) focused = nullptr;
     canvas.clear(palette.background);
     for (int layer = 0; layer <= scene.top_layer(); ++layer) {
         const Layer& l = scene.layers[static_cast<std::size_t>(layer)];
@@ -935,8 +948,9 @@ void paint(Canvas& canvas, const Palette& palette, const Scene& scene, const Int
                     if (visible.right < l.viewport.left || visible.left > l.viewport.right ||
                         visible.bottom < l.viewport.top || visible.top > l.viewport.bottom) continue;
                 }
-                draw(canvas, palette, w, w.rect, state, spin);
-                if (!state.focused.empty() && w.id == state.focused && w.kind != Kind::field && layer == scene.top_layer()) {
+                const VisualState feedback{&w == hovered, &w == hovered && &w == pressed, &w == focused};
+                draw(canvas, palette, w, w.rect, feedback, spin);
+                if (feedback.focused && w.kind != Kind::field) {
                     if (info_button(w)) {
                         const float size = tokens::kSizeIconSmall + 2 * tokens::kSpaceXs;
                         canvas.stroke_round(centered_square(w.rect, size), size / 2, palette.focus_ring, tokens::kSizeFocusRingWidth);
