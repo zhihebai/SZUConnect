@@ -2,6 +2,8 @@
 
 深大随连适用于深圳大学粤海、丽湖校区，可以检测联网、登录校园网，并按设置自动重连。首次使用可跟随应用内引导，之后可在“设置”中重新打开“使用教程”。
 
+图文版：[项目说明与使用教程（PDF）](https://github.com/zhihebai/SZUConnect/releases/download/v1.0.0/SZUConnect-Guide.pdf)。
+
 ## 安装应用
 
 - Windows：下载并运行 EXE，或解压 ZIP 后运行 `SZUConnect.exe`。
