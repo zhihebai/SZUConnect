@@ -90,6 +90,10 @@ public:
         if (mode_ == RuntimeMode::observeOnly) return false;
         ++evidence_.vault_accesses; return win::CredentialVault::write(c);
     }
+    bool erase_credentials() override {
+        if (mode_ != RuntimeMode::normal) return false;
+        ++evidence_.vault_accesses; return win::CredentialVault::remove();
+    }
     bool launch_enabled() override { return win::Autostart::enabled(); }
     bool launch_approved() override { return win::Autostart::approved(); }
     bool set_launch(bool enable) override {
@@ -167,9 +171,11 @@ public:
     bool quarantine(const wchar_t*) override { return false; }
     bool storage_available() const override { return true; }
     win::CredentialVault::ReadStatus read_credentials(Credentials& out) override {
-        out = {"offline-fixture", "offline-password"}; return win::CredentialVault::ReadStatus::found;
+        if (!credentials_) return win::CredentialVault::ReadStatus::missing;
+        out = *credentials_; return win::CredentialVault::ReadStatus::found;
     }
-    bool write_credentials(const Credentials&) override { return true; }
+    bool write_credentials(const Credentials& value) override { credentials_ = value; return true; }
+    bool erase_credentials() override { credentials_.reset(); return true; }
     bool launch_enabled() override { return launch_; }
     bool launch_approved() override { return true; }
     bool set_launch(bool enable) override { launch_ = enable; return true; }
@@ -188,6 +194,7 @@ private:
     std::map<std::wstring, std::string> files_; // controller/worker serialize writes through existing engine gates
     std::mutex files_mutex_;
     bool launch_ = false;
+    std::optional<Credentials> credentials_{Credentials{"offline-fixture", "offline-password"}};
 };
 }  // namespace
 std::unique_ptr<RuntimeServices> make_runtime(RuntimeMode mode) {

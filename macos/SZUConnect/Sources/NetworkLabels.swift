@@ -52,6 +52,14 @@ struct NetworkLabels: Equatable, Sendable {
 
     func displayName(for id: String) -> String { entries[id]?.displayName ?? Self.unnamed }
 
+    /// Presentation only; equal names do not establish equal network identities.
+    func sameNameIndex(for id: String, among ids: [String]) -> Int? {
+        let name = displayName(for: id)
+        let matching = ids.filter { displayName(for: $0) == name }.sorted()
+        guard matching.count > 1, let index = matching.firstIndex(of: id) else { return nil }
+        return index + 1
+    }
+
     @discardableResult
     mutating func updateAutomatic(id: String, displayName: String, kind: NetworkLabelKind, ssid: String? = nil) -> Bool {
         guard Self.validID(id), entries[id] != nil || entries.count < 64 else { return false }

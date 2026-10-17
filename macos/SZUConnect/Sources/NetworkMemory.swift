@@ -118,6 +118,31 @@ struct NetworkMemory: Sendable {
         return ids
     }
 
+    /// Exact duplicates or the same known gateway. A missing gateway never bridges two records.
+    func equivalentIDs(id: String) -> [String] {
+        guard let selected = records.first(where: { $0.id == id }) else { return [] }
+        return records.compactMap { record in
+            if record.id == id || record.features == selected.features { return record.id }
+            if let gateway = selected.features["gw"], record.features["gw"] == gateway {
+                let level = Self.compare(stored: selected.features, current: record.features)
+                if level == .medium || level == .strong { return record.id }
+            }
+            return nil
+        }
+    }
+
+    func mergeCandidates(_ descriptor: NetworkDescriptor, now: Date) -> [String] {
+        guard hasSalt, descriptor.isReliable else { return [] }
+        let current = hashed(descriptor)
+        let candidates = records.filter { record in
+            guard record.verified + Self.expiry >= now.timeIntervalSince1970 else { return false }
+            let level = Self.compare(stored: record.features, current: current)
+            return level == .medium || level == .strong
+        }
+        guard candidates.count > 1, Set(candidates.compactMap { $0.features["gw"] }).count <= 1 else { return [] }
+        return candidates.map(\.id)
+    }
+
     // MARK: mutation
 
     private static func isHex(_ text: String, min: Int, max: Int) -> Bool {
@@ -137,18 +162,33 @@ struct NetworkMemory: Sendable {
         guard hasSalt, descriptor.isReliable else { return nil }
         prune(now: now)
         let current = hashed(descriptor)
-        for index in records.indices {
-            let level = Self.compare(stored: records[index].features, current: current)
-            if level == .medium || level == .strong {   // the same network: refresh in place
-                records[index].features = current
-                records[index].verified = now.timeIntervalSince1970
-                if !area.isEmpty { records[index].area = area }
-                // A fresh teaching-only proof cannot refresh the fingerprint or expiry of an old
-                // dormitory authorization while silently retaining that older proof.
-                records[index].proofTeaching = proofTeaching
-                records[index].proofDormitory = proofDormitory
-                return records[index].id
+        let candidates = records.indices.filter {
+            let level = Self.compare(stored: records[$0].features, current: current)
+            return level == .medium || level == .strong
+        }
+        if let index = candidates.reduce(nil as Int?, { best, candidate in
+            guard let best else { return candidate }
+            let candidateRank = Self.rank(Self.compare(stored: records[candidate].features, current: current))
+            let bestRank = Self.rank(Self.compare(stored: records[best].features, current: current))
+            if candidateRank != bestRank { return candidateRank > bestRank ? candidate : best }
+            return records[best].features["gw"] == nil && records[candidate].features["gw"] != nil ? candidate : best
+        }) {
+            let id = records[index].id
+            let gateways = Set(candidates.compactMap { records[$0].features["gw"] })
+            var refreshed = current
+            for label in ["gw", "gwip", "net"] where refreshed[label] == nil {
+                refreshed[label] = records[index].features[label]
             }
+            records[index].features = refreshed
+            records[index].verified = now.timeIntervalSince1970
+            if !area.isEmpty { records[index].area = area }
+            records[index].proofTeaching = proofTeaching
+            records[index].proofDormitory = proofDormitory
+            if gateways.count <= 1 {
+                let redundant = Set(candidates.filter { $0 != index }.map { records[$0].id })
+                records.removeAll { redundant.contains($0.id) }
+            }
+            return id
         }
         guard Self.isHex(newID, min: 8, max: 32) else { return nil }
         records.append(MemoryRecord(id: newID, created: now.timeIntervalSince1970, verified: now.timeIntervalSince1970, area: area,

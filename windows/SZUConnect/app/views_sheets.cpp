@@ -276,7 +276,22 @@ void network_sheet(Builder& b, ViewContext& ctx, const EngineSnapshot& snap, boo
     const auto direct = app.internet_report();
     b.gap(tokens::kSpaceM);
     b.card_begin("surfaceMuted", "", tokens::kSpaceM, tokens::kRadiusMedium);
-    b.text(T("env.pathComparison"), TextStyle::callout_strong, "textPrimary"); b.gap(tokens::kSpaceS);
+    const bool public_check_running = snap.busy && !snap.verifying_memory;
+    const bool checking = public_check_running || app.system_connectivity_running();
+    const auto check_label = T(checking ? "action.cancel" : "action.check");
+    const auto check_icon = checking ? "x" : "refresh";
+    const float check_width = b.measure_button(check_label, check_icon);
+    b.row({[](Builder& title) {
+        const auto label = T("env.pathComparison");
+        title.gap(std::max(0.0f, (tokens::kSizeMinTarget - title.measure_text(label, TextStyle::callout_strong, title.width()).height) / 2));
+        title.text(label, TextStyle::callout_strong, "textPrimary", Role::heading);
+    }, [&ctx, &snap, checking, check_label, check_icon](Builder& action) {
+        action.button("network.check", check_label, ButtonStyle::secondary, [&ctx, checking] {
+            if (checking) ctx.app.cancel(); else ctx.app.check();
+            ctx.refresh();
+        }, check_icon, false, checking || !snap.busy);
+    }}, {0, check_width}, tokens::kSpaceS, 100);
+    b.gap(tokens::kSpaceS);
     const float site_width = std::max(72.0f, std::ceil(b.measure_text(L"Microsoft", TextStyle::caption, 10000).width));
     const auto comparison_row = [&b, site_width](const std::wstring& label, const std::wstring& system_text, const std::wstring& direct_text) {
         b.row({[label](Builder& c) { c.text(label, TextStyle::caption, "textSecondary"); },
@@ -284,7 +299,6 @@ void network_sheet(Builder& b, ViewContext& ctx, const EngineSnapshot& snap, boo
             [direct_text](Builder& c) { c.text(direct_text, TextStyle::caption, "textPrimary"); }}, {site_width, 0, 0}, tokens::kSpaceM, 56);
     };
     comparison_row(L"", T("env.systemProbe"), T("env.physicalProbe")); b.gap(tokens::kSpaceS);
-    const bool public_check_running = snap.busy && !snap.verifying_memory;
     const bool system_waiting = app.system_connectivity_running() && !system;
     comparison_row(L"Apple", system_waiting ? T("dashboard.checking") : probe_result(system ? &system->apple : nullptr),
         public_check_running ? T("dashboard.checking") : probe_result(direct ? &direct->base.apple : nullptr)); b.gap(tokens::kSpaceS);
@@ -514,7 +528,7 @@ void help_sheet(Builder& b, ViewContext& ctx) {
     b.card_end();
 }
 
-void about_sheet(Builder& b, ViewContext&) {
+void about_sheet(Builder& b, ViewContext& ctx) {
     // About presents brand, developer, credits, then storage and privacy.
     b.card_begin("surface", "border", tokens::kSpaceL, tokens::kRadiusLarge);
     const auto name = T("app.name"), tagline = T("app.tagline");
@@ -569,6 +583,13 @@ void about_sheet(Builder& b, ViewContext&) {
     sheet_section_heading(b, "about.storage.title", "lock", T("about.storage.title"));
     b.gap(tokens::kSpaceM);
     b.text(T("about.storage.body"), TextStyle::callout, "textSecondary");
+    b.gap(tokens::kSpaceM);
+    b.button("about.deleteAccount", T("account.delete"), ButtonStyle::secondary,
+        [&ctx] { ctx.ui.account_feedback.clear(); ctx.open("accountDelete"); }, "", false,
+        ctx.app.can_delete_account());
+    if (ctx.ui.account_feedback == "account.deleted") {
+        b.gap(tokens::kSpaceS); b.text(T("account.deleted"), TextStyle::caption, "success", Role::status);
+    }
     b.card_end();
 }
 
@@ -703,7 +724,7 @@ void build_overlay(Builder& b, ViewContext& ctx, const std::string& name, const 
     } else if (name == "memoryRename") {
         b.field("memory.name", T("memory.renameTitle"), L"", false, false);
         b.gap(tokens::kSpaceM);
-        b.text(T("memory.namesPrivacy"), TextStyle::caption, "textSecondary");
+        b.text(T("memory.renameDetail"), TextStyle::caption, "textSecondary");
         if (!ctx.ui.network_name_error.empty()) b.text(T(ctx.ui.network_name_error), TextStyle::caption, "danger", Role::status);
         b.gap(tokens::kSpaceM);
         dialog_actions({{"memory.nameCancel", T("memory.nameCancel"), ButtonStyle::plain, [&ctx] { ctx.close(); }, ""},
@@ -711,6 +732,26 @@ void build_overlay(Builder& b, ViewContext& ctx, const std::string& name, const 
             if (ctx.app.rename_network(ctx.ui.network_name_id, win::narrow(ctx.ui.network_name_draft))) ctx.close();
             else { ctx.ui.network_name_error = "error.storage"; ctx.refresh(); }
         }, "", !ctx.app.read_only() && !NetworkLabels::clean_name(win::narrow(ctx.ui.network_name_draft)).empty()}});
+    } else if (name == "memoryForget") {
+        b.text(F("memory.forgetConfirmDetail", {{"name", ctx.app.network_display_name(ctx.ui.network_name_id)}}), TextStyle::callout, "textSecondary");
+        b.gap(tokens::kSpaceM);
+        dialog_actions({{"memory.forgetCancel", T("action.cancel"), ButtonStyle::plain, [&ctx] { ctx.close(); }, ""},
+            {"memory.forgetConfirm", T("memory.forget"), ButtonStyle::secondary, [&ctx] {
+                ctx.app.forget_network(ctx.ui.network_name_id); ctx.close();
+            }, "", !ctx.app.read_only()}});
+    } else if (name == "accountDelete") {
+        b.text(T("account.deleteDetail"), TextStyle::callout, "textSecondary");
+        if (ctx.ui.account_feedback == "account.deleteFailed") {
+            b.gap(tokens::kSpaceS); b.text(T("account.deleteFailed"), TextStyle::caption, "danger", Role::status);
+        }
+        b.gap(tokens::kSpaceM);
+        dialog_actions({{"account.deleteCancel", T("action.cancel"), ButtonStyle::plain, [&ctx] { ctx.close(); }, ""},
+            {"account.deleteConfirm", T("account.delete"), ButtonStyle::secondary, [&ctx] {
+                ctx.ui.reload_account_inputs = true;
+                if (ctx.app.delete_account()) {
+                    ctx.ui.account_feedback = "account.deleted"; ctx.ui.reload_account_inputs = true; ctx.close();
+                } else { ctx.ui.account_feedback = "account.deleteFailed"; ctx.refresh(); }
+            }, "", ctx.app.can_delete_account()}});
     } else if (name == "network") network_sheet(b, ctx, snap);
     else if (name == "help") help_sheet(b, ctx);
     else if (name == "about") about_sheet(b, ctx);

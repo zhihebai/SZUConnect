@@ -41,6 +41,27 @@ struct NetworkMemoryTests {
             let hashed = hasher.hashed(NetworkDescriptor(kind: "wifi", raw: [label: item["raw"] as? String ?? ""]))
             check(hashed[label] == item["expected"] as? String, "known-answer hash \(label) interoperates with C++ and Python")
         }
+        for item in doc["refresh"] as? [[String: Any]] ?? [] {
+            let date = Date(timeIntervalSince1970: item["now"] as? Double ?? 0)
+            func stored(_ records: [[String: Any]]) -> NetworkMemory {
+                let hashedRecords = records.map { raw -> [String: Any] in
+                    var record = raw
+                    record["features"] = hasher.hashed(descriptor(raw["features"]))
+                    return record
+                }
+                let bytes = try! JSONSerialization.data(withJSONObject: ["schema": 1, "salt": salt, "records": hashedRecords])
+                return NetworkMemory.decode(bytes, now: date)!
+            }
+            var before = stored(item["before"] as? [[String: Any]] ?? [])
+            let expected = item["expected"] as? [String: Any] ?? [:]
+            let result = before.remember(descriptor(item["current"]), area: item["area"] as? String ?? "",
+                                         proofTeaching: item["proofTeaching"] as? Bool ?? false,
+                                         proofDormitory: item["proofDormitory"] as? Bool ?? false,
+                                         now: date, newID: item["newID"] as? String ?? "")
+            check(result == expected["selectedID"] as? String
+                  && before.records == stored(expected["records"] as? [[String: Any]] ?? []).records,
+                  "shared refresh \(item["id"] as? String ?? "?") agrees with C++ and Python")
+        }
 
         // ---- store behaviour
         let now = Date(timeIntervalSince1970: 1_750_000_000)
@@ -90,6 +111,64 @@ struct NetworkMemoryTests {
         check(overlapping.matchAny([complete], now: now, requireDormitoryProof: true).record == dormitory
               && overlapping.matchAny([complete], now: now, requireDormitoryProof: true).level == .medium,
               "Dormitory authorization selects a weaker eligible record rather than the teaching-only best match")
+        let merged = overlapping.remember(complete, area: "teaching", proofTeaching: true, proofDormitory: false,
+                                          now: now.addingTimeInterval(60), newID: identifier(5))
+        check(merged == teaching && overlapping.count == 1, "Fresh complete evidence folds overlapping partial records into the strongest match")
+        check(overlapping.records.first?.proofDormitory == false && overlapping.records.first?.area == "teaching",
+              "Combining records retains only the current operation's campus proof")
+        check(overlapping.records.first?.created == now.timeIntervalSince1970,
+              "Combining records preserves the retained ID and original creation date")
+        _ = overlapping.remember(desc(nil, "172.30.0.1", "172.30.0.0/20"), area: "teaching", proofTeaching: true,
+                                  proofDormitory: false, now: now.addingTimeInterval(120), newID: identifier(6))
+        check(overlapping.records.first?.features["gw"] == hasher.hashed(complete)["gw"],
+              "Temporary loss of gateway hardware metadata does not erase known identity evidence")
+        check(overlapping.match(desc("b8:27:eb:44:55:66"), now: now.addingTimeInterval(120)).level == .conflict,
+              "Preserved gateway metadata still rejects a different router using the same address")
+
+        var strongest = NetworkMemory(salt: salt)
+        let weakerID = strongest.remember(desc(nil, "172.30.0.1", "172.30.0.0/20"), area: "teaching",
+                                          proofTeaching: true, proofDormitory: false, now: now, newID: identifier(50))
+        let strongerID = strongest.remember(desc(gateway, nil, "172.30.0.0/20"), area: "dormitory",
+                                            proofTeaching: true, proofDormitory: true, now: now, newID: identifier(51))
+        check(weakerID != strongerID && strongest.count == 2, "Disjoint partial observations remain separate until fresh combined evidence")
+        let strongestID = strongest.remember(complete, area: "dormitory", proofTeaching: true, proofDormitory: true,
+                                             now: now.addingTimeInterval(60), newID: identifier(52))
+        check(strongestID == strongerID && strongest.count == 1, "The strongest match wins even when it is not first")
+
+        var conflicting = NetworkMemory(salt: salt)
+        let gatewayOne = conflicting.remember(complete, area: "dormitory", proofTeaching: true, proofDormitory: true,
+                                              now: now, newID: identifier(53))!
+        let gatewayTwo = conflicting.remember(desc("b8:27:eb:44:55:66"), area: "dormitory", proofTeaching: true,
+                                              proofDormitory: true, now: now, newID: identifier(54))!
+        _ = conflicting.remember(desc(nil), area: "teaching", proofTeaching: true, proofDormitory: false,
+                                  now: now.addingTimeInterval(60), newID: identifier(55))
+        check(conflicting.count == 2 && Set(conflicting.records.compactMap { $0.features["gw"] }).count == 2,
+              "A gateway-free observation cannot join records from different routers")
+        check(conflicting.equivalentIDs(id: gatewayOne) == [gatewayOne]
+              && conflicting.equivalentIDs(id: gatewayTwo) == [gatewayTwo],
+              "Per-record revocation never bridges different gateways through an address or subnet")
+
+        var duplicateJSON = try! JSONSerialization.jsonObject(with: strongest.encoded()) as! [String: Any]
+        var duplicateRecords = duplicateJSON["records"] as! [[String: Any]]
+        var duplicate = duplicateRecords[0]
+        let duplicateID = identifier(56)
+        duplicate["id"] = duplicateID
+        duplicateRecords.append(duplicate)
+        duplicateJSON["records"] = duplicateRecords
+        let oldDuplicates = NetworkMemory.decode(try! JSONSerialization.data(withJSONObject: duplicateJSON), now: now)!
+        check(Set(oldDuplicates.equivalentIDs(id: strongestID!)) == [strongestID!, duplicateID],
+              "Revocation finds all historical copies with the same reliable identity")
+        check(oldDuplicates.equivalentIDs(id: identifier(57)).isEmpty, "An unknown record has no revocation group")
+        var partialFeatures = duplicateRecords[0]["features"] as! [String: String]
+        partialFeatures.removeValue(forKey: "gw")
+        duplicateRecords[0]["features"] = partialFeatures
+        duplicateJSON["records"] = duplicateRecords
+        var equalRanks = NetworkMemory.decode(try! JSONSerialization.data(withJSONObject: duplicateJSON), now: now)!
+        let keptGateway = equalRanks.remember(desc(nil), area: "teaching", proofTeaching: true, proofDormitory: false,
+                                               now: now.addingTimeInterval(120), newID: identifier(58))
+        check(keptGateway == duplicateID && equalRanks.count == 1
+              && equalRanks.records.first?.features["gw"] == hasher.hashed(complete)["gw"],
+              "Equal-rank duplicates retain the record with known gateway hardware evidence")
 
         var many = NetworkMemory(salt: "00112233445566778899aabbccddeeff")
         for i in 0..<10 {

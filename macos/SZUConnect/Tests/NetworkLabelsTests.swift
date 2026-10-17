@@ -17,6 +17,19 @@ import Foundation
         expect(!labels.entries[one]!.manualName, "automatic metadata")
         expect(labels.updateAutomatic(id: two, displayName: "宿舍 USB 网卡", kind: .ethernet), "create observed ethernet")
         expect(labels.displayName(for: two) == "宿舍 USB 网卡", "show system network service")
+        expect(labels.sameNameIndex(for: one, among: [one, two]) == nil, "unique display names need no number")
+        var sameNames = labels
+        _ = sameNames.updateAutomatic(id: three, displayName: "SZU-Campus", kind: .wifi, ssid: "SZU-Campus")
+        expect(sameNames.sameNameIndex(for: one, among: [one, two, three]) == 1
+            && sameNames.sameNameIndex(for: three, among: [one, two, three]) == 2,
+            "same names are distinguished by stable record order")
+        expect(sameNames.sameNameIndex(for: one, among: [three, two, one]) == 1
+            && sameNames.sameNameIndex(for: three, among: [three, two, one]) == 2,
+            "refreshing list order does not renumber the same identities")
+        expect(sameNames.entries.count == 3 && sameNames.entries[one]?.ssid == sameNames.entries[three]?.ssid,
+            "numbering keeps independent identities and exact SSIDs")
+        expect(sameNames.sameNameIndex(for: three, among: [two, three]) == nil,
+            "numbering disappears when only one same-named record remains")
         expect(labels.rename(id: one, to: "宿舍的校园 Wi-Fi"), "manual rename succeeds")
         expect(labels.entries[one]?.manualName == true, "manual name marked")
         expect(labels.entries[one]?.ssid == "SZU-Campus", "rename never modifies actual SSID")

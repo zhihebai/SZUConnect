@@ -272,6 +272,21 @@ struct WiFiRecoveryTests {
         reloaded.setNetworkSelected(first.id, selected: true)
         check(reloaded.selectedNetworkIDs == [first.id, second.id], "a remembered Wi-Fi can be explicitly allowed again")
 
+        let mergeURL = directory.appendingPathComponent("merge-exclusions.json")
+        let merge = WiFiRecoveryController(preferencesURL: mergeURL, service: PreviewWiFiRecoveryService(),
+            startAutomatically: false, requestsSystemPermission: false)
+        merge.updateContext(allowRecovery: true, hasPhysicalConnection: true, sleeping: false, allowedNetworks: [first, second])
+        check(merge.preserveExclusionsBeforeMerging([]) && merge.preserveExclusionsBeforeMerging([first.id]),
+              "A refresh without consolidation has no preference side effect")
+        check(merge.preserveExclusionsBeforeMerging([first.id, second.id]) && merge.selectedNetworkIDs == [first.id, second.id]
+              && !FileManager.default.fileExists(atPath: mergeURL.path),
+              "Consolidation without opt-outs does not write or change selection")
+        merge.setNetworkSelected(second.id, selected: false)
+        check(merge.preserveExclusionsBeforeMerging([first.id, second.id]) && merge.selectedNetworkIDs.isEmpty,
+              "One excluded duplicate prevents both possible retained identities from automatic finding")
+        check(Set(try WiFiRecoveryPreferences.read(mergeURL).excludedNetworkIDs ?? []) == [first.id, second.id],
+              "The entire consolidation group's opt-out is durable before memory changes")
+
         // Decode old schema 1 files without the new optional exclusion field.
         for hadChoice in [false, true] {
             let legacyURL = directory.appendingPathComponent("legacy-\(hadChoice).json")
@@ -309,6 +324,8 @@ struct WiFiRecoveryTests {
         readOnlyModel.setAutoJoinEnabled(false)
         readOnlyModel.setPowerOnWhenDisconnected(false)
         readOnlyModel.setNetworkSelected(first.id, selected: false)
+        check(!readOnlyModel.preserveExclusionsBeforeMerging([first.id, second.id]),
+              "Read-only controller refuses a memory consolidation preference transaction")
         readOnlyModel.requestWiFiNamePermission()
         check(readOnlyModel.autoJoinEnabled && readOnlyModel.powerOnWhenDisconnected
               && readOnlyModel.selectedNetworkIDs == [first.id, second.id],
@@ -350,6 +367,8 @@ struct WiFiRecoveryTests {
               "full exclusion storage stops recovery instead of dropping any earlier opt-out")
         check(try WiFiRecoveryPreferences.read(fullExclusionsURL).excludedNetworkIDs?.count == 64,
               "exclusion history stays bounded when its safety limit is reached")
+        check(!fullModel.preserveExclusionsBeforeMerging(["excluded-0", first.id]) && !fullModel.autoJoinEnabled,
+              "Exclusion capacity exhaustion stops consolidation without dropping older choices")
 
         for (index, data) in [Data("broken".utf8), Data("{\"schemaVersion\":2,\"autoJoinEnabled\":true,\"powerOnWhenDisconnected\":true,\"selections\":[]}".utf8), Data(repeating: 1, count: 16_385)].enumerated() {
             let badURL = directory.appendingPathComponent("bad-\(index).json")
@@ -396,6 +415,9 @@ struct WiFiRecoveryTests {
         check(!blocked.autoJoinEnabled, "failed persistence cannot enable recovery")
         check(try WiFiRecoveryPreferences.read(backupFolder.appendingPathComponent("wifi-recovery.json")).autoJoinEnabled,
               "write failure does not corrupt previously saved data")
+        blocked.updateContext(allowRecovery: true, hasPhysicalConnection: false, sleeping: false, allowedNetworks: [first, second])
+        check(!blocked.preserveExclusionsBeforeMerging([first.id, second.id]) && blocked.selectedNetworkIDs.isEmpty,
+              "Failed consolidation preference save still excludes every group member in memory")
 
         // Controller cancellation reaches the exact token the real serial service checks after its scan.
         let scanGate = BlockingScan()

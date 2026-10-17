@@ -94,6 +94,7 @@ AppController::AppController(HWND window, RuntimeMode mode, std::unique_ptr<Runt
     hooks.now = [] { return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count(); };
     hooks.sleep_cancellable = [](double seconds, const CancelToken& token) { token.wait_for(seconds); };
     hooks.persist_credentials = [this](const Credentials& c) { return !read_only_ && runtime_->write_credentials(c); };
+    hooks.erase_credentials = [this] { return !read_only_ && runtime_->erase_credentials(); };
     hooks.wall_now = [] { return wall_now(); };
     hooks.persist_recovery = [this](const std::string& data) { return runtime_->write(L"recovery.json", data); };
     hooks.persist_memory = [this](const std::string& data) { return runtime_->write(L"network-memory.json", data); };  // atomic; failure keeps the old file
@@ -113,7 +114,7 @@ AppController::AppController(HWND window, RuntimeMode mode, std::unique_ptr<Runt
         }
         post_changed();
     };
-    if (read_only_) { hooks.persist_credentials = {}; hooks.persist_recovery = {}; hooks.persist_memory = {}; }
+    if (read_only_) { hooks.persist_credentials = {}; hooks.erase_credentials = {}; hooks.persist_recovery = {}; hooks.persist_memory = {}; }
     engine_ = std::make_unique<ConnectionEngine>(internet_service_, std::move(hooks), read_only_);
     // Failure detection for "只看失败": fixed parts of the failure event templates.
     for (const char* key : {"event.failed", "event.manualCheckFailed"}) {
@@ -139,7 +140,7 @@ void AppController::start() {
     std::optional<Credentials> stored;
     switch (runtime_->read_credentials(saved)) {
         case win::CredentialVault::ReadStatus::found: stored = saved; break;
-        case win::CredentialVault::ReadStatus::failed: notice_ = "account.readFailed"; break;
+        case win::CredentialVault::ReadStatus::failed: credential_read_failed_ = true; notice_ = "account.readFailed"; break;
         case win::CredentialVault::ReadStatus::missing: break;
     }
     win::wipe(saved.password);
@@ -330,6 +331,7 @@ void AppController::on_changed() {
                 case ConnectionEngine::RememberResult::needsProof: break;
             }
             set_memory_verification_message(key);
+            memory_verification_merge_ids_.clear();
         }
     }
     refresh_network_labels();
@@ -511,6 +513,23 @@ void AppController::refresh_network_labels() {
     update_wifi_context();
 }
 
+std::string AppController::network_display_name(const std::string& id) const {
+    const auto name = network_name(id);
+    const auto records = remembered_networks();
+    std::vector<std::string> same;
+    for (const auto& record : records) if (network_name(record.id) == name) same.push_back(record.id);
+    if (same.size() < 2) return name;
+    std::sort(same.begin(), same.end());
+    const auto found = std::find(same.begin(), same.end(), id);
+    if (found == same.end()) return name;
+    return copy::format("memory.sameName", {{"name", name}, {"number", std::to_string(found - same.begin() + 1)}});
+}
+
+std::string AppController::network_kind(const std::string& id) const {
+    const auto found = network_labels_.entries().find(id);
+    return found == network_labels_.entries().end() ? "other" : found->second.kind;
+}
+
 bool AppController::rename_network(const std::string& id, const std::string& name) {
     if (read_only_ || !network_labels_writable_) return false;
     const auto records = engine_->remembered_networks();
@@ -549,6 +568,11 @@ bool AppController::is_wifi_record(const std::string& id) const {
     return label != network_labels_.entries().end() && label->second.kind == "wifi" &&
         std::any_of(records.begin(), records.end(), [&](const auto& record) { return record.id == id; });
 }
+bool AppController::can_edit_wifi_name(const std::string& id) const {
+    if (!is_wifi_record(id) || wifi_unreadable()) return false;
+    const auto& label = network_labels_.entries().at(id);
+    return !label.ssid || wifi_preferences().manual_names.count(id) != 0;
+}
 void AppController::update_wifi_context() {
     const auto state = engine_->snapshot();
     const auto records = engine_->remembered_networks();
@@ -574,8 +598,24 @@ void AppController::update_wifi_context() {
         !read_only_ && settings_writable_ && state.mode == MonitoringMode::recover && state.has_saved && !state.paused && state.holds.empty(),
         physical, state.sleeping);
 }
-bool AppController::save_wifi_preferences(const wifi::Preferences& next, bool revoking) {
+bool AppController::save_wifi_preferences(wifi::Preferences next, bool revoking, bool merge_preflight) {
     if (read_only_) return false;
+    if (revoking && !merge_preflight) {
+        const auto previous = wifi_preferences();
+        const bool newly_excluded = std::any_of(memory_verification_merge_ids_.begin(), memory_verification_merge_ids_.end(),
+            [&](const auto& id) { return next.excluded.count(id) && !previous.excluded.count(id); });
+        const bool disabled_finding = (previous.auto_join && !next.auto_join) || (previous.power_on && !next.power_on);
+        if ((newly_excluded || disabled_finding) && (engine_->snapshot().verifying_memory || memory_verification_pending())) {
+            if (newly_excluded) {
+                const auto exclusions = next.excluded;
+                next.excluded.insert(memory_verification_merge_ids_.begin(), memory_verification_merge_ids_.end());
+                if (next.excluded.size() > 64) { next.excluded = exclusions; next.auto_join = false; }
+            }
+            // Also retain the opt-out if the worker committed just before this cancellation.
+            engine_->cancel();
+            invalidate_memory_verification("memory.verification.cancelled");
+        }
+    }
     const auto encoded = next.encode(); if (!encoded) return false;
     {
         std::lock_guard<std::mutex> lock(wifi_mutex_);
@@ -604,8 +644,19 @@ bool AppController::set_wifi_power_on(bool enabled) {
     auto next = wifi_preferences(); next.power_on = enabled; return save_wifi_preferences(next, !enabled);
 }
 bool AppController::set_wifi_selected(const std::string& id, bool enabled) {
-    if (!is_wifi_record(id)) return false;
+    const bool known = is_wifi_record(id);
+    const bool pending_merged_opt_out = !known && !enabled && memory_verification_pending() &&
+        std::find(memory_verification_merge_ids_.begin(), memory_verification_merge_ids_.end(), id) != memory_verification_merge_ids_.end() &&
+        std::any_of(memory_verification_merge_ids_.begin(), memory_verification_merge_ids_.end(),
+            [&](const auto& candidate) { return is_wifi_record(candidate); });
+    if (!known && !pending_merged_opt_out) return false;
     auto next = wifi_preferences();
+    if (pending_merged_opt_out) {
+        const auto exclusions = next.excluded;
+        next.excluded.insert(memory_verification_merge_ids_.begin(), memory_verification_merge_ids_.end());
+        if (next.excluded.size() > 64) { next.excluded = exclusions; next.auto_join = false; }
+        return save_wifi_preferences(next, true);
+    }
     if (next.legacy_selections) next.migrate(wifi_candidates());
     if (enabled) next.excluded.erase(id);
     else if (!next.excluded.count(id) && next.excluded.size() >= 64) { next.auto_join = false; return save_wifi_preferences(next, true); }
@@ -644,6 +695,9 @@ void AppController::refresh_proxy() {
 void AppController::refresh_environment() {
     refresh_proxy();
     refresh_network();
+    environment_refreshed_ = wall_now();
+    environment_refresh_incomplete_ = network_.access.empty() || network_.access == "unknown" ||
+        !network_.tunnel_known || proxy_.state == "unknown";
     post_changed();
 }
 
@@ -830,6 +884,7 @@ void AppController::clear_memory_verification_message() {
     ++memory_verification_generation_;
     memory_verification_message_.clear();
     memory_verification_epoch_.reset();
+    memory_verification_merge_ids_.clear();
 }
 
 bool AppController::memory_verification_pending() const {
@@ -840,6 +895,7 @@ bool AppController::memory_verification_pending() const {
 void AppController::invalidate_memory_verification(const char* key) {
     ++memory_verification_generation_;
     set_memory_verification_message(key);
+    memory_verification_merge_ids_.clear();
 }
 
 void AppController::sync_memory_verification_epoch() {
@@ -868,9 +924,27 @@ bool AppController::remember_network() {
     if (!state.can_remember) return reject("memory.verification.unavailable");
     const auto request = engine_->prepare_remember();
     if (!request) return reject("memory.verification.busy");
+    const auto& merging = request->merging_record_ids();
+    auto preferences = wifi_preferences();
+    if (std::any_of(merging.begin(), merging.end(), [&](const auto& id) { return preferences.excluded.count(id) != 0; })) {
+        auto next = preferences;
+        next.excluded.insert(merging.begin(), merging.end());
+        if (next.excluded.size() > 64) {
+            preferences.auto_join = false;
+            save_wifi_preferences(preferences, true, true);
+            engine_->cancel();
+            return reject("wifiRecovery.revokeSaveFailed");
+        }
+        // Persist every possible survivor's opt-out before merging any memory records.
+        if (!save_wifi_preferences(next, true, true)) {
+            engine_->cancel();
+            return reject("wifiRecovery.revokeSaveFailed");
+        }
+    }
     const auto feedback_generation = ++memory_verification_generation_;
     const auto feedback_epoch = engine_->snapshot().epoch;
     set_memory_verification_message("memory.verification.checking");
+    memory_verification_merge_ids_ = merging;
     KillTimer(window_, kTimerAuto);
     auto_armed_ = false;
     next_due_.reset();
@@ -887,6 +961,7 @@ bool AppController::remember_network() {
 }
 
 void AppController::forget_network() {
+    if (read_only_) return;
     if (engine_->snapshot().verifying_memory) invalidate_memory_verification("memory.verification.cancelled");
     else clear_memory_verification_message();
     const auto ids = engine_->current_remembered_ids();
@@ -898,7 +973,25 @@ void AppController::forget_network() {
     if (engine_->snapshot().memory_write_failed) notice_ = "memory.writeFailed";
 }
 
+void AppController::forget_network(const std::string& id) {
+    if (read_only_) return;
+    const auto before = engine_->remembered_networks();
+    if (std::none_of(before.begin(), before.end(), [&](const auto& record) { return record.id == id; })) return;
+    engine_->forget_network(id);
+    const auto after = engine_->remembered_networks();
+    auto next = wifi_preferences();
+    bool removed = false;
+    for (const auto& record : before) {
+        if (std::any_of(after.begin(), after.end(), [&](const auto& remaining) { return record.id == remaining.id; })) continue;
+        next.manual_names.erase(record.id); next.excluded.insert(record.id); removed = true;
+    }
+    if (removed) save_wifi_preferences(next, true);
+    refresh_network_labels();
+    if (engine_->snapshot().memory_write_failed) notice_ = "memory.writeFailed";
+}
+
 void AppController::forget_all_networks() {
+    if (read_only_) return;
     if (engine_->snapshot().verifying_memory) invalidate_memory_verification("memory.verification.cancelled");
     else clear_memory_verification_message();
     engine_->forget_all_networks();
@@ -913,8 +1006,33 @@ void AppController::set_draft(const std::string& account, const std::string& pas
 ConnectionEngine::SaveResult AppController::save_account() {
     if (read_only_) return ConnectionEngine::SaveResult::failed;
     const auto result = engine_->save_draft();
+    if (result == ConnectionEngine::SaveResult::saved || result == ConnectionEngine::SaveResult::unchanged)
+        credential_read_failed_ = false;
     if (result == ConnectionEngine::SaveResult::saved && settings_.mode == MonitoringMode::recover && !engine_busy_) schedule_auto(2);
     return result;
+}
+
+bool AppController::delete_account() {
+    if (read_only_) return false;
+    if (memory_verification_pending()) invalidate_memory_verification("memory.verification.cancelled");
+    else clear_memory_verification_message();
+    {
+        std::lock_guard<std::mutex> lock(worker_mutex_);
+        jobs_.clear();
+        manual_queued_ = false;
+    }
+    KillTimer(window_, kTimerAuto);
+    auto_armed_ = false; next_due_.reset();
+    clear_system_connectivity();
+    { std::lock_guard<std::mutex> lock(wifi_mutex_); wifi_schedule_.cancel(); }
+    const bool removed = engine_->delete_account();
+    if (removed) credential_read_failed_ = false;
+    internet_service_.invalidate();
+    update_wifi_context();
+    if (!removed) notice_ = "account.deleteFailed";
+    else if (notice_ == "account.deleteFailed" || notice_ == "account.readFailed") notice_.clear();
+    post_changed();
+    return removed;
 }
 
 void AppController::discard_draft() { engine_->revert_draft(); }

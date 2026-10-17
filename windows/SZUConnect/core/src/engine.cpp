@@ -350,6 +350,33 @@ ConnectionEngine::SaveResult ConnectionEngine::save_draft() {
     return result;
 }
 
+bool ConnectionEngine::delete_account() {
+    bool removed = false;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (read_only_) return false;
+        cancel_locked(false);
+        draft_ = {};
+        removed = hooks_.erase_credentials && hooks_.erase_credentials();
+        if (removed) {
+            saved_.reset();
+            ++generation_;
+            policy_.credentials_changed(generation_);
+            reset_partial_episode_locked();
+            offer_forced_login_ = false;
+            status_ = online_ ? EngineStatus::online : EngineStatus::needsAccount;
+            emit(std::string(copy::text("account.deleted")));
+        } else {
+            policy_.pause_by_user();
+            status_ = EngineStatus::paused;
+            emit(std::string(copy::text("account.deleteFailed")));
+        }
+        pending_change_ = true;
+    }
+    flush();
+    return removed;
+}
+
 void ConnectionEngine::pause_auto_login() {
     {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -990,7 +1017,8 @@ EngineSnapshot ConnectionEngine::snapshot() const {
     s.remember_blocker = remember_blocker_locked();
     s.can_remember = !policy_.busy() && s.remember_blocker.empty();
     s.verifying_memory = remembering_operation_.has_value();
-    s.memory_count = memory_.size();
+    s.memory_count = static_cast<std::size_t>(std::count_if(memory_.records().begin(), memory_.records().end(),
+        [&](const MemoryRecord& record) { return !suppressed_.count(record.id); }));
     s.memory_unreadable = memory_unreadable_;
     s.memory_write_failed = memory_write_failed_;
     if (!s.multiple_networks && auto_login_locked() == AutoLoginState::awaitingProof) s.proof_wait = tunnel_ ? "tunnel" : "unconfirmed";
@@ -1097,7 +1125,10 @@ std::string ConnectionEngine::remember_blocker_locked() const {
     return "";
 }
 
-bool ConnectionEngine::commit_memory_locked(NetworkMemory next, const std::vector<std::string>& ids_to_suppress) {
+bool ConnectionEngine::commit_memory_locked(NetworkMemory next, const std::vector<std::string>& ids_to_suppress,
+                                             const std::string& freshly_remembered) {
+    for (const auto& id : suppressed_)
+        if (id != freshly_remembered) next.forget(id);
     if (hooks_.persist_memory && hooks_.persist_memory(next.encode())) {
         memory_ = std::move(next);
         memory_write_failed_ = false;
@@ -1141,6 +1172,7 @@ std::optional<ConnectionEngine::RememberRequest> ConnectionEngine::prepare_remem
         request.epoch_ = epoch_;
         request.memory_generation_ = memory_generation_;
         request.area_ = area_;
+        request.merging_record_ids_ = memory_.merge_candidates(descriptors_.front(), hooks_.wall_now());
         token_ = request.token_;
         remembering_operation_ = operation->id;
         last_discovery_.reset();
@@ -1208,7 +1240,7 @@ ConnectionEngine::RememberResult ConnectionEngine::trust_and_remember(const Reme
             const auto id = next.remember(descriptors_.front(), dormitory_scope ? "dormitory" : "teaching",
                                           true, dormitory_scope, hooks_.wall_now(), hooks_.random_hex());
             if (!id) result = RememberResult::unreliable;
-            else if (!commit_memory_locked(std::move(next), {})) result = RememberResult::failed;
+            else if (!commit_memory_locked(std::move(next), {}, *id)) result = RememberResult::failed;
             else {
                 if (dormitory_scope) policy_.authorize();  // teaching memory only selects Wi-Fi; it grants no session trust
                 suppressed_.erase(*id);
@@ -1228,9 +1260,35 @@ ConnectionEngine::RememberResult ConnectionEngine::trust_and_remember(const Reme
     return result;
 }
 
+void ConnectionEngine::forget_network(const std::string& id) {
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (read_only_ || !memory_ok_) return;
+        const auto ids = memory_.equivalent_ids(id);
+        if (ids.empty()) return;
+        const auto current = memory_.matching_ids(descriptors_, hooks_.wall_now());
+        const bool affects_current = std::any_of(ids.begin(), ids.end(), [&](const std::string& removed) {
+            return std::find(current.begin(), current.end(), removed) != current.end();
+        });
+        if (affects_current) {
+            if (policy_.busy()) cancel_locked(false);
+            ++memory_generation_;
+            policy_.revoke_authorization();
+        }
+        NetworkMemory next = memory_;
+        for (const auto& removed : ids) next.forget(removed);
+        commit_memory_locked(std::move(next), ids);
+        refresh_memory_locked();
+        emit(std::string(copy::text("event.forgot")));
+        pending_change_ = true;
+    }
+    flush();
+}
+
 void ConnectionEngine::forget_current_network() {
     {
         std::lock_guard<std::mutex> lock(mutex_);
+        if (read_only_) return;
         if (policy_.busy()) cancel_locked(false);
         ++memory_generation_;
         policy_.revoke_authorization();
@@ -1250,6 +1308,7 @@ void ConnectionEngine::forget_current_network() {
 void ConnectionEngine::forget_all_networks() {
     {
         std::lock_guard<std::mutex> lock(mutex_);
+        if (read_only_) return;
         if (policy_.busy()) cancel_locked(false);
         ++memory_generation_;
         policy_.revoke_authorization();

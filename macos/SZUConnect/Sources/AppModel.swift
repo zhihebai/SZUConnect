@@ -244,6 +244,7 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
          initialWebsiteTargets: [WebsiteTarget] = [], memoryStore: URL? = nil,
          runAutomaticLoopInIsolation: Bool = false, loopSleep: (@Sendable (Int) async throws -> Void)? = nil,
          labelsStore: URL? = nil, isolatedPreferences: UserDefaults? = nil, recordStoreDirectory: URL? = nil,
+         isolatedWiFiRecoveryStore: URL? = nil,
          systemConnectivityProbe: (@Sendable (ConnectivityProbeMode) async -> ConnectivityReport)? = nil) {
         let preview = ProcessInfo.processInfo.arguments.contains("--offline-preview")
             || Bundle.main.bundleIdentifier == "local.SZUConnect.preview"
@@ -251,8 +252,9 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
             || Bundle.main.object(forInfoDictionaryKey: "SZUOfflinePreview") as? Bool == true
         #if os(macOS)
         let privateRun = isolated || preview
-        let wifiPreferencesURL = privateRun ? nil : FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
-            .appendingPathComponent("SZUConnect/wifi-recovery.json")
+        let wifiPreferencesURL = isolated && !preview ? isolatedWiFiRecoveryStore
+            : privateRun ? nil : FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+                .appendingPathComponent("SZUConnect/wifi-recovery.json")
         self.wifiRecovery = WiFiRecoveryController(preferencesURL: wifiPreferencesURL,
             service: privateRun ? PreviewWiFiRecoveryService() : CoreWLANRecoveryService(),
             startAutomatically: !privateRun && !readOnly, requestsSystemPermission: !privateRun && !readOnly, preferencesReadOnly: readOnly)
@@ -1084,6 +1086,13 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
             memoryVerificationMessage = SharedCopy.t("memory.verification." + reason)
             return
         }
+        #if os(macOS)
+        if let memory, let descriptor = currentDescriptors.first,
+           !wifiRecovery.preserveExclusionsBeforeMerging(memory.mergeCandidates(descriptor, now: now())) {
+            memoryVerificationMessage = SharedCopy.t("memory.verification.writeFailed")
+            return
+        }
+        #endif
         stopLoop()
         guard let operation = policy.begin(.manual) else { return }
         let revision = networkRevision
@@ -1146,12 +1155,15 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
     private func rememberVerifiedNetwork(scope: CampusArea) -> RememberResult {
         guard rememberBlocker.isEmpty, var next = memory, let descriptor = currentDescriptors.first else { return .needsProof }
         let dormitory = scope == .dormitory
+        let rememberedAt = now()
+        #if os(macOS)
+        guard wifiRecovery.preserveExclusionsBeforeMerging(next.mergeCandidates(descriptor, now: rememberedAt)) else { return .failed }
+        #endif
         guard let id = next.remember(descriptor, area: dormitory ? "dormitory" : "teaching",
                                      proofTeaching: true, proofDormitory: dormitory,
-                                     now: now(), newID: NetworkMemory.randomHex()) else { return .unreliable }
-        guard commitMemory(next, suppress: []) else { return .failed }
+                                     now: rememberedAt, newID: NetworkMemory.randomHex()) else { return .unreliable }
+        guard commitMemory(next, suppress: [], restoring: [id]) else { return .failed }
         saveObservedNetworkLabel(ids: [id])
-        suppressedMemory.remove(id)
         if dormitory {
             policy.authorizeCurrentNetwork()
             clearAuthorizationGrace()
@@ -1168,8 +1180,10 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
     func forgetNetwork(id: String) {
         guard !sessionReadOnly, !memoryUnreadable, var next = memory,
               rememberedNetworks.contains(where: { $0.id == id }) else { return }
-        let isCurrent = next.matchingIDs(currentDescriptors, now: now()).contains(id)
-        guard next.forget(id: id) else { return }
+        let ids = next.equivalentIDs(id: id)
+        let isCurrent = !Set(next.matchingIDs(currentDescriptors, now: now())).isDisjoint(with: ids)
+        guard !ids.isEmpty else { return }
+        for removed in ids { next.forget(id: removed) }
         if isCurrent {
             memoryVerificationMessage = nil
             cancelOperations()
@@ -1178,7 +1192,7 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
             authenticationSummary = "已忘记此网络，宿舍区不会自动重连"
         }
         // A failed write still revokes this record in RAM for the rest of this process.
-        _ = commitMemory(next, suppress: [id])
+        _ = commitMemory(next, suppress: ids)
         record("已忘记一个记住的网络。")
         objectWillChange.send()
         if isCurrent { startLoop() }
@@ -1316,13 +1330,26 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
         rememberedNetworks.contains { networkLabels.entries[$0.id] == nil }
     }
 
+    func rememberedNetworkDisplayName(for id: String) -> String {
+        let name = networkLabels.displayName(for: id)
+        guard let index = networkLabels.sameNameIndex(for: id, among: rememberedNetworks.map(\.id)) else { return name }
+        return SharedCopy.f("memory.sameName", ["name": name, "number": String(index)])
+    }
+
+    func rememberedNetworkDetail(for record: MemoryRecord) -> String {
+        let kind = networkLabels.entries[record.id]?.kind.rawValue ?? "other"
+        let connection = SharedCopy.t("memory.kind." + kind)
+        guard record.area == "dormitory" || record.area == "teaching" else { return connection }
+        return connection + " · " + SharedCopy.t("area." + record.area + ".title")
+    }
+
     private func updateWiFiRecoveryContext() {
         #if os(macOS)
         guard initialized else { return }
         let allowed = rememberedNetworks.compactMap { record -> WiFiRecoveryNetwork? in
             guard record.verified + NetworkMemory.expiry >= now().timeIntervalSince1970,
                   let label = networkLabels.entries[record.id], let ssid = label.ssid else { return nil }
-            return WiFiRecoveryNetwork(id: record.id, ssid: ssid, displayName: label.displayName)
+            return WiFiRecoveryNetwork(id: record.id, ssid: ssid, displayName: rememberedNetworkDisplayName(for: record.id))
         }
         wifiRecovery.updateContext(allowRecovery: !sessionReadOnly && monitoringMode == .recover
             && automaticCredentials != nil && policy.foreground && policy.holds.holds.isEmpty && !busy
@@ -1333,16 +1360,21 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
 
     /// Atomic write first; the in-memory copy changes only after the file did. A failed write keeps the old file and
     /// (for a revocation) suppresses the affected records for this session.
-    private func commitMemory(_ next: NetworkMemory, suppress: [String]) -> Bool {
+    private func commitMemory(_ proposed: NetworkMemory, suppress: [String], restoring: Set<String> = []) -> Bool {
         guard !sessionReadOnly else { return false }
+        var next = proposed
+        let revoked = suppressedMemory.union(suppress).subtracting(restoring)
+        for id in revoked { next.forget(id: id) }
         guard let url = memoryURL else {
             memory = next
+            suppressedMemory.subtract(restoring)
             refreshRemembered()
             return true
         }
         do {
             try NetworkMemoryFile.write(next.encoded(), to: url)
             memory = next
+            suppressedMemory.subtract(restoring)
             memoryWriteFailed = false
             refreshRemembered()
             return true

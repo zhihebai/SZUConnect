@@ -26,6 +26,18 @@ inline szu::NetworkDescriptor mem_desc(const char* gw, const char* gwip = "172.3
 }
 inline std::string mem_id(unsigned i) { char b[40]; std::snprintf(b, sizeof b, "%032x", 0x5000u + i * 31u); return b; }
 
+inline szu::NetworkMemory mem_legacy_records(const std::vector<szu::NetworkDescriptor>& descriptors, double now) {
+    szu::NetworkMemory empty("00112233445566778899aabbccddeeff");
+    auto root = szu::json::parse(empty.encode());
+    unsigned index = 1;
+    for (const auto& descriptor : descriptors) {
+        auto single = empty;
+        single.remember(descriptor, "dormitory", true, true, now, mem_id(index++));
+        root->find("records")->push(szu::json::parse(single.encode())->find("records")->items().front());
+    }
+    return *szu::NetworkMemory::decode(szu::json::serialize(*root), now);
+}
+
 inline void crypto_tests(Harness& t) {
     t.begin("crypto");
     t.equal(szu::sha256_hex(""), std::string("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"), "sha256 empty");
@@ -72,6 +84,32 @@ inline void netmemory_fixture_tests(Harness& t) {
         szu::NetworkDescriptor d;
         d.raw[szutest::str(c, "label")] = szutest::str(c, "raw");
         t.equal(mem.hashed(d)[szutest::str(c, "label")], szutest::str(c, "expected"), "known-answer hash " + szutest::str(c, "label"));
+    }
+    for (const auto& c : doc.find("refresh")->items()) {
+        const double now = c.number_at("now").value_or(0);
+        const auto decode_records = [&](const szu::json::Value& entries) {
+            auto root = szu::json::Value::object(), records = szu::json::Value::array();
+            root.set("schema", szu::json::Value::number(1));
+            root.set("salt", szu::json::Value::string(salt));
+            for (const auto& entry : entries.items()) {
+                auto record = entry;
+                auto features = szu::json::Value::object();
+                for (const auto& [key, value] : mem.hashed(mem_descriptor(entry.find("features"))))
+                    features.set(key, szu::json::Value::string(value));
+                record.set("features", std::move(features));
+                records.push(std::move(record));
+            }
+            root.set("records", std::move(records));
+            return szu::NetworkMemory::decode(szu::json::serialize(root), now);
+        };
+        auto memory = decode_records(*c.find("before"));
+        const auto expected = decode_records(*c.find("expected")->find("records"));
+        t.check(memory && expected, "refresh fixture memory is valid: " + szutest::str(c, "id"));
+        if (!memory || !expected) continue;
+        const auto selected = memory->remember(mem_descriptor(c.find("current")), szutest::str(c, "area"),
+            c.bool_at("proofTeaching").value_or(false), c.bool_at("proofDormitory").value_or(false), now, szutest::str(c, "newID"));
+        t.equal(selected.value_or(""), szutest::str(*c.find("expected"), "selectedID"), "refresh chosen id: " + szutest::str(c, "id"));
+        t.equal(memory->encode(), expected->encode(), "refresh records and proofs: " + szutest::str(c, "id"));
     }
     const auto readiness = szutest::load("shared/fixtures/readiness-cases.json");
     for (const auto& c : readiness.find("cases")->items()) {
@@ -170,6 +208,79 @@ inline void netmemory_store_tests(Harness& t) {
                                    std::string("{\"schema\":1,\"salt\":\"" + ok_salt + "\",\"records\":[{\"id\":\"" + mem_id(1) + "\",\"created\":1,\"verified\":1,\"proofTeaching\":true,\"proofDormitory\":true,\"features\":{\"gw\":\"short\"}}]}"),
                                    std::string("{\"schema\":1,\"salt\":\"" + ok_salt + "\",\"records\":[{\"id\":\"" + mem_id(1) + "\",\"created\":1,\"verified\":1,\"area\":\"moon\",\"proofTeaching\":true,\"proofDormitory\":true,\"features\":{}}]}")})
         t.check(!szu::NetworkMemory::decode(bad, now).has_value(), "corrupt memory refused: " + bad.substr(0, 40));
+}
+
+inline void netmemory_refresh_tests(Harness& t) {
+    using namespace szu;
+    t.begin("netmemory-refresh");
+    const double now = 1750000000.0;
+    const auto full = mem_desc("a4:5e:60:11:22:33");
+    const auto missing_gateway = mem_desc("", "172.30.0.1", "172.30.0.0/20");
+    const auto missing_address = mem_desc("a4:5e:60:11:22:33", "", "172.30.0.0/20");
+    {
+        NetworkMemory memory("00112233445566778899aabbccddeeff");
+        auto initial = full;
+        initial.raw["dns"] = "192.0.2.53";
+        memory.remember(initial, "dormitory", true, true, now, mem_id(1));
+        memory.remember(missing_gateway, "teaching", true, false, now + 10, mem_id(2));
+        const auto& record = memory.records().front();
+        t.check(memory.size() == 1 && record.id == mem_id(1) && record.features.count("gw") == 1,
+                "a transient missing gateway preserves the existing identity and record id");
+        t.check(record.features.count("dns") == 0 && !record.proof_dormitory && record.area == "teaching",
+                "refresh retains only stable missing identity fields and this verification's proofs");
+        t.equal(memory.match(mem_desc("b8:27:eb:44:55:66"), now + 10).level, MatchLevel::conflict,
+                "missing gateway refresh cannot erase an existing hardware conflict");
+    }
+    for (const bool weaker_first : {true, false}) {
+        auto memory = mem_legacy_records(weaker_first ? std::vector<NetworkDescriptor>{missing_gateway, missing_address}
+                                                    : std::vector<NetworkDescriptor>{missing_address, missing_gateway}, now);
+        const auto expected = mem_id(weaker_first ? 2 : 1);
+        t.equal(memory.merge_candidates(full, now), std::vector<std::string>({mem_id(1), mem_id(2)}),
+                "preflight identifies the complete candidate group whose Wi-Fi preferences must be preserved");
+        const auto selected = memory.remember(full, "teaching", true, false, now + 10, mem_id(3));
+        t.check(selected == expected && memory.size() == 1 && memory.records().front().id == expected,
+                "fresh complete evidence collapses overlapping partial records and keeps the strongest record id");
+        t.check(memory.records().front().created == now && memory.records().front().verified == now + 10 &&
+                memory.records().front().proof_teaching && !memory.records().front().proof_dormitory,
+                "duplicate consolidation keeps creation time without combining historical campus proofs");
+    }
+    {
+        auto memory = mem_legacy_records({missing_gateway, full}, now);
+        const auto selected = memory.remember(missing_gateway, "dormitory", true, true, now + 10, mem_id(3));
+        t.check(selected == mem_id(2) && memory.size() == 1 && memory.records().front().features.count("gw") == 1,
+                "equal-rank candidates retain the record with known gateway evidence");
+    }
+    {
+        auto memory = mem_legacy_records({full, mem_desc("b8:27:eb:44:55:66")}, now);
+        const auto before = memory.equivalent_ids(mem_id(1));
+        t.check(memory.merge_candidates(missing_gateway, now).empty(),
+                "preflight never propagates preferences across conflicting gateway identities");
+        memory.remember(missing_gateway, "dormitory", true, true, now + 10, mem_id(3));
+        t.check(memory.size() == 2 && before == std::vector<std::string>{mem_id(1)},
+                "a missing gateway never joins different hardware at the same private address");
+        t.check(memory.records()[0].features.at("gw") != memory.records()[1].features.at("gw"),
+                "both conflicting gateway identities survive a partial refresh");
+    }
+    {
+        auto same_name_a = full;
+        auto same_name_b = mem_desc("b8:27:eb:44:55:66", "192.168.1.1", "192.168.1.0/24");
+        same_name_a.raw["ssid"] = same_name_b.raw["ssid"] = "fixture-campus";
+        NetworkMemory memory("00112233445566778899aabbccddeeff");
+        memory.remember(same_name_a, "dormitory", true, true, now, mem_id(1));
+        memory.remember(same_name_b, "dormitory", true, true, now + 1, mem_id(2));
+        t.check(memory.size() == 2 && memory.equivalent_ids(mem_id(1)) == std::vector<std::string>{mem_id(1)},
+                "same SSID does not merge two different network identities");
+    }
+    {
+        auto memory = mem_legacy_records({full, full, missing_gateway,
+            mem_desc("a4:5e:60:11:22:33", "172.30.16.1", "172.30.16.0/20"),
+            mem_desc("b8:27:eb:44:55:66")}, now);
+        t.equal(memory.equivalent_ids(mem_id(1)), std::vector<std::string>({mem_id(1), mem_id(2), mem_id(4)}),
+                "single-network deletion identifies exact and known-gateway duplicates without a missing-gateway bridge");
+        t.equal(memory.equivalent_ids(mem_id(3)), std::vector<std::string>{mem_id(3)},
+                "a gateway-less record cannot identify different known gateways for deletion");
+        t.check(memory.equivalent_ids(mem_id(99)).empty(), "unknown record deletion has no targets");
+    }
 }
 
 namespace memtest {
@@ -391,6 +502,130 @@ inline void memory_engine_tests(Harness& t) {
     mismatch.path("id-m2", {mem_desc("b8:27:eb:44:55:66")});
     t.check(mismatch.e->snapshot().holds.empty(), "another network starts clean");
     t.check(mismatch.e->snapshot().mode == MonitoringMode::recover, "the user's choice of automatic recovery is untouched");
+}
+
+inline void memory_single_forget_tests(Harness& t) {
+    using namespace szu;
+    using memtest::Rig;
+    t.begin("memory-single-forget");
+    const auto current = mem_desc("a4:5e:60:11:22:33");
+    const auto other = mem_desc("b8:27:eb:44:55:66", "192.168.1.1", "192.168.1.0/24");
+    const auto seed = mem_legacy_records({current, other}, 1750000000.0).encode();
+    {
+        Rig r(false);
+        r.e->restore_memory(seed);
+        r.path("fixture-current", {current});
+        t.check(r.e->trust_current_network(), "single-delete fixture has independent current-session trust");
+        r.e->forget_network(mem_id(2));
+        t.check(r.e->snapshot().trusted && r.e->snapshot().remembered && r.e->remembered_networks().size() == 1,
+                "deleting another network preserves current trust and remembered eligibility");
+        const auto saved = NetworkMemory::decode(r.file, r.wall);
+        t.check(saved && saved->size() == 1 && saved->records().front().id == mem_id(1),
+                "single-network deletion persists exactly the selected network removal");
+        const auto writes = r.writes;
+        r.e->forget_network(mem_id(99));
+        t.check(r.writes == writes && r.e->snapshot().trusted, "unknown single-delete is a no-op");
+        r.e->forget_network(mem_id(1));
+        t.check(!r.e->snapshot().trusted && !r.e->snapshot().remembered && r.e->remembered_networks().empty(),
+                "deleting the current network immediately revokes current-session trust and memory");
+    }
+    {
+        Rig r(false);
+        r.e->restore_memory(mem_legacy_records({current, current, other}, r.wall).encode());
+        r.path("fixture-current", {current});
+        r.e->forget_network(mem_id(2));
+        t.check(r.e->remembered_networks().size() == 1 && r.e->remembered_networks().front().id == mem_id(3) &&
+                !r.e->snapshot().remembered,
+                "forgetting one legacy duplicate removes its equivalent entries without affecting another network");
+    }
+    {
+        Rig r(false);
+        r.file = seed;
+        r.has_file = true;
+        r.e->restore_memory(seed);
+        r.path("fixture-current", {current});
+        r.e->trust_current_network();
+        r.fail_write = true;
+        r.e->forget_network(mem_id(1));
+        t.check(r.file == seed && r.e->snapshot().memory_write_failed && !r.e->snapshot().trusted &&
+                !r.e->snapshot().remembered && r.e->remembered_networks().size() == 1 && r.e->snapshot().memory_count == 1,
+                "failed delete keeps the file intact while immediately suppressing the selected network");
+        r.fail_write = false;
+        r.path("fixture-other", {other});
+        r.discovery("confirmed", "confirmed");
+        t.equal(r.e->trust_and_remember(), ConnectionEngine::RememberResult::remembered,
+                "another network can be saved after storage recovers");
+        const auto saved = NetworkMemory::decode(r.file, r.wall);
+        t.check(saved && saved->size() == 1 && saved->records().front().id == mem_id(2),
+                "later successful writes cannot resurrect a previously suppressed network");
+        Rig restart(false);
+        restart.e->restore_memory(r.file);
+        restart.path("fixture-current", {current});
+        t.check(!restart.e->snapshot().remembered, "completed revocation also survives restart");
+    }
+    {
+        Rig r(false);
+        r.e->restore_memory(seed);
+        r.path("fixture-current", {current});
+        r.fail_write = true;
+        r.e->forget_network(mem_id(1));
+        r.fail_write = false;
+        r.discovery("confirmed", "confirmed");
+        t.equal(r.e->trust_and_remember(), ConnectionEngine::RememberResult::remembered,
+                "a new explicit verification can remember a network whose earlier deletion could not be saved");
+        t.check(r.e->snapshot().remembered && r.e->snapshot().trusted && r.e->remembered_networks().size() == 2,
+                "fresh explicit remembering releases only that record's suppression after successful persistence");
+    }
+    for (const bool queued : {true, false}) {
+        Rig r(false);
+        r.e->restore_memory(seed);
+        r.path("fixture-current", {current});
+        r.discovery("confirmed", "confirmed");
+        const auto request = r.e->prepare_remember();
+        t.check(request.has_value(), "single-delete reserves memory verification");
+        t.check(request->merging_record_ids().empty(), "one matching record has no preference merge transaction");
+        if (queued) r.e->forget_network(mem_id(1));
+        else r.svc.during_discovery = [&] { r.e->forget_network(mem_id(1)); };
+        t.equal(r.e->trust_and_remember(*request), ConnectionEngine::RememberResult::cancelled,
+                "single-delete invalidates queued and in-flight verification of the deleted network");
+        t.check(!r.e->snapshot().remembered && !r.e->snapshot().trusted && r.e->remembered_networks().size() == 1 &&
+                r.svc.submissions.empty(), "late verification cannot restore a deleted network");
+    }
+    {
+        Rig r(false);
+        r.e->restore_memory(seed);
+        r.path("fixture-current", {current});
+        r.discovery("confirmed", "confirmed");
+        const auto request = r.e->prepare_remember();
+        r.svc.during_discovery = [&] { r.e->forget_network(mem_id(2)); };
+        t.equal(r.e->trust_and_remember(*request), ConnectionEngine::RememberResult::remembered,
+                "deleting an unrelated network does not interrupt current verification");
+        t.check(r.e->snapshot().trusted && r.e->remembered_networks().size() == 1 && r.svc.submissions.empty(),
+                "current verification completes without restoring the unrelated deleted record");
+    }
+    {
+        Rig r(false);
+        r.e->restore_memory(seed);
+        r.path("fixture-current", {current});
+        r.discovery("confirmed", "confirmed");
+        r.svc.attempts["dormitory"] = "success";
+        r.rounds(1);
+        r.svc.during_discovery = [&] { r.e->forget_network(mem_id(1)); };
+        r.rounds(1);
+        t.check(r.svc.submissions.empty() && !r.e->snapshot().remembered,
+                "deleting the selected record during automatic discovery prevents credential submission");
+    }
+    for (int operation = 0; operation < 3; ++operation) {
+        Rig r(false);
+        r.e = std::make_unique<ConnectionEngine>(r.svc, r.hooks(), true);
+        r.e->restore_memory(seed);
+        r.path("fixture-read-only", {current});
+        if (operation == 0) r.e->forget_network(mem_id(1));
+        else if (operation == 1) r.e->forget_current_network();
+        else r.e->forget_all_networks();
+        t.check(r.e->remembered_networks().size() == 2 && r.writes == 0,
+                "all forgetting entry points preserve memory and storage in read-only mode");
+    }
 }
 
 // Offline end-to-end tests exercise ConnectionEngine itself; service callbacks emulate late
@@ -688,7 +923,9 @@ inline void memory_tests(Harness& t) {
     crypto_tests(t);
     netmemory_fixture_tests(t);
     netmemory_store_tests(t);
+    netmemory_refresh_tests(t);
     memory_engine_tests(t);
+    memory_single_forget_tests(t);
     memory_verification_tests(t);
     records_range_tests(t);
 }

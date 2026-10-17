@@ -31,11 +31,14 @@ struct SettingsPage: View {
             }
             Button(SharedCopy.t("action.cancel"), role: .cancel) { forgettingNetwork = nil }
         } message: { record in
-            Text(SharedCopy.f("memory.forgetConfirmDetail", ["name": model.networkLabels.displayName(for: record.id)]))
+            Text(SharedCopy.f("memory.forgetConfirmDetail", ["name": model.rememberedNetworkDisplayName(for: record.id)]))
         }
         .sheet(item: $renamingNetwork) { record in
             VStack(alignment: .leading, spacing: SharedTokens.spaceM) {
                 Text(SharedCopy.t("memory.renameTitle")).font(AppFont.headline)
+                Text(SharedCopy.t("memory.renameDetail"))
+                    .font(AppFont.caption).foregroundStyle(Color.token("textSecondary"))
+                    .fixedSize(horizontal: false, vertical: true)
                 TextField(SharedCopy.t("memory.namePlaceholder"), text: $networkName)
                     .textFieldStyle(.roundedBorder)
                     .onSubmit { saveName(record) }
@@ -95,9 +98,11 @@ struct SettingsPage: View {
                         HStack(spacing: SharedTokens.spaceS) {
                             AppIcon(name: "shield-check", size: 18, color: .token("accent"))
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(model.networkLabels.displayName(for: record.id))
+                                Text(model.rememberedNetworkDisplayName(for: record.id))
                                     .font(AppFont.callout.weight(.medium))
                                     .fixedSize(horizontal: false, vertical: true)
+                                Text(model.rememberedNetworkDetail(for: record))
+                                    .font(AppFont.caption).foregroundStyle(Color.token("textSecondary"))
                                 Text(SharedCopy.f("memory.verified", ["date": Date(timeIntervalSince1970: record.verified).formatted(date: .abbreviated, time: .shortened)]))
                                     .font(AppFont.caption).foregroundStyle(Color.token("textSecondary"))
                             }
@@ -120,7 +125,7 @@ struct SettingsPage: View {
                             #endif
                             .fixedSize()
                             .disabled(model.sessionReadOnly)
-                            .accessibilityLabel(SharedCopy.t("memory.manage") + "：" + model.networkLabels.displayName(for: record.id))
+                            .accessibilityLabel(SharedCopy.t("memory.manage") + "：" + model.rememberedNetworkDisplayName(for: record.id))
                             .accessibilityIdentifier("memory.manage." + record.id)
                         }
                         .accessibilityElement(children: .contain)
