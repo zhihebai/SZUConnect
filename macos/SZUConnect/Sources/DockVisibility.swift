@@ -116,14 +116,6 @@ final class DockVisibilityController {
         apply(.regular)
     }
 
-    func backgroundLaunchWindow(_ window: NSWindow) {
-        track(window)
-        tracked[ObjectIdentifier(window)]?.open = false
-        window.orderOut(nil)
-        window.alphaValue = 1
-        scheduleSynchronization()
-    }
-
     func scheduleSynchronization() {
         guard !scheduled else { return }
         scheduled = true

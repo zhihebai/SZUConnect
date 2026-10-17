@@ -4,7 +4,7 @@ import SwiftUI
 /// Supplemental help uses popovers; errors, pauses, unsaved changes and safety reasons remain visible.
 struct ConnectionPage: View {
     @EnvironmentObject private var model: AppModel
-    let open: (AppSheet) -> Void
+    let open: (DashboardDestination) -> Void
     @Binding var focusRequest: DashboardFocusRequest?
     @State private var newWebsite = ""
     @State private var showPassword = false

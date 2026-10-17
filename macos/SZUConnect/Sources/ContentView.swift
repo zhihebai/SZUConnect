@@ -7,8 +7,11 @@ enum AppPage: String, CaseIterable, Identifiable {
     var icon: String { self == .connection ? "signal" : self == .records ? "records" : "settings" }
 }
 enum AppSheet: String, Identifiable {
-    case account, guardMode, network, website, wifiRecovery, help, about, tutorial
+    case help, about
     var id: String { rawValue }
+}
+enum DashboardDestination: String {
+    case account, network, wifiRecovery, tutorial, help, about
 }
 struct DashboardFocusRequest: Equatable {
     let section: String
@@ -93,7 +96,7 @@ struct ContentView: View {
         .foregroundStyle(Color.token("textPrimary"))
         .background(Color.token("background"))
         .sheet(item: $sheet) { item in
-            SheetHost(sheet: item, open: route, close: { sheet = nil })
+            SheetHost(sheet: item, close: { sheet = nil })
                 .environmentObject(model)
                 .appAppearance(AppearancePreference(rawValue: appearanceSelection.wrappedValue) ?? .system)
         }
@@ -108,9 +111,8 @@ struct ContentView: View {
             showWhatsNew = !model.isPreview && !model.sessionReadOnly && TutorialState.shouldShowWhatsNew(defaults: .standard, legacy: model.legacyUserAtLaunch)
         }
         #if os(macOS)
-        .background(DashboardWindowRegistration(toolbarContent: AnyView(
+        .background(DashboardToolbarBridge(toolbarContent: AnyView(
             dashboardToolbar.environment(\.colorScheme, colorScheme))))
-        .frame(minWidth: DashboardLayout.minimumWindowWidth, minHeight: 520)
         #endif
         .background {
             HStack {
@@ -132,8 +134,8 @@ struct ContentView: View {
             helpButton
         }
         .padding(.trailing, 4)
-        .frame(minWidth: 378, maxWidth: .infinity)
-        .frame(height: 36)
+        .frame(minWidth: DashboardLayout.toolbarMinimumWidth, maxWidth: .infinity)
+        .frame(height: DashboardLayout.toolbarHeight)
         .foregroundStyle(Color.token("textPrimary"))
         .tint(Color.token("accent"))
         .transaction { transaction in
@@ -176,18 +178,19 @@ struct ContentView: View {
         .padding(2).background(Color.token("surfaceMuted"), in: RoundedRectangle(cornerRadius: 10))
     }
 
-    private func route(_ target: AppSheet) {
+    private func route(_ target: DashboardDestination) {
         switch target {
-        case .account, .guardMode, .network, .website:
+        case .account, .network:
             sheet = nil
             page = .connection
-            focusRequest = DashboardFocusRequest(section: target == .guardMode ? "guard" : target == .website ? "websites" : target.rawValue)
+            focusRequest = DashboardFocusRequest(section: target.rawValue)
         case .tutorial: startTour()
         case .wifiRecovery:
             sheet = nil
             page = .settings
             focusRequest = DashboardFocusRequest(section: "wifiRecovery")
-        case .help, .about: sheet = target
+        case .help: sheet = .help
+        case .about: sheet = .about
         }
     }
 
@@ -226,7 +229,6 @@ struct ContentView: View {
 
 struct SheetHost: View {
     let sheet: AppSheet
-    let open: (AppSheet) -> Void
     let close: () -> Void
     var body: some View {
             #if os(macOS)
@@ -276,7 +278,6 @@ struct SheetHost: View {
         switch sheet {
         case .help: HelpSheet()
         case .about: AboutSheet()
-        default: EmptyView() // Routine controls always route to the single dashboard.
         }
     }
 }

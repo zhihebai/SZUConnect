@@ -3,13 +3,13 @@ import SwiftUI
 struct SettingsPage: View {
     @EnvironmentObject private var model: AppModel
     @Binding private var appearance: String
-    let open: (AppSheet) -> Void
+    let open: (DashboardDestination) -> Void
     @Binding var focusRequest: DashboardFocusRequest?
     @State private var renamingNetwork: MemoryRecord?
     @State private var forgettingNetwork: MemoryRecord?
     @State private var networkName = ""
 
-    init(open: @escaping (AppSheet) -> Void, focusRequest: Binding<DashboardFocusRequest?>, appearance: Binding<String>) {
+    init(open: @escaping (DashboardDestination) -> Void, focusRequest: Binding<DashboardFocusRequest?>, appearance: Binding<String>) {
         self.open = open
         self._focusRequest = focusRequest
         self._appearance = appearance
