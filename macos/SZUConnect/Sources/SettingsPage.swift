@@ -83,6 +83,16 @@ struct SettingsPage: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .tourTarget(.startup)
             .id("startup")
+            VStack(alignment: .leading, spacing: SharedTokens.spaceS) {
+                SectionTitle(text: SharedCopy.t("settings.dock.title"))
+                Toggle(SharedCopy.t("settings.dock.always"), isOn: Binding(
+                    get: { model.alwaysShowDockIcon }, set: { model.setAlwaysShowDockIcon($0) }))
+                    .disabled(model.sessionReadOnly || !model.dockPreferenceAvailable)
+                Text(SharedCopy.t("settings.dock.detail"))
+                    .font(AppFont.caption).foregroundStyle(Color.token("textSecondary"))
+                    .fixedSize(horizontal: false, vertical: true)
+                if let error = model.dockVisibilityError { Banner(tone: "warning", title: error) }
+            }
             #endif
             HStack(spacing: 4) {
                 SectionTitle(text: SharedCopy.t("memory.title"))

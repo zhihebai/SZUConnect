@@ -7,9 +7,9 @@ enum CampusArea: String, CaseIterable, Identifiable, Codable, Sendable {
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .automatic: "自动选择"
-        case .teaching: "教学 / 办公区"
-        case .dormitory: "宿舍区"
+        case .automatic: SharedCopy.t("area.automatic.title")
+        case .teaching: SharedCopy.t("area.teaching.title")
+        case .dormitory: SharedCopy.t("area.dormitory.title")
         }
     }
     var symbol: String {
@@ -22,9 +22,9 @@ enum CampusArea: String, CaseIterable, Identifiable, Codable, Sendable {
     /// One plain sentence shown under the area picker.
     var explanation: String {
         switch self {
-        case .automatic: "先检查校园网登录服务，再选择教学或宿舍区。发送账号密码后，不会换区重试。"
-        case .teaching: "通过教学 / 办公区登录，使用 HTTPS 加密。"
-        case .dormitory: "通过宿舍区登录。账号密码会以明文 HTTP 发送，自动重连前请先信任当前网络。"
+        case .automatic: SharedCopy.t("area.automatic.detail")
+        case .teaching: SharedCopy.t("area.teaching.detail")
+        case .dormitory: SharedCopy.t("area.dormitory.detail")
         }
     }
 }
@@ -39,20 +39,20 @@ enum PortalError: Error, LocalizedError {
     case timeout, dns, redirect, httpStatus, responseTooLarge, authenticationUncertain, protocolConflict
     var errorDescription: String? {
         switch self {
-        case .invalidCredentials: "请填写校园网账号和密码。"
-        case .network: "暂时连不上校园网登录服务。请检查网络，以及 VPN、TUN 或代理工具中的校园地址规则。"
-        case .timeout: "校园登录服务响应超时，可能与服务器、VPN 或分流规则有关。请先检测连接并查看登录状态。"
-        case .dns: "找不到校园网登录地址。请检查网络、DNS 和代理解析规则，不能据此判断账号或密码有误。"
-        case .redirect: "校园网登录服务要求跳转，没有继续访问。请核对官方登录页及 VPN、代理规则，不要向未知页面填写账号。"
-        case .httpStatus: "校园网登录服务暂时无法处理请求，请稍后重试。"
-        case .responseTooLarge: "登录服务返回的数据过大，已停止处理。"
-        case .authenticationUncertain: "登录请求已发送，结果还不确定。请先检测连接，再决定是否重试。"
-        case .protocolConflict: "登录页面和服务器返回的信息不一致，已停止登录。请重新检测，或打开校园网官方登录页。"
-        case .tls: "无法确认登录服务的安全连接，已停止登录。请检查时间、证书和代理的 HTTPS 解密设置，不要跳过证书检查。"
-        case .response: "无法识别校园网登录服务返回的结果。"
-        case .rejected: "登录未通过，请检查账号、密码和所选区域。"
-        case .cryptography: "无法准备登录所需的数据，请重试。"
-        case .forbiddenTarget: "已阻止向未知服务器发送请求。"
+        case .invalidCredentials: SharedCopy.t("portalError.invalidCredentials")
+        case .network: SharedCopy.t("portalError.network")
+        case .timeout: SharedCopy.t("portalError.timeout")
+        case .dns: SharedCopy.t("portalError.dns")
+        case .redirect: SharedCopy.t("portalError.redirect")
+        case .httpStatus: SharedCopy.t("portalError.httpStatus")
+        case .responseTooLarge: SharedCopy.t("portalError.responseTooLarge")
+        case .authenticationUncertain: SharedCopy.t("portalError.authenticationUncertain")
+        case .protocolConflict: SharedCopy.t("portalError.protocolConflict")
+        case .tls: SharedCopy.t("portalError.tls")
+        case .response: SharedCopy.t("portalError.response")
+        case .rejected: SharedCopy.t("portalError.rejected")
+        case .cryptography: SharedCopy.t("portalError.cryptography")
+        case .forbiddenTarget: SharedCopy.t("portalError.forbiddenTarget")
         }
     }
 }
@@ -69,10 +69,10 @@ private final class NoRedirectDelegate: NSObject, URLSessionTaskDelegate, @unche
 enum ConnectivityProbeMode: String, CaseIterable, Identifiable, Codable, Sendable {
     case quick, complete
     var id: String { rawValue }
-    var title: String { self == .quick ? "快速检测" : "完整检测" }
+    var title: String { self == .quick ? SharedCopy.t("probe.quick.title") : SharedCopy.t("probe.complete.title") }
     var detail: String {
-        self == .quick ? "任一基础项通过，或发现明确校园登录跳转时结束，不检查常用网址；跳转不代表已联网。"
-            : "检查 Apple、Microsoft 和本次勾选的网址，等待各项结果。"
+        self == .quick ? SharedCopy.t("probe.quick.detail")
+            : SharedCopy.t("probe.complete.detail")
     }
 }
 
@@ -81,15 +81,15 @@ enum ConnectivityEndpointState: String, Sendable {
 
     var title: String {
         switch self {
-        case .success: "通过"
-        case .timeout: "超时"
-        case .dns: "找不到地址"
-        case .tls: "安全连接失败"
-        case .redirect: "要求跳转"
-        case .unexpectedResponse: "返回内容不符"
-        case .network: "暂时连不上"
-        case .cancelled: "已取消"
-        case .notCompleted: "另一项已通过，停止等待"
+        case .success: SharedCopy.t("endpoint.successTitle")
+        case .timeout: SharedCopy.t("endpoint.timeout")
+        case .dns: SharedCopy.t("endpoint.dns")
+        case .tls: SharedCopy.t("endpoint.tls")
+        case .redirect: SharedCopy.t("endpoint.redirect")
+        case .unexpectedResponse: SharedCopy.t("endpoint.unexpectedResponse")
+        case .network: SharedCopy.t("endpoint.network")
+        case .cancelled: SharedCopy.t("endpoint.cancelled")
+        case .notCompleted: SharedCopy.t("endpoint.notCompleted")
         }
     }
 }
@@ -106,7 +106,7 @@ struct ConnectivityEndpointResult: Sendable {
     }
     var succeeded: Bool { state == .success }
     var summary: String {
-        succeeded ? "通过 \(Int((elapsed * 1000).rounded())) ms" : state.title
+        succeeded ? SharedCopy.f("endpoint.success", ["ms": String(Int((elapsed * 1000).rounded()))]) : state.title
     }
 }
 
@@ -121,9 +121,9 @@ struct ConnectivityReport: Sendable {
     var passedCount: Int { (apple ? 1 : 0) + (microsoft ? 1 : 0) }
     var resultTitle: String {
         if mode == .complete {
-            return allPassed ? "完整检测全部通过" : (online ? "完整检测部分通过" : "完整检测均未通过")
+            return allPassed ? SharedCopy.t("env.internet.completeAll") : (online ? SharedCopy.t("env.internet.completePartial") : SharedCopy.t("env.internet.failed"))
         }
-        return online ? "快速检测通过" : "快速检测未通过"
+        return online ? SharedCopy.t("env.internet.quickPassed") : SharedCopy.t("env.internet.failed")
     }
     var summary: String {
         "Apple：\(appleResult.summary) · Microsoft：\(microsoftResult.summary)"
@@ -174,27 +174,27 @@ enum ConnectivityDiagnosis: String, Sendable {
 
     var title: String {
         switch self {
-        case .online: "基础联网检测通过"
-        case .portal: "检测遇到跳转"
-        case .response: "检测返回内容异常"
-        case .security: "无法确认安全连接"
-        case .dns: "找不到网站地址"
-        case .timeout: "连接超时"
-        case .unreachable: "暂时连不上外网"
-        case .incomplete: "检测未完成"
+        case .online: SharedCopy.t("diagnosis.online.title")
+        case .portal: SharedCopy.t("diagnosis.portal.title")
+        case .response: SharedCopy.t("diagnosis.response.title")
+        case .security: SharedCopy.t("diagnosis.security.title")
+        case .dns: SharedCopy.t("diagnosis.dns.title")
+        case .timeout: SharedCopy.t("diagnosis.timeout.title")
+        case .unreachable: SharedCopy.t("diagnosis.unreachable.title")
+        case .incomplete: SharedCopy.t("diagnosis.incomplete.title")
         }
     }
 
     var explanation: String {
         switch self {
-        case .online: "至少一个检测地址可以访问，其他网站和校园网登录仍需分别确认。"
-        case .portal: "检测遇到跳转，可能来自校园登录页、网站或代理。请核对实际页面，不能仅凭跳转确认尚未登录。"
-        case .response: "检测地址返回了非预期内容，可能与登录页面、VPN、代理规则或网站服务有关，不能据此确认校园网掉线。"
-        case .security: "无法确认网站证书是否可信。请检查设备时间、证书及代理的 HTTPS 解密设置；不要跳过证书检查。"
-        case .dns: "找不到检测网站的地址。请检查 DNS、VPN 和代理解析规则；域名解析失败不能单独证明校园网未登录。"
-        case .timeout: "检测地址未及时响应，可能与网络、VPN 或代理节点、分流规则及服务异常有关，不能单独判断校园认证状态。"
-        case .unreachable: "检测地址未连接成功。请检查 Wi-Fi 或网线、VPN、代理和 DNS；仅凭本次结果无法确认校园网是否已登录。"
-        case .incomplete: "检测已取消，还没有结果。"
+        case .online: SharedCopy.t("diagnosis.online.detail")
+        case .portal: SharedCopy.t("diagnosis.portal.detail")
+        case .response: SharedCopy.t("diagnosis.response.detail")
+        case .security: SharedCopy.t("diagnosis.security.detail")
+        case .dns: SharedCopy.t("diagnosis.dns.detail")
+        case .timeout: SharedCopy.t("diagnosis.timeout.detail")
+        case .unreachable: SharedCopy.t("diagnosis.unreachable.detail")
+        case .incomplete: SharedCopy.t("diagnosis.incomplete.detail")
         }
     }
 }
@@ -817,7 +817,7 @@ actor PortalClient {
             case .rejected: throw PortalError.rejected
             case .uncertain: throw PortalError.authenticationUncertain
             }
-            return "教学 / 办公区登录已通过"
+            return SharedCopy.t("event.succeededTeaching")
         }
     }
 
@@ -833,7 +833,7 @@ actor PortalClient {
             case .rejected: throw PortalError.rejected
             case .uncertain: throw PortalError.authenticationUncertain
             }
-            return "宿舍区登录已通过"
+            return SharedCopy.t("event.succeededDormitory")
         }
     }
 
@@ -1132,7 +1132,7 @@ extension PortalClient {
         } catch let error as PortalError where error == .rejected {
             // No challenge was issued and nothing was submitted: not a verdict about the account.
             return Self.diagnosed(LoginAttempt(outcome: .challengeRefused, error: .rejected,
-                                               message: "登录服务未允许继续，未提交密码，也未发起正式登录。"),
+                                               message: SharedCopy.t("portalError.challengeRefused")),
                                   stage: .challenge, path: .challenge, acID: acID, status: 200, code: .explicitRejection)
         } catch {
             return Self.diagnosed(LoginAttempt(error: error), stage: .challenge, path: .challenge,
@@ -1159,7 +1159,7 @@ extension PortalClient {
             let code: AuthDiagnostic.Code
             switch PortalWire.teachingVerdict(object) {
             case .accepted:
-                attempt = .success("教学 / 办公区登录已通过"); code = .accepted
+                attempt = .success(SharedCopy.t("event.succeededTeaching")); code = .accepted
             case .rejected:
                 attempt = LoginAttempt(outcome: .rejected, rejection: PortalWire.rejectionKind(object), error: .rejected,
                                        message: PortalError.rejected.localizedDescription)
@@ -1192,7 +1192,7 @@ extension PortalClient {
             let code: AuthDiagnostic.Code
             switch PortalWire.dormitoryVerdict(object) {
             case .accepted:
-                attempt = .success("宿舍区登录已通过"); code = .accepted
+                attempt = .success(SharedCopy.t("event.succeededDormitory")); code = .accepted
             case .rejected:
                 attempt = LoginAttempt(outcome: .rejected, rejection: PortalWire.rejectionKind(object), error: .rejected,
                                        message: PortalError.rejected.localizedDescription)

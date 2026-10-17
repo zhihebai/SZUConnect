@@ -32,10 +32,10 @@ struct ConnectionPolicy {
         }
         var message: String {
             switch self {
-            case .paused: "自动重连已暂停，网络检测会继续。点“继续自动重连”后才会再次登录。"
-            case .credentials: "登录未成功。请检查账号、密码和所在区域，再继续自动重连。"
-            case .security: "登录服务的安全检查未通过，自动重连已暂停。请检查网络后再继续。"
-            case .uncertain: "暂时没收到登录结果，已暂停重试。检测到能上网后会自动继续。"
+            case .paused: SharedCopy.t("hold.userPaused.detail")
+            case .credentials: SharedCopy.t("hold.credentials.detail")
+            case .security: SharedCopy.t("hold.security.detail")
+            case .uncertain: SharedCopy.t("hold.uncertain.detail")
             }
         }
     }

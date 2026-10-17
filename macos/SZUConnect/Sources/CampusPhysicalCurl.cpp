@@ -16,7 +16,11 @@
 #include <string>
 #include <vector>
 
-struct SZUCampusCancellation { std::atomic<bool> cancelled{false}; };
+struct SZUCampusCancellation {
+    std::atomic<bool> cancelled{false};
+    std::mutex multiMutex;
+    CURLM *activeMulti = nullptr;
+};
 namespace {
 constexpr size_t headerLimit = 65536;
 constexpr size_t bodyLimit = 1048576;
@@ -193,6 +197,59 @@ struct SecurityOptions {
     long verifyPeer = 1, verifyHost = 2, followRedirects = 0, unrestrictedAuth = 0, noSignal = 1;
     long minimumTLS = CURL_SSLVERSION_TLSv1_2;
 };
+CURLcode performTransfer(CURL *handle, SZUCampusCancellation *token) {
+    CURLM *multi = curl_multi_init();
+    if (!multi) return CURLE_OUT_OF_MEMORY;
+    if (curl_multi_add_handle(multi, handle) != CURLM_OK) {
+        curl_multi_cleanup(multi);
+        return CURLE_FAILED_INIT;
+    }
+    bool attached = false;
+    {
+        std::lock_guard<std::mutex> lock(token->multiMutex);
+        if (!token->activeMulti) {
+            token->activeMulti = multi;
+            attached = true;
+        }
+    }
+    CURLcode result = CURLE_FAILED_INIT;
+    if (attached) {
+        bool finished = false;
+        while (!finished) {
+            if (token->cancelled.load(std::memory_order_acquire)) {
+                result = CURLE_ABORTED_BY_CALLBACK;
+                break;
+            }
+            int running = 0;
+            if (curl_multi_perform(multi, &running) != CURLM_OK) {
+                result = CURLE_RECV_ERROR;
+                break;
+            }
+            int remaining = 0;
+            while (CURLMsg *message = curl_multi_info_read(multi, &remaining)) {
+                if (message->msg == CURLMSG_DONE && message->easy_handle == handle) {
+                    result = message->data.result;
+                    finished = true;
+                }
+            }
+            if (finished || !running) break;
+            int descriptors = 0;
+            // Cancellation wakes this poll directly. libcurl still enforces the original
+            // total/connect timeouts, TLS checks, binding callbacks and response bounds.
+            if (curl_multi_poll(multi, nullptr, 0, 1000, &descriptors) != CURLM_OK) {
+                result = CURLE_RECV_ERROR;
+                break;
+            }
+        }
+        {
+            std::lock_guard<std::mutex> lock(token->multiMutex);
+            token->activeMulti = nullptr;
+        }
+    }
+    curl_multi_remove_handle(multi, handle);
+    curl_multi_cleanup(multi);
+    return result;
+}
 CURLcode configureSecurity(CURL *handle) {
     const SecurityOptions options;
 #define SZU_SET(option, value) do { const CURLcode code = curl_easy_setopt(handle, option, value); if (code != CURLE_OK) return code; } while (0)
@@ -217,7 +274,13 @@ CURLcode configureSecurity(CURL *handle) {
 extern "C" SZUCampusCancellation *szu_campus_cancellation_create(void) {
     try { return new SZUCampusCancellation(); } catch (...) { return nullptr; }
 }
-extern "C" void szu_campus_cancellation_cancel(SZUCampusCancellation *token) { if (token) token->cancelled.store(true, std::memory_order_release); }
+extern "C" void szu_campus_cancellation_cancel(SZUCampusCancellation *token) {
+    if (!token) return;
+    token->cancelled.store(true, std::memory_order_release);
+    // The same lock protects handle registration and cleanup against a concurrent wakeup.
+    std::lock_guard<std::mutex> lock(token->multiMutex);
+    if (token->activeMulti) (void)curl_multi_wakeup(token->activeMulti);
+}
 extern "C" int szu_campus_cancellation_is_cancelled(const SZUCampusCancellation *token) { return !token || token->cancelled.load(std::memory_order_acquire); }
 extern "C" void szu_campus_cancellation_release(SZUCampusCancellation *token) { delete token; }
 extern "C" int szu_campus_request_is_valid(const SZUCampusRequest *request) { Target target; try { return validate(request, target); } catch (...) { return 0; } }
@@ -265,7 +328,7 @@ extern "C" SZUCampusResponse szu_campus_request(const SZUCampusRequest *request,
         if (!headers) code = CURLE_OUT_OF_MEMORY;
         SZU_SET(CURLOPT_HTTPHEADER, headers);
         if (request->cookie && *request->cookie) SZU_SET(CURLOPT_COOKIE, request->cookie);
-        if (code == CURLE_OK) code = curl_easy_perform(handle);
+        if (code == CURLE_OK) code = performTransfer(handle, token);
         result.error = classify(code, transfer);
         if (code == CURLE_FILESIZE_EXCEEDED) result.error = SZU_CAMPUS_TOO_LARGE;
         if (result.error == SZU_CAMPUS_OK) {
@@ -292,6 +355,31 @@ extern "C" SZUCampusResponse szu_campus_request(const SZUCampusRequest *request,
     return result;
 }
 #ifdef SZU_CAMPUS_CURL_TESTING
+// A loopback-only transport harness. The production URL validator remains unchanged.
+extern "C" int szu_campus_test_cancel_loopback(unsigned port, SZUCampusCancellation *token) {
+    if (!token || port == 0 || port > 65535) return 0;
+    CURL *handle = curl_easy_init();
+    if (!handle) return 0;
+    const auto index = if_nametoindex("lo0");
+    Transfer transfer{token, index, "127.0.0.1", "lo0", [](void *) { return 1; }, nullptr, bodyLimit, {}, {}, 0, false, false};
+    const auto url = std::string("http://127.0.0.1:") + std::to_string(port) + "/fixture";
+    CURLcode code = configureSecurity(handle);
+    if (code == CURLE_OK) code = curl_easy_setopt(handle, CURLOPT_URL, url.c_str());
+    if (code == CURLE_OK) code = curl_easy_setopt(handle, CURLOPT_TIMEOUT_MS, 4000L);
+    if (code == CURLE_OK) code = curl_easy_setopt(handle, CURLOPT_WRITEFUNCTION, writeBody);
+    if (code == CURLE_OK) code = curl_easy_setopt(handle, CURLOPT_WRITEDATA, &transfer);
+    if (code == CURLE_OK) code = curl_easy_setopt(handle, CURLOPT_HEADERFUNCTION, writeHeader);
+    if (code == CURLE_OK) code = curl_easy_setopt(handle, CURLOPT_HEADERDATA, &transfer);
+    if (code == CURLE_OK) code = curl_easy_setopt(handle, CURLOPT_OPENSOCKETFUNCTION, openSocket);
+    if (code == CURLE_OK) code = curl_easy_setopt(handle, CURLOPT_OPENSOCKETDATA, &transfer);
+    if (code == CURLE_OK) code = curl_easy_setopt(handle, CURLOPT_XFERINFOFUNCTION, progress);
+    if (code == CURLE_OK) code = curl_easy_setopt(handle, CURLOPT_XFERINFODATA, &transfer);
+    if (code == CURLE_OK) code = curl_easy_setopt(handle, CURLOPT_NOPROGRESS, 0L);
+    if (code == CURLE_OK) code = performTransfer(handle, token);
+    const int cancelled = classify(code, transfer) == SZU_CAMPUS_CANCELLED;
+    curl_easy_cleanup(handle);
+    return cancelled;
+}
 extern "C" int szu_campus_test_bounds(void) {
     SZUCampusCancellation token;
     Transfer transfer{&token, 1, "127.0.0.1", "lo0", [](void *) { return 1; }, nullptr, 3, {}, {}, 0, false, false};

@@ -518,7 +518,7 @@ struct AppModelOfflineTests {
             var snapshot = await service.snapshot()
             check(snapshot.probes == 1 && snapshot.confirmations == 0 && snapshot.submitted.isEmpty,
                   "First failed automatic round only probes")
-            check(model.status == "稍后再次检测" && !model.busy,
+            check(model.status == SharedCopy.t("status.confirming.headline") && !model.busy,
                   "First failed round releases ownership and requests confirmation")
             await model.runAutomaticCycle()
             snapshot = await service.snapshot()
@@ -601,12 +601,13 @@ struct AppModelOfflineTests {
             var snapshot = await service.snapshot()
             check(snapshot.submitted.count == 1 && snapshot.probes == 5,
                   "Accepted authentication performs at most three read-only confirmations")
-            check(model.status == "登录已提交，等待联网" && !model.isOnline, "Authentication acceptance alone never claims internet access")
+            check(model.status == SharedCopy.t("status.accepted.headline") && !model.isOnline, "Authentication acceptance alone never claims internet access")
             for _ in 0..<3 { await model.runAutomaticCycle() }
             snapshot = await service.snapshot()
             check(snapshot.probes == 8 && snapshot.submitted.count == 1 && snapshot.confirmations == 1,
                   "Grace period keeps probing without another discovery or login")
-            check(model.authenticationSummary.contains("不重复登录") && model.recommendedCheckDelay == 15,
+            check(model.engineStatus == "coolingDown" && model.authenticationSummary == SharedCopy.t("auto.coolingDown.detail")
+                  && model.recommendedCheckDelay == 15,
                   "Grace period is visible and schedules read-only confirmations")
         }
         do {
@@ -953,14 +954,14 @@ struct AppModelOfflineTests {
                   "A captive redirect is explained in plain language without sending the account")
         }
 
-        // Editing during a manual login stops it without leaving a stale "正在登录".
+        // Editing during a manual login stops it without leaving a stale SharedCopy.t("status.loggingIn.headline").
         do {
             let (model, service) = fixture()
             await service.configure(reports: [offline], reply: .accepted)
             await service.pauseNext(.login)
             model.connect()
             try await waitUntil("manual login in flight") { await service.isWaiting(.login) }
-            check(model.status == "正在登录" && model.isForegroundBusy, "A manual login is visible foreground work")
+            check(model.status == SharedCopy.t("status.loggingIn.headline") && model.isForegroundBusy, "A manual login is visible foreground work")
             model.password = "edited-password"
             check(!model.busy && !model.isForegroundBusy && model.status == "已取消",
                   "Editing the account stops the login without leaving a stale status")

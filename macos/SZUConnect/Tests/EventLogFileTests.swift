@@ -33,6 +33,16 @@ import Foundation
             catch { check(true, "Damaged payload is rejected before rendering") }
             check((try Data(contentsOf: url)) == malformed, "Rejected event data remains available for quarantine")
         }
+        check(RecordMessageClassifier.isFailure("fixture-old-failure with details", legacyMarkers: ["fixture-old-failure"]),
+              "Older consumer failure markers remain recognized without rewriting stored messages")
+        for key in ["portalError.rejected", "portalError.tls", "portalError.timeout", "event.offlineAfterOnline"] {
+            check(RecordMessageClassifier.isFailure(SharedCopy.t(key), legacyMarkers: []),
+                  "The current shared failure text appears in the failures-only list")
+        }
+        check(!RecordMessageClassifier.isFailure(SharedCopy.t("portalError.authenticationUncertain"), legacyMarkers: []),
+              "An unknown submission result is not mislabeled as a confirmed failure")
+        check(!RecordMessageClassifier.isFailure(SharedCopy.t("event.online"), legacyMarkers: []),
+              "A successful detection is not selected by the failures-only filter")
         print("\(passed) disposable-file event-store assertions passed. No formal user data or network was accessed.")
     }
 }

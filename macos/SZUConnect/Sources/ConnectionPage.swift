@@ -264,8 +264,10 @@ struct ConnectionPage: View {
                 }
                 FlowLayout(spacing: 8) {
                     ForEach(readiness.items) { item in
-                        let checkingKnown = item.kind == "network" && model.networkRemembered && model.autoLoginKey == "awaitingProof"
-                        ToneLabel(text: SharedCopy.t(checkingKnown ? "ready.network.knownChecking" : item.key), tone: checkingKnown ? "info" : item.tone)
+                        let awaitingKnown = item.kind == "network" && model.networkRemembered && model.autoLoginKey == "awaitingProof"
+                        let checkingKnown = awaitingKnown && model.campusVerificationInProgress
+                        let key = checkingKnown ? "ready.network.knownChecking" : awaitingKnown ? "ready.network.awaiting" : item.key
+                        ToneLabel(text: SharedCopy.t(key), tone: awaitingKnown ? "info" : item.tone)
                     }
                 }
                 reasonBlock(p)
@@ -480,7 +482,7 @@ struct ConnectionPage: View {
                               prompt: Text(SharedCopy.t("internet.addPlaceholder")).foregroundColor(Color.token("textSecondary")))
                         .foregroundStyle(Color.token("textPrimary"))
                         .textFieldStyle(.roundedBorder).onSubmit(addWebsite)
-                    ActionButton(title: SharedCopy.t("internet.add"), action: addWebsite)
+                    ActionButton(title: SharedCopy.t("internet.add"), icon: "plus", action: addWebsite)
                         .disabled(newWebsite.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !model.canEditWebsiteTargets)
                 }
             }

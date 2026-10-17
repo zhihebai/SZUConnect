@@ -152,6 +152,7 @@ final class WiFiRecoveryController: NSObject, ObservableObject, CLLocationManage
     private var nextAttempt = Date.distantPast
     private var locationManager: CLLocationManager?
     private var permissionActivationObserver: NSObjectProtocol?
+    private var permissionInteractionPending = false
 
     init(preferencesURL: URL?, service: any WiFiRecoveryServicing = CoreWLANRecoveryService(),
          startAutomatically: Bool = true, requestsSystemPermission: Bool = true, preferencesReadOnly: Bool = false,
@@ -416,7 +417,8 @@ final class WiFiRecoveryController: NSObject, ObservableObject, CLLocationManage
         let token = WiFiRecoveryAuthorization(); authorization = token
         nextAttempt = Date().addingTimeInterval(retryDelays[min(failures, retryDelays.count - 1)])
         let selected = allowedNetworks.filter { selectedNetworkIDs.contains($0.id) }
-        status = .searching
+        // Incomplete setup may still permit a radio-power check, but no Wi-Fi scan.
+        if setupIssue == nil { status = .searching }
         let result = await service.recover(.init(networks: selected, allowPowerOn: powerOnWhenDisconnected), authorization: token)
         guard authorization === token, token.isValid, mayRecover, !Task.isCancelled else { return }
         switch result {
@@ -455,6 +457,11 @@ final class WiFiRecoveryController: NSObject, ObservableObject, CLLocationManage
         // Permission is user-initiated. Never request coordinates or start location updates.
         // Core Location ignores a WhenInUse request from an inactive app. A menu-bar or
         // accessibility action can reach this button without making the app active first.
+        if locationManager?.authorizationStatus == .notDetermined && !permissionInteractionPending {
+            permissionInteractionPending = true
+            NotificationCenter.default.post(name: Notification.Name("SZUConnect.permissionInteraction"),
+                object: self, userInfo: ["active": true])
+        }
         if NSApplication.shared.isActive {
             locationManager?.requestWhenInUseAuthorization()
         } else {
@@ -483,6 +490,11 @@ final class WiFiRecoveryController: NSObject, ObservableObject, CLLocationManage
     }
     // Shared by the OS delegate and isolated tests; unchanged initial callbacks must not cancel work.
     func applyPermissionStatus(_ newStatus: WiFiNamePermission) {
+        if permissionInteractionPending && newStatus != .notRequested {
+            permissionInteractionPending = false
+            NotificationCenter.default.post(name: Notification.Name("SZUConnect.permissionInteraction"),
+                object: self, userInfo: ["active": false])
+        }
         guard permissionStatus != newStatus else { return }
         invalidate()
         permissionStatus = newStatus

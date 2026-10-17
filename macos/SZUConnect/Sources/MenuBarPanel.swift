@@ -17,7 +17,6 @@ extension AppModel {
 /// Compact companion to the main window: status, next action, pause/resume, open, quit.
 struct MenuBarPanel: View {
     @EnvironmentObject private var model: AppModel
-    @Environment(\.openWindow) private var openWindow
     @State private var showPartialLoginWarning = false
 
     var body: some View {
@@ -56,7 +55,7 @@ struct MenuBarPanel: View {
                     }
                 }
                 ActionButton(title: SharedCopy.t("tray.open"), icon: "home", fill: true) {
-                    DashboardApplicationDelegate.showDashboard(using: openWindow)
+                    DashboardApplicationDelegate.showDashboard()
                 }
                 ActionButton(title: SharedCopy.t("tray.quit"), kind: .plain, fill: true) { NSApp.terminate(nil) }
             }

@@ -260,7 +260,9 @@ struct WebsiteDiagnosticsTests {
                   "Only the explicit connection-error whitelist requests recovery")
             check(!result.detail.contains("SECRET"), "Raw error description cannot leak URL tokens")
             if state == .securityPolicy {
-                check(result.title == "需要 HTTPS 网址" && result.detail.contains("系统安全策略") && result.detail.contains("不能据此判断网站断网"), "ATS rejection explains the local security restriction without declaring the website offline")
+                check(result.title.contains("HTTPS") && result.detail.contains("HTTP") && result.detail.contains("https://")
+                      && result.recoverySignal != .connectionFailure,
+                      "ATS rejection suggests HTTPS without requesting campus recovery")
             }
         }
 
