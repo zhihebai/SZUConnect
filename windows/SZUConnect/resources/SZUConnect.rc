@@ -15,8 +15,8 @@ IDI_TRAY_BUSY_LIGHT       ICON "icons/tray-busy-light.ico"
 IDI_TRAY_BUSY_DARK        ICON "icons/tray-busy-dark.ico"
 
 VS_VERSION_INFO VERSIONINFO
- FILEVERSION 0,10,1,32
- PRODUCTVERSION 0,10,1,32
+ FILEVERSION 1,0,0,33
+ PRODUCTVERSION 1,0,0,33
  FILEFLAGSMASK 0x3fL
  FILEFLAGS 0x0L
  FILEOS VOS_NT_WINDOWS32
@@ -29,11 +29,11 @@ BEGIN
         BEGIN
             VALUE "CompanyName", "SZUConnect contributors"
             VALUE "FileDescription", "深大随连 SZUConnect"
-            VALUE "FileVersion", "0.10.1.32"
+            VALUE "FileVersion", "1.0.0.33"
             VALUE "InternalName", "SZUConnect"
             VALUE "OriginalFilename", "SZUConnect.exe"
             VALUE "ProductName", "深大随连 SZUConnect（非深圳大学官方应用）"
-            VALUE "ProductVersion", "0.10.1 (32)"
+            VALUE "ProductVersion", "1.0.0 (33)"
         END
     END
     BLOCK "VarFileInfo"

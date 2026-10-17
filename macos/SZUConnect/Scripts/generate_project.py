@@ -18,7 +18,7 @@ legal_notice = add('PBXFileReference',lastKnownFileType='text',path='Resources/A
 distribution_notice = add('PBXFileReference',lastKnownFileType='text',path='../../docs/DISTRIBUTION-NOTICES.txt',sourceTree='<group>')
 products = add('PBXGroup',children=[],name='Products',sourceTree='<group>')
 main = add('PBXGroup',children=[src_group,assets,legal_notice,distribution_notice,products],sourceTree='<group>')
-base = {'CLANG_CXX_LANGUAGE_STANDARD':'c++17','CLANG_ENABLE_MODULES':'YES','SWIFT_VERSION':'5.0','SWIFT_OBJC_BRIDGING_HEADER':'Sources/SrunCore.h','SWIFT_EMIT_LOC_STRINGS':'NO','MARKETING_VERSION':'0.10.1','CURRENT_PROJECT_VERSION':'32','ENABLE_USER_SCRIPT_SANDBOXING':'YES','ASSETCATALOG_COMPILER_APPICON_NAME':'AppIcon'}
+base = {'CLANG_CXX_LANGUAGE_STANDARD':'c++17','CLANG_ENABLE_MODULES':'YES','SWIFT_VERSION':'5.0','SWIFT_OBJC_BRIDGING_HEADER':'Sources/SrunCore.h','SWIFT_EMIT_LOC_STRINGS':'NO','MARKETING_VERSION':'1.0.0','CURRENT_PROJECT_VERSION':'33','ENABLE_USER_SCRIPT_SANDBOXING':'YES','ASSETCATALOG_COMPILER_APPICON_NAME':'AppIcon'}
 def configs(settings):
     result=[]
     for name in ['Debug','Release']:
