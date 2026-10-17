@@ -109,12 +109,14 @@ import Carbon
 @MainActor
 final class DashboardApplicationDelegate: NSObject, NSApplicationDelegate {
     static let windowIdentifier = NSUserInterfaceItemIdentifier("SZUConnect.dashboard")
+    private static let frameAutosaveName = "SZUConnect.dashboard"
     private static weak var current: DashboardApplicationDelegate?
     private static weak var preparedModel: AppModel?
     private let dockVisibility = DockVisibilityController()
     private weak var model: AppModel?
     private var preferenceObservation: AnyCancellable?
     private var dashboardWindow: NSWindow?
+    private var lastDashboardFrame: NSRect?
     private var windowCloseObserver: NSObjectProtocol?
     private var finishedLaunching = false
     private var startupHandled = false
@@ -180,14 +182,28 @@ final class DashboardApplicationDelegate: NSObject, NSApplicationDelegate {
         window.tabbingMode = .disallowed
         window.isReleasedWhenClosed = false
         window.contentMinSize = CGSize(width: DashboardLayout.minimumWindowWidth, height: 520)
-        window.contentView = NSHostingView(rootView: ContentView().environmentObject(model))
+        let hostingView = NSHostingView(rootView: ContentView().environmentObject(model))
+        // The user's window size owns the layout; switching pages must not resize it to
+        // SwiftUI's changing ideal content size. Keep the explicit minimum above.
+        hostingView.sizingOptions = []
+        window.contentView = hostingView
         current.dashboardWindow = window
         current.dockVisibility.track(window)
-        window.center()
+        // Restore the frame, not a content size, so the toolbar cannot add height on each reopen.
+        let restored = window.setFrameUsingName(Self.frameAutosaveName)
+        if let frame = current.lastDashboardFrame {
+            window.setFrame(window.constrainFrameRect(frame, to: window.screen), display: false)
+        } else if !restored { window.center() }
+        if !model.sessionReadOnly { _ = window.setFrameAutosaveName(Self.frameAutosaveName) }
         if let observer = current.windowCloseObserver { NotificationCenter.default.removeObserver(observer) }
         current.windowCloseObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.willCloseNotification, object: window, queue: .main) { [weak current, weak window] _ in
                 MainActor.assumeIsolated {
+                    if let current, let window {
+                        current.rememberDashboardFrame(window)
+                        // A replacement window may reuse the name even before this one deallocates.
+                        _ = window.setFrameAutosaveName("")
+                    }
                     if current?.dashboardWindow === window { current?.dashboardWindow = nil }
                     if let token = current?.windowCloseObserver {
                         NotificationCenter.default.removeObserver(token)
@@ -202,6 +218,15 @@ final class DashboardApplicationDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+
+    private func rememberDashboardFrame(_ window: NSWindow) {
+        lastDashboardFrame = window.frame
+        if model?.sessionReadOnly == false { window.saveFrame(usingName: Self.frameAutosaveName) }
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        if let dashboardWindow { rememberDashboardFrame(dashboardWindow) }
+    }
 
     func applicationWillFinishLaunching(_ notification: Notification) { configure() }
     func applicationDidBecomeActive(_ notification: Notification) { model?.setForeground(true) }

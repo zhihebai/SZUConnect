@@ -350,8 +350,27 @@ struct SectionTitle: View {
     let text: String
     var body: some View {
         Text(text).font(AppFont.headline).foregroundStyle(Color.token("textPrimary"))
-            .padding(.top, SharedTokens.spaceS)
             .accessibilityAddTraits(.isHeader)
+    }
+}
+
+/// Keep sibling preferences aligned: the checkbox labels share a baseline and all
+/// descriptions begin after the checkbox, including when the text wraps.
+struct SettingToggleRow: View {
+    let title: String
+    let detail: String
+    @Binding var isOn: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: SharedTokens.spaceXs) {
+            Toggle(isOn: $isOn) { Text(title).font(AppFont.body) }
+                .frame(minHeight: 32)
+            Text(detail).font(AppFont.callout).foregroundStyle(Color.token("textSecondary"))
+                .fixedSize(horizontal: false, vertical: true)
+                .lineSpacing(SharedTokens.spaceXs / 2)
+                .padding(.leading, SharedTokens.sizeIconMedium)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

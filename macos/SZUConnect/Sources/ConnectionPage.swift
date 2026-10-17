@@ -276,12 +276,9 @@ struct ConnectionPage: View {
                 Text(SharedCopy.t(model.networkRemembered ? "memory.remembered" : model.currentNetworkAuthorized ? "memory.sessionTrusted" : "memory.notRemembered"))
                     .font(AppFont.caption).foregroundStyle(Color.token("textSecondary"))
                     .fixedSize(horizontal: false, vertical: true)
-                HStack(spacing: 8) {
-                    ViewThatFits(in: .horizontal) {
-                        HStack(spacing: 8) { recoveryActions }
-                        VStack(alignment: .leading, spacing: 8) { recoveryActions }
-                    }
-                    Spacer(minLength: 0)
+                HStack(alignment: .top, spacing: SharedTokens.spaceS) {
+                    FlowLayout(spacing: SharedTokens.spaceS) { recoveryActions }
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     InfoButton(topic: "memory")
                 }
                 if let message = model.memoryVerificationMessage {
