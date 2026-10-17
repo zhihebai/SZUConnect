@@ -38,7 +38,7 @@ $dist = Join-Path $env:TEMP 'SZUConnect-dist'
 
 `test-windows.ps1` 默认先构建；`-SkipBuild` 仍运行核心测试、共享资源检查及原生离线自检。打包仅使用 Release，默认构建并检查一次，已有构建时可加 `-SkipBuild`。
 
-缺少依赖、检查失败或回执无效时返回非零。跳过的检查不能记为通过。
+缺少依赖、检查失败或回执无效时，脚本返回非零退出码。报告分别记录通过、失败和跳过的检查。
 
 直接使用 CMake 时也指定仓库外目录：
 
@@ -56,7 +56,7 @@ cmake --build /tmp/SZUConnect-core
 ctest --test-dir /tmp/SZUConnect-core --output-on-failure
 ```
 
-核心测试与 mock SDK 语法检查不覆盖原生 Windows 构建、UI Automation、凭据管理器、无线接口或真实校园认证。
+上述核心及语法检查之外，还需在 Windows 上验证原生构建、UI Automation、凭据管理器、无线接口和校园认证。
 
 ## 原生离线自检
 
@@ -70,7 +70,7 @@ ctest --test-dir /tmp/SZUConnect-core --output-on-failure
 
 内部默认 10 秒截止，脚本外层 15 秒；超时或失败保留 stdout、stderr 及已有回执。核心测试的 JUnit 位于报告目录中的 `ctest-<Configuration>-<随机标识>/core-tests.xml`。
 
-离线自检不提交真实账号，也不证明真实校园认证、无线接口或 VPN／代理恢复已经通过。
+离线自检使用假账号；校园认证、无线接口和 VPN／代理恢复另行实机测试。
 
 ## 发行包
 
@@ -96,6 +96,6 @@ Windows 提供已记住开放校园 Wi-Fi 的可选找网及独立电源开关�
 
 ## Windows 本机验收
 
-先保留打包结果及离线回执，再按[验收矩阵](WINDOWS-TESTING.md#验收矩阵)检查 Windows 11 实际桌面。CI 使用 Windows Server 2022，不能替代设备、权限及校园网络测试。
+保留打包结果及离线回执，按[验收矩阵](WINDOWS-TESTING.md#验收矩阵)检查 Windows 11 实际桌面。CI 在 Windows Server 2022 上构建和测试，设备、权限及校园网络需单独验收。
 
 只读与离线模式使用独立实例标识。设备验证先运行只读模式，再正常退出并按需使用普通模式；真实登录和自动恢复由账号持有人在适用校园网络中验证。

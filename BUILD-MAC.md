@@ -39,7 +39,7 @@ python3 Tests/test_artifact_scripts.py
 
 ## 分发
 
-公开分发应使用发行者自己的 Developer ID 签名并完成 Apple 公证，保留定位权限配置（Location entitlement）与用途说明。Apple Development 和 ad hoc 签名均不等于公证。
+公开分发使用发行者自己的 Developer ID 签名并完成 Apple 公证，保留定位权限配置（Location entitlement）与用途说明。Apple Development 和 ad hoc 签名仅用于开发测试。
 
 以下命令在 `macos/SZUConnect` 目录运行。尖括号内容为占位符，请替换为应用路径和源码仓库外的输出目录。脚本拒绝覆盖已有输出，不会安装或启动应用。
 
@@ -73,7 +73,7 @@ python3 Scripts/package-dmg.py \
   --notices '../../docs/DISTRIBUTION-NOTICES.txt'
 ```
 
-脚本在源应用、暂存、挂载和复制阶段检查签名与公证票据。应用与外层 DMG 的公证须分别验证，不能互相替代。
+脚本在源应用、暂存、挂载和复制阶段检查签名与公证票据，并分别验证应用和外层 DMG 的公证。
 
 正式下载包的签名与公证状态见下载页。安装步骤见[安装说明](docs/INSTALLATION.md)。
 
@@ -83,7 +83,7 @@ python3 Scripts/package-dmg.py \
 
 安装 iOS 与 iOS Simulator SDK 后，在 Xcode 中选择该 scheme。先检查模拟器编译，再按需验证设备签名、界面、权限与校园认证。
 
-菜单栏、macOS 登录项和 Wi-Fi 找网不能直接沿用到 iOS，移动端也不提供相同的后台守护。编译通过不代表设备功能已验证。
+菜单栏、登录项、Wi-Fi 找网及后台运行需按 iOS 重新适配。编译完成后，设备功能仍需逐项验证。
 
 可选扩展脚本会运行离线回归，并构建 macOS、iOS 设备与 iOS 模拟器目标：
 
