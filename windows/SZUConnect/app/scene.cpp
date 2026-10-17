@@ -17,9 +17,10 @@ constexpr float kTarget = tokens::kSizeMinTarget;  // 44 DIP minimum hit target
 // ---------------- Scene ----------------
 const Widget* Scene::find(const std::string& id) const {
     if (id.empty()) return nullptr;
-    for (const Widget& w : widgets)
-        if (w.id == id) return &w;
-    return nullptr;
+    const Widget* found = nullptr;
+    for (auto it = widgets.rbegin(); it != widgets.rend(); ++it)
+        if (it->id == id && (!found || it->layer > found->layer)) found = &*it;
+    return found;
 }
 
 D2D1_RECT_F Scene::visible_rect(const Widget& w) const {
