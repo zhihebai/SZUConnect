@@ -89,7 +89,7 @@
             <mxGeometry height="54" width="188" x="1048" y="1797" as="geometry" />
           </mxCell>
         </UserObject>
-        <UserObject label="完整检测&#xa;全部通过？" mermaidId="n:R" mermaidBaseStyle="rhombus;html=1;strokeWidth=1;whiteSpace=wrap;fillColor=#fff4da;strokeColor=#b08b3e;fontColor=#433414;fontFamily=Trebuchet MS,Verdana,Arial,sans-serif;fontSize=16;" mermaidBaseValue="完整检测&#xa;全部通过？" id="19">
+        <UserObject label="适用检测项目&#xa;全部通过？" mermaidId="n:R" mermaidBaseStyle="rhombus;html=1;strokeWidth=1;whiteSpace=wrap;fillColor=#fff4da;strokeColor=#b08b3e;fontColor=#433414;fontFamily=Trebuchet MS,Verdana,Arial,sans-serif;fontSize=16;" mermaidBaseValue="适用检测项目&#xa;全部通过？" id="19">
           <mxCell parent="1" style="rhombus;html=1;strokeWidth=1;whiteSpace=wrap;fillColor=#fff4da;strokeColor=#b08b3e;fontColor=#433414;fontFamily=Trebuchet MS,Verdana,Arial,sans-serif;fontSize=16;" vertex="1">
             <mxGeometry height="144" width="144" x="1070" y="1920" as="geometry" />
           </mxCell>
