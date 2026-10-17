@@ -168,8 +168,8 @@ final class DashboardApplicationDelegate: NSObject, NSApplicationDelegate {
         // Own one native window explicitly, including on macOS 14. Menu-bar-only starts
         // never create or momentarily expose a default SwiftUI Window scene.
         let width = max(DashboardLayout.minimumWindowWidth,
-            (Bundle.main.object(forInfoDictionaryKey: "SZUPreviewWidth") as? NSNumber)?.doubleValue ?? 920)
-        let height = max(520, (Bundle.main.object(forInfoDictionaryKey: "SZUPreviewHeight") as? NSNumber)?.doubleValue ?? 740)
+            (Bundle.main.object(forInfoDictionaryKey: "SZUPreviewWidth") as? NSNumber)?.doubleValue ?? 720)
+        let height = max(520, (Bundle.main.object(forInfoDictionaryKey: "SZUPreviewHeight") as? NSNumber)?.doubleValue ?? 680)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: height),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered, defer: false)
