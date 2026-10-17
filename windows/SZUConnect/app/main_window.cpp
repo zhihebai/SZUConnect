@@ -399,7 +399,7 @@ void MainWindow::prepare_smoke_scene() {
         // Build auxiliary dialogs with fake display data only. They do not create
         // native fields, mutate the actual scene, or add retained screenshots.
         const float test_width = 480, test_height = smoke_capture_stage_ == 10 ? 220.0f : 540.0f;
-        for (const std::string name : {"websiteResult", "wifiName", "memoryRename"}) {
+        for (const std::string name : {"websiteResult", "wifiName", "memoryRename", "memoryForget", "accountDelete"}) {
             UiState state = ui_; state.page = Page::settings; state.tutorial_visible = false;
             state.overlays = {name}; state.network_name_id = "offline-preview";
             state.network_name_draft = L"Offline preview"; state.network_name_error.clear();
@@ -446,14 +446,16 @@ void MainWindow::prepare_smoke_scene() {
                     (widget.scrolls && r.top < sample.layers[1].viewport.top)) { fail("geometry." + widget.id); return; }
                 if (!widget.focusable) continue;
                 if (widget.id.empty() || std::find(ids.begin(), ids.end(), widget.id) != ids.end() ||
-                    r.right - r.left < tokens::kSizeMinTarget || r.bottom - r.top < tokens::kSizeMinTarget) { fail("target." + widget.id); return; }
+                    r.right - r.left + 0.01f < tokens::kSizeMinTarget || r.bottom - r.top + 0.01f < tokens::kSizeMinTarget) {
+                    fail("target." + widget.id + "." + std::to_string(r.right - r.left) + "x" + std::to_string(r.bottom - r.top)); return;
+                }
                 ids.push_back(widget.id);
             }
             sample.layers[1].scroll = 1.0e6f; sample.clamp_scroll(1);
             if ((smoke_capture_stage_ == 10 && sample.layers[1].scroll <= 0) ||
                 sample.visible_rect(*close).top != close->rect.top || sample.visible_rect(*close).bottom != close->rect.bottom) { fail("scroll"); return; }
             const auto close_action = close->action;
-            if (name != "websiteResult") {
+            if (name == "wifiName" || name == "memoryRename") {
                 const auto* field = sample.find("memory.name");
                 const auto* cancel = sample.find("memory.nameCancel");
                 const auto* save = sample.find("memory.nameSave");
@@ -462,6 +464,18 @@ void MainWindow::prepare_smoke_scene() {
                     cancel->rect.left >= save->rect.left) { fail("fieldActions"); return; }
                 const auto cancel_action = cancel->action; cancel_action();
                 if (!state.overlays.empty()) { fail("cancelAction"); return; }
+                state.overlays = {name};
+            }
+            if (name == "memoryForget" || name == "accountDelete") {
+                const auto prefix = name == "memoryForget" ? "memory.forget" : "account.delete";
+                const auto* cancel = sample.find(std::string(prefix) + "Cancel");
+                const auto* confirm = sample.find(std::string(prefix) + "Confirm");
+                const auto before = app_->snapshot();
+                if (!cancel || !confirm || !cancel->action || !confirm->action || !cancel->focusable || !confirm->focusable ||
+                    cancel->rect.left >= confirm->rect.left) { fail("confirmationActions"); return; }
+                const auto cancel_action = cancel->action; cancel_action();
+                if (!state.overlays.empty() || before.has_saved != app_->snapshot().has_saved ||
+                    before.memory_count != app_->snapshot().memory_count) { fail("cancelMutation"); return; }
                 state.overlays = {name};
             }
             close_action();
@@ -777,6 +791,12 @@ bool MainWindow::validate_smoke_scene() {
         if (technical && (!technical->focusable || !technical->action || technical->checked != ui_.technical_network ||
             technical->rect.bottom - technical->rect.top < tokens::kSizeMinTarget || technical->rect.top <= disclosure->rect.bottom)) {
             smoke_result_.failure = "networkTechnicalDisclosureInvalid"; return false;
+        }
+        const auto* local_check = scene_.find("network.check");
+        if (static_cast<bool>(local_check) != (ui_.advanced_network && ui_.technical_network) ||
+            (local_check && (!local_check->focusable || !local_check->action || local_check->icon.empty() ||
+                local_check->rect.bottom - local_check->rect.top < tokens::kSizeMinTarget))) {
+            smoke_result_.failure = "networkLocalCheckInvalid"; return false;
         }
         ++smoke_result_.network_layouts_checked;
     }
@@ -1096,7 +1116,8 @@ HWND MainWindow::ensure_edit(const std::string& id, bool secret) {
         const auto cue = win::widen(copy::text(id == "account.account" ? "dashboard.accountPlaceholder" : "account.passwordLabel"));
         SendMessageW(edit, EM_SETCUEBANNER, TRUE, reinterpret_cast<LPARAM>(cue.c_str()));
     } else if (id == "memory.name") {
-        const auto cue = win::widen(copy::text("memory.namePlaceholder"));
+        const auto cue = win::widen(copy::text(!ui_.overlays.empty() && ui_.overlays.back() == "wifiName" ?
+            "wifiRecovery.windows.manualSSID.placeholder" : "memory.namePlaceholder"));
         SendMessageW(edit, EM_SETCUEBANNER, TRUE, reinterpret_cast<LPARAM>(cue.c_str()));
     }
     // Accessible name for the native control (dynamic annotation).

@@ -137,6 +137,7 @@ public:
         std::function<bool(const std::string&)> persist_memory;      // atomic write of network-memory.json; false keeps the old file
         std::function<std::string()> random_hex;                     // 32 random hex chars (salt / record id); absent: memory disabled
         std::function<void(double, const CancelToken&)> sleep_cancellable; // optional replacement for sleep, follows operation cancellation
+        std::function<bool()> erase_credentials;                    // deletes only this application's saved account
     };
 
     ConnectionEngine(ConnectionService& service, Hooks hooks, bool read_only_session = false);
@@ -155,6 +156,7 @@ public:
     void revert_draft();
     enum class SaveResult { saved, unchanged, invalid, failed };
     SaveResult save_draft();
+    bool delete_account();  // cancels old work; a vault failure pauses automatic login and remains retryable
     void pause_auto_login();
     void resume_auto_login();
     bool trust_current_network();
@@ -164,15 +166,20 @@ public:
     enum class RememberResult { remembered, needsProof, unreliable, readOnly, unreadable, failed, busy, cancelled };
     // Reserve on the UI thread before enqueueing so cancel/path/forget also invalidate queued work.
     class RememberRequest {
+    public:
+        const std::vector<std::string>& merging_record_ids() const { return merging_record_ids_; }
+    private:
         friend class ConnectionEngine;
         ConnectionPolicy::Operation operation_;
         CancelToken token_;
         std::uint64_t epoch_ = 0, memory_generation_ = 0;
         CampusArea area_ = CampusArea::automatic;
+        std::vector<std::string> merging_record_ids_;
     };
     std::optional<RememberRequest> prepare_remember();
     RememberResult trust_and_remember(const RememberRequest& request);  // worker: fresh discovery, durable save, then trust
     RememberResult trust_and_remember();  // blocking convenience for non-UI callers
+    void forget_network(const std::string& id);  // removes one network and proven duplicate records
     void forget_current_network();        // revokes trust, cancels work, deletes matching records
     void forget_all_networks();
     std::vector<MemoryRecord> remembered_networks() const;
@@ -228,7 +235,8 @@ private:
     RememberResult remember_rejection_locked() const;
     bool owns_remember_locked(const RememberRequest& request) const;
     void touch_memory_locked(CampusArea area);
-    bool commit_memory_locked(NetworkMemory next, const std::vector<std::string>& ids_to_suppress);
+    bool commit_memory_locked(NetworkMemory next, const std::vector<std::string>& ids_to_suppress,
+                              const std::string& freshly_remembered = {});
 
     ConnectionService& service_;
     Hooks hooks_;

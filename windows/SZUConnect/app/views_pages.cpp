@@ -607,6 +607,12 @@ void connection_page(Builder& b, ViewContext& ctx, const EngineSnapshot& snap, c
             row("env.layer.tunnel", T("env.tunnel." + tunnel), "network.environment.tunnel");
         }, [&ctx, &snap](Builder& button) { button.button("network.refresh", T("env.refresh"), ButtonStyle::secondary,
             [&ctx] { ctx.app.refresh_environment(); ctx.refresh(); }, "refresh", false, !snap.busy); }}, {0, refresh_width}, 16, 180);
+        if (const auto refreshed = app.environment_refreshed()) {
+            b.gap(tokens::kSpaceS);
+            b.text(F(app.environment_refresh_incomplete() ? "env.refreshedPartial" : "env.refreshed",
+                {{"time", clock_seconds(*refreshed)}}), TextStyle::caption,
+                app.environment_refresh_incomplete() ? "warning" : "textSecondary", Role::status, "network.refresh.feedback");
+        }
         b.card_end(); b.gap(12);
         const auto detail_label = T("env.details");
         const float detail_h = std::max(tokens::kSizeWindowsSectionTitleVisualHeight,
@@ -940,8 +946,10 @@ void settings_page(Builder& b, ViewContext& ctx, const EngineSnapshot& snap, con
         for (const auto& record : remembered) {
             b.gap(tokens::kSpaceM);
             has_legacy_name = has_legacy_name || !app.network_name_known(record.id);
-            const auto name = win::widen(app.network_name(record.id));
-            const auto verified = F("memory.verified", {{"date", stamp_text(record.verified)}});
+            const auto name = win::widen(app.network_display_name(record.id));
+            const auto context = T("memory.kind." + app.network_kind(record.id)) +
+                (record.area.empty() ? L"" : L" · " + T("area." + record.area + ".title"));
+            const auto verified = context + L"\n" + F("memory.verified", {{"date", stamp_text(record.verified)}});
             const float manage_width = std::ceil(b.measure_text(T("memory.manage"), TextStyle::callout, 10000).width) + 30;
             b.row({[name, verified](Builder& row) {
                 const float text_width = std::max(8.0f, row.width() - 26);
@@ -958,15 +966,18 @@ void settings_page(Builder& b, ViewContext& ctx, const EngineSnapshot& snap, con
                 menu.menu_button("memory.manage." + id, T("memory.manage"), T("memory.manage") + L"：" + name, [&ctx, id] {
                     HMENU choices = CreatePopupMenu(); if (!choices) return;
                     AppendMenuW(choices, MF_STRING, 1, T("memory.rename").c_str());
-                    const bool wifi = ctx.app.is_wifi_record(id) && !ctx.app.wifi_unreadable();
+                    const bool wifi = ctx.app.can_edit_wifi_name(id);
                     if (wifi) AppendMenuW(choices, MF_STRING, 2, T("wifiRecovery.windows.manualSSID").c_str());
+                    AppendMenuW(choices, MF_SEPARATOR, 0, nullptr);
+                    AppendMenuW(choices, MF_STRING, 3, T("memory.forget").c_str());
                     POINT point{};
                     if (!GetCursorPos(&point)) { RECT frame{}; GetWindowRect(ctx.hwnd, &frame); point = {frame.left + 80, frame.top + 160}; }
                     SetForegroundWindow(ctx.hwnd);
                     const UINT choice = TrackPopupMenu(choices, TPM_RETURNCMD | TPM_NONOTIFY, point.x, point.y, 0, ctx.hwnd, nullptr);
                     DestroyMenu(choices);
-                    if (choice != 1 && !(choice == 2 && wifi)) return;
+                    if (choice != 1 && !(choice == 2 && wifi) && choice != 3) return;
                     ctx.ui.network_name_id = id;
+                    if (choice == 3) { ctx.open("memoryForget"); return; }
                     ctx.ui.network_name_draft = choice == 2 ? win::widen(ctx.app.wifi_name(id)) :
                         ctx.app.network_name_known(id) ? win::widen(ctx.app.network_name(id)) : L"";
                     ctx.ui.network_name_error.clear(); ctx.open(choice == 2 ? "wifiName" : "memoryRename");
@@ -1012,7 +1023,7 @@ void settings_page(Builder& b, ViewContext& ctx, const EngineSnapshot& snap, con
     } else {
         b.gap(tokens::kSpaceXs);
         for (const auto& network : wifi_networks) b.toggle("wifi.network." + network.id,
-            win::widen(network.display_name), network.display_name == network.ssid ? L"" : win::widen(network.ssid), app.wifi_selected(network.id),
+            win::widen(app.network_display_name(network.id)), network.display_name == network.ssid ? L"" : win::widen(network.ssid), app.wifi_selected(network.id),
             [&ctx, id = network.id] { ctx.app.set_wifi_selected(id, !ctx.app.wifi_selected(id)); ctx.refresh(); }, wifi_editable, false, TextStyle::callout);
     }
     b.gap(tokens::kSpaceS); b.text(T("wifiRecovery.windows.openOnly"), TextStyle::caption, "textSecondary");
@@ -1178,14 +1189,15 @@ void build_scene(Scene& scene, Canvas& canvas, ViewContext& ctx, float width, fl
             l.content_height = body.y() + inset - body_top;
             continue;
         }
-        if (name == "websiteResult" || name == "wifiName" || name == "memoryRename") {
+        if (name == "websiteResult" || name == "wifiName" || name == "memoryRename" || name == "memoryForget" || name == "accountDelete") {
             // Compact auxiliary dialogs size to their actual content. Only their
             // body scrolls; the heading and close action remain at the top right.
             const float ideal_width = name == "websiteResult" ? tokens::kSizeWebsiteDetailsWidth : tokens::kSizeNetworkNameDialogWidth;
             const float card_w = std::min(ideal_width, width - tokens::kSpaceL * 2);
             const float x = (width - card_w) / 2, inset = tokens::kSpaceL;
             const auto title = T(name == "websiteResult" ? "website.result.details" :
-                name == "wifiName" ? "wifiRecovery.windows.manualSSID" : "memory.renameTitle");
+                name == "wifiName" ? "wifiRecovery.windows.manualSSID" : name == "memoryForget" ? "memory.forget" :
+                name == "accountDelete" ? "account.delete" : "memory.renameTitle");
             const float title_width = std::max(1.0f, card_w - inset * 2 - tokens::kSizeMinTarget - tokens::kSpaceS);
             const auto title_size = canvas.measure(title, TextStyle::headline, title_width);
             const float head_h = std::max(tokens::kSizeMinTarget, title_size.height) + tokens::kSpaceS * 2;

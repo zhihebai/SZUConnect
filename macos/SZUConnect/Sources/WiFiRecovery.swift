@@ -249,6 +249,40 @@ final class WiFiRecoveryController: NSObject, ObservableObject, CLLocationManage
         save(updated, revoking: !selected)
     }
 
+    /// Persist opt-outs before network memory can replace any of these record IDs.
+    func preserveExclusionsBeforeMerging(_ ids: [String]) -> Bool {
+        let group = Set(ids)
+        guard group.count > 1 else { return true }
+        guard !preferencesReadOnly, !preferencesUnreadable, existingFileIsReadable() else {
+            invalidate(); updateIdleStatus()
+            return false
+        }
+        migrateLegacySelectionsIfNeeded()
+        guard let previous = preferences.excludedNetworkIDs else {
+            if preferences.selections.isEmpty { return true }
+            // Without names, a legacy allowlist cannot yet be matched to exact SSIDs.
+            invalidate()
+            preferences.autoJoinEnabled = false
+            publishPreferences(); updateIdleStatus()
+            errorMessage = SharedCopy.t("wifiRecovery.saveFailed")
+            return false
+        }
+        let excluded = Set(previous)
+        guard !excluded.isDisjoint(with: group) else { return true }
+        invalidate()
+        var updated = preferences
+        let combined = excluded.union(group)
+        guard combined.count <= 64 else {
+            updated.autoJoinEnabled = false
+            save(updated, revoking: true)
+            errorMessage = SharedCopy.t("wifiRecovery.saveFailed")
+            return false
+        }
+        updated.excludedNetworkIDs = combined.sorted()
+        updated.selections = []
+        return save(updated, revoking: true)
+    }
+
     private func migrateLegacySelectionsIfNeeded() {
         guard preferences.excludedNetworkIDs == nil, !allowedNetworks.isEmpty else { return }
         let legacy = preferences.selections
@@ -260,14 +294,16 @@ final class WiFiRecoveryController: NSObject, ObservableObject, CLLocationManage
         persistCurrentPreferences()
     }
 
-    private func save(_ updated: WiFiRecoveryPreferences, revoking: Bool) {
+    @discardableResult
+    private func save(_ updated: WiFiRecoveryPreferences, revoking: Bool) -> Bool {
         let wasRecoverable = mayRecover
         let previousSelections = selectedNetworkIDs
         let previouslyAllowedPowerOn = powerOnWhenDisconnected
         guard !preferencesUnreadable, existingFileIsReadable() else {
             errorMessage = SharedCopy.t("wifiRecovery.unreadable")
-            updateIdleStatus(); return
+            updateIdleStatus(); return false
         }
+        var saved = true
         do {
             if let preferencesURL { try updated.write(preferencesURL) }
             preferences = updated
@@ -275,11 +311,13 @@ final class WiFiRecoveryController: NSObject, ObservableObject, CLLocationManage
         } catch {
             if revoking { preferences = updated }
             errorMessage = SharedCopy.t("wifiRecovery.saveFailed")
+            saved = false
         }
         publishPreferences()
         if mayRecover && (!wasRecoverable || !selectedNetworkIDs.subtracting(previousSelections).isEmpty
             || (!previouslyAllowedPowerOn && powerOnWhenDisconnected)) { resetBackoff() }
         updateIdleStatus(); scheduleIfNeeded()
+        return saved
     }
 
     private func persistCurrentPreferences() {

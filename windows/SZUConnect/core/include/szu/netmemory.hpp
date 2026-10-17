@@ -77,6 +77,9 @@ public:
     Match match_any(const std::vector<NetworkDescriptor>& descriptors, double now, const std::set<std::string>* exclude = nullptr,
                     bool require_dormitory_proof = false) const;
     std::vector<std::string> matching_ids(const std::vector<NetworkDescriptor>& descriptors, double now) const;  // medium or strong
+    // Duplicates with identical evidence or the same known gateway; never joins records through a missing gateway.
+    std::vector<std::string> equivalent_ids(const std::string& id) const;
+    std::vector<std::string> merge_candidates(const NetworkDescriptor& descriptor, double now) const;
 
     // Adds or refreshes the record for a reliable descriptor. nullopt when the descriptor is not reliable.
     std::optional<std::string> remember(const NetworkDescriptor& descriptor, const std::string& area, bool proof_teaching,

@@ -14,6 +14,9 @@ using namespace szu::app;
 #include "settings_runtime_tests.hpp"
 #include "settings_preservation_runtime_tests.hpp"
 #include "verification_wait_runtime_tests.hpp"
+#include "environment_runtime_tests.hpp"
+#include "memory_management_runtime_tests.hpp"
+#include "account_deletion_runtime_tests.hpp"
 
 namespace {
 class NetworkNotificationFake final : public wifiruntime::Fake {
@@ -173,6 +176,9 @@ int main() {
     run_settings_runtime_tests(check);
     run_settings_preservation_runtime_tests(check);
     run_verification_wait_runtime_tests(check);
+    run_environment_runtime_tests(check);
+    run_memory_management_runtime_tests(check);
+    run_account_deletion_runtime_tests(check);
     for (const bool with_account : {true, false}) {
         auto services = std::make_unique<RecoveryPrerequisiteFake>(with_account); auto* fake = services.get();
         AppController app(nullptr, RuntimeMode::normal, std::move(services)); app.start();

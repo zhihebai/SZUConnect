@@ -119,11 +119,11 @@ struct NetworkMemoryAppModelTests {
     private static func fixture(store: URL, service: MemoryConnectionService = MemoryConnectionService(),
                                 readOnly: Bool = false, descriptors: [NetworkDescriptor] = [descriptor],
                                 recoveryStore: URL? = nil, credentials: Bool = false,
-                                labelsStore: URL? = nil) -> AppModel {
+                                labelsStore: URL? = nil, wifiRecoveryStore: URL? = nil) -> AppModel {
         let model = AppModel(client: service, isolated: true, readOnly: readOnly, now: { date },
             recoveryStore: recoveryStore,
             isolatedCredentials: credentials ? Credentials(account: account, password: password) : nil,
-            memoryStore: store, labelsStore: labelsStore)
+            memoryStore: store, labelsStore: labelsStore, isolatedWiFiRecoveryStore: wifiRecoveryStore)
         attach(model, descriptors: descriptors)
         return model
     }
@@ -229,6 +229,131 @@ struct NetworkMemoryAppModelTests {
             model.setSleeping(true); model.setSleeping(false)
             check(!model.networkRemembered && !model.currentNetworkAuthorized,
                   "Returning to the singly revoked network cannot restore eligibility after a failed write")
+        }
+
+        // Revocation also covers old copies of the selected identity, including failed writes.
+        for writeFails in [false, true] {
+            let root = try folder()
+            defer { try? setWritable(true, directory: root); try? FileManager.default.removeItem(at: root) }
+            let store = root.appendingPathComponent("network-memory.json")
+            let seeded = try seed(store, includeOther: true)
+            var json = try JSONSerialization.jsonObject(with: seeded) as! [String: Any]
+            var records = json["records"] as! [[String: Any]]
+            var duplicate = records[0]
+            duplicate["id"] = "9abcdeff"
+            records.append(duplicate)
+            json["records"] = records
+            let original = try JSONSerialization.data(withJSONObject: json)
+            try NetworkMemoryFile.write(original, to: store)
+            let service = MemoryConnectionService()
+            let model = fixture(store: store, service: service)
+            model.authorizeCurrentNetwork()
+            if writeFails { try setWritable(false, directory: root) }
+            model.forgetNetwork(id: "9abcdeff")
+            check(model.rememberedNetworks.map(\.id) == ["5678abcd"] && !model.currentNetworkAuthorized,
+                  "Forgetting a historical duplicate revokes every equivalent record and current authorization")
+            check(model.memoryWriteFailed == writeFails, "Equivalent revocation reports the actual storage result")
+            if writeFails {
+                check(try Data(contentsOf: store) == original, "Failed grouped revocation preserves original stored bytes")
+                try setWritable(true, directory: root)
+                model.forgetNetwork(id: "5678abcd")
+                check(NetworkMemory.decode(try Data(contentsOf: store), now: date)?.count == 0,
+                      "A later successful write also removes the earlier session-revoked duplicates")
+            } else {
+                check(NetworkMemory.decode(try Data(contentsOf: store), now: date)?.records.map(\.id) == ["5678abcd"],
+                      "Successful grouped revocation retains the unrelated network")
+            }
+            check(await service.snapshot().logins == 0, "Grouped revocation never sends credentials")
+        }
+
+        do {
+            let root = try folder()
+            defer { try? setWritable(true, directory: root); try? FileManager.default.removeItem(at: root) }
+            let store = root.appendingPathComponent("network-memory.json")
+            _ = try seed(store)
+            let service = MemoryConnectionService()
+            let model = fixture(store: store, service: service)
+            try setWritable(false, directory: root)
+            model.forgetNetwork(id: "1234abcd")
+            check(model.rememberedNetworks.isEmpty, "A failed revocation hides the deactivated record")
+            try setWritable(true, directory: root)
+            await service.configure(replies: [both])
+            model.verifyAndRememberCurrentNetwork(); try await finish(model)
+            check(model.rememberedNetworks.map(\.id) == ["1234abcd"] && model.networkRemembered,
+                  "Fresh explicit verification restores a previously revoked record only after a successful save")
+            check(await service.snapshot().logins == 0, "Restoring network memory still sends no credentials")
+        }
+
+        do {
+            let root = try folder(); defer { try? FileManager.default.removeItem(at: root) }
+            let store = root.appendingPathComponent("network-memory.json")
+            _ = try seed(store, includeOther: true)
+            var labels = NetworkLabels()
+            _ = labels.updateAutomatic(id: "1234abcd", displayName: "Campus-Fixture", kind: .wifi, ssid: "Campus-Fixture")
+            _ = labels.updateAutomatic(id: "5678abcd", displayName: "Campus-Fixture", kind: .wifi, ssid: "Campus-Fixture")
+            let labelsURL = root.appendingPathComponent(NetworkLabelsStore.filename)
+            check(NetworkLabelsStore(url: labelsURL).save(labels), "Same-name display fixture saves isolated metadata")
+            let model = fixture(store: store, labelsStore: labelsURL)
+            check(model.rememberedNetworkDisplayName(for: "1234abcd") != model.rememberedNetworkDisplayName(for: "5678abcd"),
+                  "Same-name distinct identities have separate visible names for menus and recovery targets")
+            check(model.rememberedNetworkDetail(for: model.rememberedNetworks[0]).contains(SharedCopy.t("area.dormitory.title"))
+                  && model.rememberedNetworkDetail(for: model.rememberedNetworks[1]).contains(SharedCopy.t("area.teaching.title")),
+                  "Remembered network details distinguish the confirmed campus areas")
+            model.forgetNetwork(id: "5678abcd")
+            check(model.rememberedNetworks.count == 1 && model.rememberedNetworkDisplayName(for: "1234abcd") == "Campus-Fixture",
+                  "Forgetting one same-name but different identity keeps the other record intact")
+        }
+
+        for failedStore in ["none", "preferences", "memory"] {
+            let root = try folder()
+            let preferencesFolder = root.appendingPathComponent("wifi-preferences")
+            defer {
+                try? setWritable(true, directory: root)
+                try? setWritable(true, directory: preferencesFolder)
+                try? FileManager.default.removeItem(at: root)
+            }
+            let store = root.appendingPathComponent("network-memory.json")
+            var json = try JSONSerialization.jsonObject(with: seed(store)) as! [String: Any]
+            var records = json["records"] as! [[String: Any]]
+            var duplicate = records[0]; duplicate["id"] = "9abcdeff"; records.append(duplicate)
+            json["records"] = records
+            let original = try JSONSerialization.data(withJSONObject: json)
+            try NetworkMemoryFile.write(original, to: store)
+            var labels = NetworkLabels()
+            for id in ["1234abcd", "9abcdeff"] {
+                _ = labels.updateAutomatic(id: id, displayName: "Campus-Fixture", kind: .wifi, ssid: "Campus-Fixture")
+            }
+            let labelsURL = root.appendingPathComponent(NetworkLabelsStore.filename)
+            check(NetworkLabelsStore(url: labelsURL).save(labels), "Merge preference fixture saves isolated labels")
+            let preferencesURL = preferencesFolder.appendingPathComponent("wifi-recovery.json")
+            var preferences = WiFiRecoveryPreferences()
+            preferences.autoJoinEnabled = true
+            preferences.excludedNetworkIDs = ["9abcdeff"]
+            try preferences.write(preferencesURL)
+            let service = MemoryConnectionService()
+            let model = fixture(store: store, service: service, labelsStore: labelsURL, wifiRecoveryStore: preferencesURL)
+            check(model.wifiRecovery.selectedNetworkIDs == ["1234abcd"], "Merge starts with only one duplicate selected")
+            if failedStore == "preferences" { try setWritable(false, directory: preferencesFolder) }
+            if failedStore == "memory" { try setWritable(false, directory: root) }
+            await service.configure(replies: [both])
+            model.verifyAndRememberCurrentNetwork(); try await finish(model)
+            check(model.wifiRecovery.selectedNetworkIDs.isEmpty, "Merging never enables a target excluded through its old record")
+            if failedStore == "none" {
+                check(model.rememberedNetworks.map(\.id) == ["1234abcd"], "Successful preference commit permits duplicate consolidation")
+                let reloaded = fixture(store: store, labelsStore: labelsURL, wifiRecoveryStore: preferencesURL)
+                check(reloaded.wifiRecovery.selectedNetworkIDs.isEmpty, "The retained identity remains excluded after restart")
+            } else {
+                check(try Data(contentsOf: store) == original && model.rememberedNetworks.count == 2,
+                      "Failed \(failedStore) persistence leaves every original memory record intact")
+                check(model.memoryVerificationMessage == SharedCopy.t("memory.verification.writeFailed"),
+                      "Failed \(failedStore) persistence reports that remembering did not complete")
+            }
+            let savedExclusions = try WiFiRecoveryPreferences.read(preferencesURL).excludedNetworkIDs ?? []
+            check(Set(savedExclusions) == (failedStore == "preferences" ? ["9abcdeff"] : ["1234abcd", "9abcdeff"]),
+                  "Exclusions persist before any memory replacement, including a later memory write failure")
+            check(await service.snapshot().logins == 0, "Preserving merge preferences never submits credentials")
+            check(await service.snapshot().discoveries.count == (failedStore == "preferences" ? 0 : 1),
+                  "A failed preference preflight prevents even campus discovery")
         }
 
         // An already-online, credential-free user can set up memory using new campus proofs.

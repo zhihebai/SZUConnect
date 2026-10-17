@@ -7,9 +7,10 @@ Implements: keyed feature hashing, descriptor comparison, the fresh-proof verdic
 remembered-network match, and account / network / protection readiness. Swift and C++
 tests use the same shared/fixtures/network-memory-cases.json and readiness-cases.json.
 """
-import hashlib, hmac, json, pathlib, sys
+import copy, hashlib, hmac, json, pathlib, sys
 
 RANK = {"strong": 3, "medium": 2, "weak": 1, "none": 0}
+FEATURE_LABELS = ("gw", "gwip", "net", "dhcp", "dns", "sfx")
 
 
 def feature_hash(salt, label, raw):
@@ -29,6 +30,34 @@ def compare(stored, current):
     if eq("gwip") or eq("net"):
         return "weak"
     return "none"
+
+
+def refresh_records(before, current, area, teaching, dormitory, now, new_id):
+    records = [copy.deepcopy(r) for r in before if r["verified"] + 180 * 86400 >= now]
+    current = {k: v for k, v in current.items() if k in FEATURE_LABELS and v}
+    if not ("gw" in current or ("gwip" in current and "net" in current)):
+        return {"selectedID": None, "records": records}
+    candidates = [r for r in records if RANK.get(compare(r["features"], current), 0) >= RANK["medium"]]
+    if candidates:
+        selected = max(candidates, key=lambda r: (RANK[compare(r["features"], current)], "gw" in r["features"]))
+        gateways = {r["features"]["gw"] for r in candidates if "gw" in r["features"]}
+        features = dict(current)
+        for key in ("gw", "gwip", "net"):
+            if key not in features and key in selected["features"]:
+                features[key] = selected["features"][key]
+        selected.update(features=features, verified=now, proofTeaching=teaching, proofDormitory=dormitory)
+        if area:
+            selected["area"] = area
+        if len(gateways) <= 1:
+            duplicates = {r["id"] for r in candidates if r["id"] != selected["id"]}
+            records = [r for r in records if r["id"] not in duplicates]
+        return {"selectedID": selected["id"], "records": records}
+    selected = {"id": new_id, "created": now, "verified": now, "area": area,
+                "proofTeaching": teaching, "proofDormitory": dormitory, "features": current}
+    records.append(selected)
+    while len(records) > 8:
+        records.remove(min(records, key=lambda r: r["verified"]))
+    return {"selectedID": new_id, "records": records}
 
 
 def verdict(level, teaching, dormitory, ambiguous):
@@ -140,6 +169,12 @@ def verify(root):
         total += 1
         if feature_hash(salt, c["label"], c["raw"]) != c["expected"]:
             problems += 1; print(f"  MISMATCH hash {c['label']}")
+    for c in mem["refresh"]:
+        total += 1
+        got = refresh_records(c["before"], c["current"], c["area"], c["proofTeaching"],
+                              c["proofDormitory"], c["now"], c["newID"])
+        if got != c["expected"]:
+            problems += 1; print(f"  MISMATCH refresh {c['id']}: {got} != {c['expected']}")
     for c in json.loads((root / "shared/fixtures/readiness-cases.json").read_text("utf-8"))["cases"]:
         total += 1
         if readiness(c["input"]) != c["expected"]:

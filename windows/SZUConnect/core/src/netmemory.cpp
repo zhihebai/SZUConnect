@@ -192,6 +192,34 @@ std::vector<std::string> NetworkMemory::matching_ids(const std::vector<NetworkDe
     return ids;
 }
 
+std::vector<std::string> NetworkMemory::equivalent_ids(const std::string& id) const {
+    const auto selected = std::find_if(records_.begin(), records_.end(), [&](const MemoryRecord& r) { return r.id == id; });
+    if (selected == records_.end()) return {};
+    std::vector<std::string> ids;
+    for (const auto& r : records_) {
+        const auto gateway = selected->features.find("gw"), other = r.features.find("gw");
+        if (r.id == id || r.features == selected->features ||
+            (gateway != selected->features.end() && other != r.features.end() && gateway->second == other->second))
+            ids.push_back(r.id);
+    }
+    return ids;
+}
+
+std::vector<std::string> NetworkMemory::merge_candidates(const NetworkDescriptor& descriptor, double now) const {
+    if (!has_salt() || !descriptor.reliable()) return {};
+    const auto current = hashed(descriptor);
+    std::vector<std::string> ids;
+    std::set<std::string> gateways;
+    for (const auto& r : records_) {
+        if (r.verified + kExpirySeconds < now) continue;
+        const auto level = compare(r.features, current);
+        if (level != MatchLevel::medium && level != MatchLevel::strong) continue;
+        ids.push_back(r.id);
+        if (const auto gateway = r.features.find("gw"); gateway != r.features.end()) gateways.insert(gateway->second);
+    }
+    return ids.size() > 1 && gateways.size() <= 1 ? ids : std::vector<std::string>{};
+}
+
 void NetworkMemory::prune(double now) {
     records_.erase(std::remove_if(records_.begin(), records_.end(), [&](const MemoryRecord& r) { return r.verified + kExpirySeconds < now; }), records_.end());
     while (records_.size() > kLimit) {
@@ -205,17 +233,41 @@ std::optional<std::string> NetworkMemory::remember(const NetworkDescriptor& d, c
     if (!has_salt() || !d.reliable()) return std::nullopt;
     prune(now);
     const auto current = hashed(d);
-    for (auto& r : records_) {
+    std::size_t best = records_.size();
+    int best_rank = 0;
+    std::vector<std::string> candidates;
+    std::set<std::string> gateways;
+    for (std::size_t i = 0; i < records_.size(); ++i) {
+        const auto& r = records_[i];
         const MatchLevel level = compare(r.features, current);
-        if (level == MatchLevel::medium || level == MatchLevel::strong) {  // the same network: refresh in place
-            r.features = current;
-            r.verified = now;
-            if (!area.empty()) r.area = area;
-            // The current fingerprint and lifetime may only carry proofs confirmed in this transaction.
-            r.proof_teaching = pt;
-            r.proof_dormitory = pd;
-            return r.id;
+        const int rank = level == MatchLevel::strong ? 2 : level == MatchLevel::medium ? 1 : 0;
+        if (!rank) continue;
+        candidates.push_back(r.id);
+        if (const auto gateway = r.features.find("gw"); gateway != r.features.end()) gateways.insert(gateway->second);
+        if (rank > best_rank || (rank == best_rank && r.features.count("gw") && !records_[best].features.count("gw"))) {
+            best = i;
+            best_rank = rank;
         }
+    }
+    if (best != records_.size()) {
+        auto& r = records_[best];
+        auto refreshed = current;
+        for (const char* key : {"gw", "gwip", "net"})
+            if (!refreshed.count(key))
+                if (const auto prior = r.features.find(key); prior != r.features.end()) refreshed[key] = prior->second;
+        r.features = std::move(refreshed);
+        r.verified = now;
+        if (!area.empty()) r.area = area;
+        // Proofs belong to this verification, not to any record being replaced.
+        r.proof_teaching = pt;
+        r.proof_dormitory = pd;
+        const std::string id = r.id;
+        // A temporarily missing gateway can match two different networks. Keep both in that case.
+        if (gateways.size() <= 1)
+            records_.erase(std::remove_if(records_.begin(), records_.end(), [&](const MemoryRecord& other) {
+                return other.id != id && std::find(candidates.begin(), candidates.end(), other.id) != candidates.end();
+            }), records_.end());
+        return id;
     }
     if (!is_hex(new_id, 8, 32)) return std::nullopt;
     records_.push_back(MemoryRecord{new_id, now, now, area, pt, pd, current});

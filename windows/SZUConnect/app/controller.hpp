@@ -108,9 +108,12 @@ public:
     bool remember_network();  // reserves a fresh verification and enqueues credential-free work
     std::string memory_verification_message() const;  // local, credential-free copy key beside the memory action
     void forget_network();
+    void forget_network(const std::string& id);
     void forget_all_networks();
     std::vector<MemoryRecord> remembered_networks() const { return engine_->remembered_networks(); }
     std::string network_name(const std::string& id) const { return network_labels_.display_name(id); }
+    std::string network_display_name(const std::string& id) const;
+    std::string network_kind(const std::string& id) const;
     bool rename_network(const std::string& id, const std::string& name);
     wifi::Preferences wifi_preferences() const;
     std::vector<wifi::Network> wifi_candidates() const;
@@ -123,14 +126,19 @@ public:
     bool set_wifi_selected(const std::string& id, bool);
     bool set_wifi_name(const std::string& id, const std::string& ssid);
     bool is_wifi_record(const std::string& id) const;
+    bool can_edit_wifi_name(const std::string& id) const;
     bool network_name_known(const std::string& id) const { return network_labels_.entries().count(id) != 0; }
     void set_draft(const std::string& account, const std::string& password);
     ConnectionEngine::SaveResult save_account();
+    bool delete_account();
+    bool can_delete_account() const { return !read_only_ && (credential_read_failed_ || engine_->snapshot().has_saved); }
     void login_once();
     void discard_draft();
     void set_appearance(Appearance appearance);
     bool set_launch(bool enabled);
     void refresh_environment();  // reread local connection information without starting a check or login
+    std::optional<double> environment_refreshed() const { return environment_refreshed_; }
+    bool environment_refresh_incomplete() const { return environment_refresh_incomplete_; }
     void run_compat();
     void cancel_compat();
     void set_tutorial(const std::string& status);
@@ -153,7 +161,7 @@ private:
     void refresh_network_labels();
     bool save_network_labels(const NetworkLabels& labels);
     void update_wifi_context();
-    bool save_wifi_preferences(const wifi::Preferences&, bool revoking);
+    bool save_wifi_preferences(wifi::Preferences, bool revoking, bool merge_preflight = false);
     void run_wifi_recovery();
     void load();
     void save_settings();
@@ -193,8 +201,11 @@ private:
     proxy::Summary proxy_;
     bool launch_enabled_ = false;
     bool launch_approved_ = true;
+    bool credential_read_failed_ = false;
     std::string notice_;
     std::optional<double> last_checked_;
+    std::optional<double> environment_refreshed_;
+    bool environment_refresh_incomplete_ = false;
     std::optional<double> next_due_;
     bool auto_armed_ = false;
     bool network_refresh_pending_ = false;  // UI-thread gate until debounced physical identity is captured
@@ -222,6 +233,7 @@ private:
     std::string memory_verification_message_;
     std::uint64_t memory_verification_generation_ = 0;
     std::optional<std::uint64_t> memory_verification_epoch_;
+    std::vector<std::string> memory_verification_merge_ids_;
     std::atomic<bool> posted_{false};
 
     mutable std::mutex checks_mutex_;

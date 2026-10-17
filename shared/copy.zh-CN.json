@@ -442,7 +442,7 @@
     },
     "details": "连接详情与排查",
     "interfaces": "当前连接：{list}",
-    "refreshed": "已更新 {time}",
+    "refreshed": "连接信息已刷新 · {time}",
     "refresh": "刷新",
     "systemPrimary": "系统首选连接：{name}",
     "connectedPhysical": "Wi-Fi / 有线连接：{list}",
@@ -470,7 +470,8 @@
     "systemChecking": {
       "title": "正在检查当前连接…",
       "detail": "正在按系统设置检查当前网络能不能上网。"
-    }
+    },
+    "refreshedPartial": "已刷新 · {time}，部分连接信息暂不可用"
   },
   "compat": {
     "title": "网络排查工具",
@@ -664,7 +665,11 @@
     },
     "areaTitle": "登录区域",
     "officialTitle": "官方入口",
-    "officialNote": "激活账号、找回密码、查套餐，请到学校及运营商的网站。"
+    "officialNote": "激活账号、找回密码、查套餐，请到学校及运营商的网站。",
+    "delete": "删除已保存账号",
+    "deleteDetail": "删除本机保存的校园网账号和密码，并清空当前填写内容。不会注销校园网账号或断开当前网络；再次自动登录前需重新保存账号。",
+    "deleted": "已删除本机保存的账号和密码。",
+    "deleteFailed": "账号删除失败，已暂停自动重连。请稍后重试。"
   },
   "link": {
     "nc": "网络服务中心",
@@ -835,7 +840,7 @@
     "title": "关于深大随连",
     "version": "版本 {version}（{build}）",
     "creditsTitle": "致谢与开源组件",
-    "creditsBody": "校园认证的实现参考并改编自 AutoSZUWeb。谢谢上游项目，也谢谢每一位贡献者。",
+    "creditsBody": "校园认证参考并改编自 AutoSZUWeb，感谢原作者开源分享。欢迎在 GitHub 提交问题、建议或代码。",
     "atmluck": {
       "name": "ATMLuck/AutoSZUWeb",
       "detail": "校园认证的实现参考并改编自此项目。MIT License © 2026 ATMLuck，完整许可随应用一起提供。"
@@ -858,7 +863,7 @@
       "title": "账号存储与隐私",
       "body": {
         "mac": "账号和密码存在系统钥匙串里。常规设置存在用户偏好设置里，网络记忆和记录在 ~/Library/Application Support/SZUConnect。\n\n想手动删掉账号：打开“钥匙串访问”，搜索 local.SZUConnect.credentials。",
-        "windows": "账号和密码存在 Windows 凭据管理器里。设置、网络记忆和记录在 %LOCALAPPDATA%\\SZUConnect。\n\n想手动删掉账号：打开“凭据管理器 → Windows 凭据 → 通用凭据”，找到 local.SZUConnect.credentials。"
+        "windows": "账号和密码保存在 Windows 凭据管理器中。设置、网络记忆和记录保存在 %LOCALAPPDATA%\\SZUConnect。"
       }
     }
   },
@@ -905,7 +910,7 @@
       "p1": "手动检测：点了才检测。\n定时检测：定时检测，但不会自动登录。\n自动重连：定时检测，掉线后核验校园服务并尝试登录。",
       "p2": "关掉窗口后，应用仍会在{tray}里运行。点{tray}图标就能重新打开。",
       "p3": "在宿舍区自动登录前，要先核验并记住校园网络，或者选择“仅本次信任”。\n\n记住的网络在重连前仍会重新核验；“仅本次信任”在换网、休眠或退出后失效。",
-      "p4": "需要自动找网时，到“设置 → 校园 Wi-Fi 找网”里选中已记住的网络。\n\n自动打开 Wi-Fi 和{launch}要另外开启。只用网线的话，可以跳过找网设置。",
+      "p4": "需要自动找网时，到“设置 → 校园 Wi-Fi 找网”里选中已记住的网络。\n\n自动打开 Wi-Fi 和{launch}要另外开启。只用网线无需寻找 Wi-Fi，可跳过找网设置。",
       "open": "打开自动重连设置"
     },
     "whatsNew": {
@@ -1095,12 +1100,12 @@
     "writeFailed": "网络记录没能保存，过一会儿再试。",
     "item": "未命名的校园网络",
     "verified": "上次确认 {date}",
-    "rename": "改名",
-    "renameTitle": "网络名称",
+    "rename": "修改备注",
+    "renameTitle": "备注名称",
     "namePlaceholder": "例如：宿舍有线网络",
     "legacyName": "这个网络还没有名字。可以手动起一个，也可以等下次连接时补全。",
     "namesPrivacy": "网络名称只保存在本机，不会进入排查报告。",
-    "nameSave": "保存名称",
+    "nameSave": "保存备注",
     "nameCancel": "取消",
     "current": "当前网络",
     "manage": "管理此网络",
@@ -1127,7 +1132,14 @@
       "changed": "网络变了，需要重新核验。"
     },
     "item.wifi": "校园 Wi-Fi",
-    "item.ethernet": "校园有线网络"
+    "item.ethernet": "校园有线网络",
+    "renameDetail": "只修改应用里显示的名称，不改变实际 Wi-Fi 名称或自动找网设置。",
+    "sameName": "{name}（{number}）",
+    "kind": {
+      "wifi": "Wi-Fi",
+      "ethernet": "有线",
+      "other": "网络"
+    }
   },
   "ready": {
     "account": {
@@ -1214,8 +1226,8 @@
     "noNetworks": "先连一次校园 Wi-Fi 并记住它，再允许读取 Wi-Fi 名称。",
     "noRememberedNetworks": "先在连接页记住当前的校园 Wi-Fi，再开启自动找网。",
     "openOnly": {
-      "mac": "自动找网只支持不用密码的校园 Wi-Fi。其他网络，请在 macOS 里连接。",
-      "windows": "自动找网只支持不用密码的校园 Wi-Fi。其他网络，请在 Windows 里连接。"
+      "mac": "自动找网可连接无需 Wi-Fi 密码的校园无线网络；连上后，仍需用校园网账号和密码登录。其他无线网络请在系统设置中连接。",
+      "windows": "自动找网可连接无需 Wi-Fi 密码的校园无线网络；连上后，仍需用校园网账号和密码登录。其他无线网络请在系统设置中连接。"
     },
     "permissionButton": "允许读取 Wi-Fi 名称",
     "permissionDenied": {
@@ -1256,12 +1268,13 @@
     "ready": "自动找网已就绪",
     "windows": {
       "permission": "在 Windows 设置里检查位置权限，或者手动填写记住的 Wi-Fi 名称。",
-      "manualSSID": "填写校园 Wi-Fi 名称",
-      "manualSSID.detail": "照着 Windows 里显示的名称填写，用来找记住的校园 Wi-Fi。",
+      "manualSSID": "设置找网名称",
+      "manualSSID.detail": "填写 Windows 显示的 Wi-Fi 名称，供自动找网连接。此名称与应用内的备注分开保存。",
       "manualSSID.save": "保存找网名称",
       "manualSSID.invalid": "名称无效，请照着 Windows 显示的 Wi-Fi 名称填写。",
-      "openOnly": "自动找网只支持不用密码的校园 Wi-Fi。其他网络，请在 Windows 里连接。",
-      "systemConnectionRequired": "已经找到目标 Wi-Fi。如果需要密码，请先在 Windows 里连接。"
+      "openOnly": "自动找网可连接无需 Wi-Fi 密码的校园无线网络；连上后，仍需用校园网账号和密码登录。其他无线网络请在系统设置中连接。",
+      "systemConnectionRequired": "已经找到目标 Wi-Fi。如果需要密码，请先在 Windows 里连接。",
+      "manualSSID.placeholder": "Windows 显示的 Wi-Fi 名称"
     }
   },
   "disclosure": {
@@ -1327,7 +1340,7 @@
     },
     "wifi": {
       "title": "9. 设置 Wi-Fi 找网",
-      "body": "先连上并记住校园 Wi-Fi，再开启自动找网。想让应用自动打开 Wi-Fi，再打开“找网时允许打开 Wi-Fi”。\n\n已经有其他 Wi-Fi 或网线连着时，不会自动换网。只用网线的话，可以跳过这一步。"
+      "body": "先连上并记住校园 Wi-Fi，再开启自动找网。想让应用自动打开 Wi-Fi，再打开“找网时允许打开 Wi-Fi”。\n\n已经有其他 Wi-Fi 或网线连着时，不会自动换网。只用网线无需寻找 Wi-Fi，可跳过这一步。"
     },
     "finish": {
       "title": "完成设置",
@@ -1386,7 +1399,7 @@
     "helpCheck": "点“检测连接”。需要校园认证时，按提示点“登录校园网”；已经能上网就不用再登录。",
     "helpMemory": "确认已经连上校园网后，点“核验并记住校园网络”。核验通过才会保存；Wi-Fi 和网线要分别记住。",
     "helpRecovery": "选“自动重连”，掉线后会核验校园服务并尝试登录。完全退出应用后，自动重连就会停止。",
-    "wifiOrder": "先连上并记住校园 Wi-Fi，再按需打开下面的选项。只用网线的话，可以跳过。",
+    "wifiOrder": "先连上并记住校园 Wi-Fi，再按需打开下面的选项。只用网线无需寻找 Wi-Fi，可跳过。",
     "powerNeedsJoin": "先开启自动找网，再决定要不要允许自动打开 Wi-Fi。",
     "settingsAction": "设置 Wi-Fi 找网"
   }

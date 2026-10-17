@@ -32,6 +32,7 @@ public:
     virtual bool storage_available() const = 0;
     virtual win::CredentialVault::ReadStatus read_credentials(Credentials&) = 0;
     virtual bool write_credentials(const Credentials&) = 0;
+    virtual bool erase_credentials() { return false; }
     virtual bool launch_enabled() = 0;
     virtual bool launch_approved() = 0;
     virtual bool set_launch(bool) = 0;

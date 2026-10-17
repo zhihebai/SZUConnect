@@ -1,6 +1,6 @@
 {
  "schemaVersion": 1,
- "description": "网络记忆共享用例，覆盖描述符匹配、校园重新核验、恢复计划和跨语言哈希。由 Python、Swift NetworkMemoryTests 和 C++ memory_tests 读取；盐与网络数据均为公开测试假值。",
+ "description": "网络记忆共享用例，覆盖描述符匹配、记忆刷新与去重、校园重新核验、恢复计划和跨语言哈希。由 Python、Swift NetworkMemoryTests 和 C++ memory_tests 读取；盐与网络数据均为公开测试假值。",
  "salt": "00112233445566778899aabbccddeeff",
  "match": [
   {
@@ -582,6 +582,365 @@
    "label": "sfx",
    "raw": "szu.edu.cn",
    "expected": "30eef6cca521fa2ceb1564f037aea1e3"
+  }
+ ],
+ "refresh": [
+  {
+   "id": "R01",
+   "title": "暂缺网关时保留已有硬件身份，区域证明仅取本次核验",
+   "before": [
+    {
+     "id": "00000001",
+     "created": 900,
+     "verified": 950,
+     "area": "dormitory",
+     "proofTeaching": true,
+     "proofDormitory": true,
+     "features": {
+      "gw": "a4:5e:60:11:22:33",
+      "gwip": "172.30.0.1",
+      "net": "172.30.0.0/20",
+      "dns": "192.0.2.53",
+      "dhcp": "192.0.2.54"
+     }
+    }
+   ],
+   "current": {
+    "gwip": "172.30.0.1",
+    "net": "172.30.0.0/20"
+   },
+   "area": "teaching",
+   "proofTeaching": true,
+   "proofDormitory": false,
+   "now": 1100,
+   "newID": "00000009",
+   "expected": {
+    "selectedID": "00000001",
+    "records": [
+     {
+      "id": "00000001",
+      "created": 900,
+      "verified": 1100,
+      "area": "teaching",
+      "proofTeaching": true,
+      "proofDormitory": false,
+      "features": {
+       "gw": "a4:5e:60:11:22:33",
+       "gwip": "172.30.0.1",
+       "net": "172.30.0.0/20"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "R02",
+   "title": "完整指纹优先刷新强匹配，收敛互补的旧记录",
+   "before": [
+    {
+     "id": "00000001",
+     "created": 900,
+     "verified": 950,
+     "area": "dormitory",
+     "proofTeaching": true,
+     "proofDormitory": true,
+     "features": {
+      "gwip": "172.30.0.1",
+      "net": "172.30.0.0/20"
+     }
+    },
+    {
+     "id": "00000002",
+     "created": 900,
+     "verified": 950,
+     "area": "dormitory",
+     "proofTeaching": true,
+     "proofDormitory": true,
+     "features": {
+      "gw": "a4:5e:60:11:22:33",
+      "net": "172.30.0.0/20"
+     }
+    }
+   ],
+   "current": {
+    "gw": "a4:5e:60:11:22:33",
+    "gwip": "172.30.0.1",
+    "net": "172.30.0.0/20"
+   },
+   "area": "teaching",
+   "proofTeaching": true,
+   "proofDormitory": false,
+   "now": 1100,
+   "newID": "00000009",
+   "expected": {
+    "selectedID": "00000002",
+    "records": [
+     {
+      "id": "00000002",
+      "created": 900,
+      "verified": 1100,
+      "area": "teaching",
+      "proofTeaching": true,
+      "proofDormitory": false,
+      "features": {
+       "gw": "a4:5e:60:11:22:33",
+       "gwip": "172.30.0.1",
+       "net": "172.30.0.0/20"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "R03",
+   "title": "同等级保留已有网关的记录，避免折叠时丢失身份",
+   "before": [
+    {
+     "id": "00000001",
+     "created": 900,
+     "verified": 950,
+     "area": "dormitory",
+     "proofTeaching": true,
+     "proofDormitory": true,
+     "features": {
+      "gwip": "172.30.0.1",
+      "net": "172.30.0.0/20"
+     }
+    },
+    {
+     "id": "00000002",
+     "created": 900,
+     "verified": 950,
+     "area": "dormitory",
+     "proofTeaching": true,
+     "proofDormitory": true,
+     "features": {
+      "gw": "a4:5e:60:11:22:33",
+      "gwip": "172.30.0.1",
+      "net": "172.30.0.0/20"
+     }
+    }
+   ],
+   "current": {
+    "gwip": "172.30.0.1",
+    "net": "172.30.0.0/20"
+   },
+   "area": "dormitory",
+   "proofTeaching": true,
+   "proofDormitory": true,
+   "now": 1100,
+   "newID": "00000009",
+   "expected": {
+    "selectedID": "00000002",
+    "records": [
+     {
+      "id": "00000002",
+      "created": 900,
+      "verified": 1100,
+      "area": "dormitory",
+      "proofTeaching": true,
+      "proofDormitory": true,
+      "features": {
+       "gw": "a4:5e:60:11:22:33",
+       "gwip": "172.30.0.1",
+       "net": "172.30.0.0/20"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "R04",
+   "title": "暂缺网关不能桥接两个不同硬件的网络",
+   "before": [
+    {
+     "id": "00000001",
+     "created": 900,
+     "verified": 950,
+     "area": "dormitory",
+     "proofTeaching": true,
+     "proofDormitory": true,
+     "features": {
+      "gw": "a4:5e:60:11:22:33",
+      "gwip": "172.30.0.1",
+      "net": "172.30.0.0/20"
+     }
+    },
+    {
+     "id": "00000002",
+     "created": 900,
+     "verified": 950,
+     "area": "dormitory",
+     "proofTeaching": true,
+     "proofDormitory": true,
+     "features": {
+      "gw": "b8:27:eb:44:55:66",
+      "gwip": "172.30.0.1",
+      "net": "172.30.0.0/20"
+     }
+    }
+   ],
+   "current": {
+    "gwip": "172.30.0.1",
+    "net": "172.30.0.0/20"
+   },
+   "area": "dormitory",
+   "proofTeaching": true,
+   "proofDormitory": true,
+   "now": 1100,
+   "newID": "00000009",
+   "expected": {
+    "selectedID": "00000001",
+    "records": [
+     {
+      "id": "00000001",
+      "created": 900,
+      "verified": 1100,
+      "area": "dormitory",
+      "proofTeaching": true,
+      "proofDormitory": true,
+      "features": {
+       "gw": "a4:5e:60:11:22:33",
+       "gwip": "172.30.0.1",
+       "net": "172.30.0.0/20"
+      }
+     },
+     {
+      "id": "00000002",
+      "created": 900,
+      "verified": 950,
+      "area": "dormitory",
+      "proofTeaching": true,
+      "proofDormitory": true,
+      "features": {
+       "gw": "b8:27:eb:44:55:66",
+       "gwip": "172.30.0.1",
+       "net": "172.30.0.0/20"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "R05",
+   "title": "同名 Wi-Fi 的不同网关分别保留",
+   "before": [
+    {
+     "id": "00000001",
+     "created": 900,
+     "verified": 950,
+     "area": "dormitory",
+     "proofTeaching": true,
+     "proofDormitory": true,
+     "features": {
+      "gw": "a4:5e:60:11:22:33",
+      "gwip": "172.30.0.1",
+      "net": "172.30.0.0/20"
+     }
+    }
+   ],
+   "current": {
+    "gw": "b8:27:eb:44:55:66",
+    "gwip": "172.30.0.1",
+    "net": "172.30.0.0/20",
+    "ssid": "fixture-campus"
+   },
+   "area": "dormitory",
+   "proofTeaching": true,
+   "proofDormitory": true,
+   "now": 1100,
+   "newID": "00000009",
+   "expected": {
+    "selectedID": "00000009",
+    "records": [
+     {
+      "id": "00000001",
+      "created": 900,
+      "verified": 950,
+      "area": "dormitory",
+      "proofTeaching": true,
+      "proofDormitory": true,
+      "features": {
+       "gw": "a4:5e:60:11:22:33",
+       "gwip": "172.30.0.1",
+       "net": "172.30.0.0/20"
+      }
+     },
+     {
+      "id": "00000009",
+      "created": 1100,
+      "verified": 1100,
+      "area": "dormitory",
+      "proofTeaching": true,
+      "proofDormitory": true,
+      "features": {
+       "gw": "b8:27:eb:44:55:66",
+       "gwip": "172.30.0.1",
+       "net": "172.30.0.0/20"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "R06",
+   "title": "相同网关改用其他网段时保留强匹配记录",
+   "before": [
+    {
+     "id": "00000001",
+     "created": 900,
+     "verified": 950,
+     "area": "dormitory",
+     "proofTeaching": true,
+     "proofDormitory": true,
+     "features": {
+      "gw": "a4:5e:60:11:22:33",
+      "gwip": "172.30.0.1",
+      "net": "172.30.0.0/20"
+     }
+    },
+    {
+     "id": "00000002",
+     "created": 900,
+     "verified": 950,
+     "area": "dormitory",
+     "proofTeaching": true,
+     "proofDormitory": true,
+     "features": {
+      "gw": "a4:5e:60:11:22:33",
+      "gwip": "172.30.16.1",
+      "net": "172.30.16.0/20"
+     }
+    }
+   ],
+   "current": {
+    "gw": "a4:5e:60:11:22:33",
+    "gwip": "172.30.16.1",
+    "net": "172.30.16.0/20"
+   },
+   "area": "dormitory",
+   "proofTeaching": true,
+   "proofDormitory": true,
+   "now": 1100,
+   "newID": "00000009",
+   "expected": {
+    "selectedID": "00000002",
+    "records": [
+     {
+      "id": "00000002",
+      "created": 900,
+      "verified": 1100,
+      "area": "dormitory",
+      "proofTeaching": true,
+      "proofDormitory": true,
+      "features": {
+       "gw": "a4:5e:60:11:22:33",
+       "gwip": "172.30.16.1",
+       "net": "172.30.16.0/20"
+      }
+     }
+    ]
+   }
   }
  ]
 }

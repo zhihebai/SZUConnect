@@ -77,3 +77,7 @@ jobs:
         run: |
           sh macos/SZUConnect/Tests/run-shared-contract.sh
           sh macos/SZUConnect/Tests/run-offline.sh
+          sh macos/SZUConnect/Tests/run-network-memory.sh
+          sh macos/SZUConnect/Tests/run-network-labels.sh
+          sh macos/SZUConnect/Tests/run-network-memory-model.sh
+          sh macos/SZUConnect/Tests/run-wifi-recovery.sh
