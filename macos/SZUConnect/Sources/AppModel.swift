@@ -2232,8 +2232,8 @@ private let defaultTrustReason = SharedCopy.t("guard.trustDetail")
             let samples: [ConnectionSample]
         }
         let report = Export(formatVersion: 1, exportedAt: Date(),
-            appVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.10.1",
-            build: Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "32",
+            appVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0.0",
+            build: Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "33",
             mode: monitoringMode.rawValue, summary: diagnosticSummary,
             measurement: SharedCopy.t("records.measurement"), samples: currentHealth.samples)
         let encoder = JSONEncoder()
@@ -2243,7 +2243,7 @@ private let defaultTrustReason = SharedCopy.t("guard.trustDetail")
     }
 
     var diagnosticSummary: String {
-        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.10.1"
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0.0"
         var environment: [String] = []
         if tunnelActive { environment.append(SharedCopy.t("env.tunnel.detected")) }
         if systemProxyActive { environment.append(SharedCopy.t("diagnostic.systemProxy")) }

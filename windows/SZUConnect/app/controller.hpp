@@ -32,8 +32,8 @@ inline constexpr UINT kMsgTray = WM_APP + 3;
 inline constexpr UINT kMsgActivateWidget = WM_APP + 4;
 inline constexpr UINT_PTR kTimerAuto = 1, kTimerNetwork = 2, kTimerPersist = 3, kTimerSpin = 4, kTimerFeedback = 5, kTimerWake = 6, kTimerWiFi = 7, kTimerUiClock = 8;
 
-inline constexpr const char* kVersion = "0.10.1";
-inline constexpr const char* kBuild = "32";
+inline constexpr const char* kVersion = "1.0.0";
+inline constexpr const char* kBuild = "33";
 
 struct Settings {
     MonitoringMode mode = MonitoringMode::manual;  // a fresh install never checks or logs in on its own

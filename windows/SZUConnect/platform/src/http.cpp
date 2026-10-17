@@ -20,7 +20,7 @@
 namespace szu::win {
 namespace {
 
-constexpr wchar_t kAgent[] = L"SZUConnect/0.10.1 (Windows)";
+constexpr wchar_t kAgent[] = L"SZUConnect/1.0.0 (Windows)";
 static_assert(recovery_connection_error(ERROR_WINHTTP_CANNOT_CONNECT));
 static_assert(recovery_connection_error(ERROR_WINHTTP_CONNECTION_ERROR));
 

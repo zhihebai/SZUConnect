@@ -325,8 +325,8 @@ struct AboutSheet: View {
     private var version: String {
         let info = Bundle.main.infoDictionary
         return SharedCopy.f("about.version", [
-            "version": info?["CFBundleShortVersionString"] as? String ?? "0.10.1",
-            "build": info?["CFBundleVersion"] as? String ?? "32",
+            "version": info?["CFBundleShortVersionString"] as? String ?? "1.0.0",
+            "build": info?["CFBundleVersion"] as? String ?? "33",
         ])
     }
 
