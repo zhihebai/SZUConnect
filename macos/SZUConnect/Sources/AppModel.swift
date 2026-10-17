@@ -36,9 +36,13 @@ enum CredentialStore {
             guard result == errSecSuccess else { throw StoreError.failed(result) }
         } else if status != errSecSuccess { throw StoreError.failed(status) }
     }
+    static func delete() throws {
+        let status = SecItemDelete(query as CFDictionary)
+        guard status == errSecSuccess || status == errSecItemNotFound else { throw StoreError.failed(status) }
+    }
     enum StoreError: LocalizedError {
         case failed(OSStatus)
-        var errorDescription: String? { "无法访问系统钥匙串，请解锁设备后重试。" }
+        var errorDescription: String? { SharedCopy.t("account.accessFailed") }
     }
 }
 
@@ -92,7 +96,7 @@ enum NetworkEnvironment {
     }
 }
 
-private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号密码。请确认当前校园网络可信，再允许本次自动重连。"
+private let defaultTrustReason = SharedCopy.t("guard.trustDetail")
 
 @MainActor final class AppModel: ObservableObject {
     @Published var account = "" { didSet { if account != oldValue { configurationChanged() } } }
@@ -108,15 +112,15 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
     @Published private(set) var monitoringMode: MonitoringMode = .manual
     @Published private(set) var health = ConnectionHealth()
     @Published var launchAtLogin = false
-    @Published var status = "等待检测"
-    @Published var detail = "连接校园 Wi-Fi 或插上网线后，即可检测或登录。"
+    @Published var status = SharedCopy.t("tray.state.idle")
+    @Published var detail = SharedCopy.t("status.noNetwork.detail")
     @Published var busy = false { didSet { updateWiFiRecoveryContext() } }
     @Published var events: [ConnectionEvent] = []
     @Published var errorMessage: String?
     @Published private(set) var isOnline = false
-    @Published private(set) var interfaceSummary = "正在查看连接方式"
-    @Published private(set) var probeSummary = "尚未检测 · Apple / Microsoft"
-    @Published private(set) var authenticationSummary = "连续两次检测失败后才会尝试登录"
+    @Published private(set) var interfaceSummary = SharedCopy.t("env.access.pending")
+    @Published private(set) var probeSummary = SharedCopy.t("status.idle.headline")
+    @Published private(set) var authenticationSummary = SharedCopy.t("auto.ready.detail")
     private(set) var lastAuthDiagnosticSummary: String?
     @Published private(set) var currentNetworkAuthorized = false
     @Published private(set) var authorizationStatusText = "尚未信任此网络"
@@ -125,9 +129,13 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
     private(set) var legacyUserAtLaunch = false
     @Published private(set) var lastCheckedAt: Date?
     @Published private(set) var nextCheckAt: Date?
-    @Published private(set) var recoverySummary = "等待网络连接"
+    @Published private(set) var recoverySummary = SharedCopy.t("env.access.pending")
     @Published private(set) var automaticRecoveryPaused = false
     @Published private(set) var sessionReadOnly = false
+    @Published private(set) var alwaysShowDockIcon = false
+    @Published private(set) var dockPreferenceAvailable = true
+    @Published private(set) var dockVisibilityError: String?
+    private let dockPreferences: UserDefaults?
     /// Plain-language reading of the latest probe round; explanatory only.
     @Published private(set) var lastDiagnosis: ConnectivityDiagnosis?
     @Published private(set) var lastLatencyMilliseconds: Double?
@@ -140,6 +148,14 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
     @Published private(set) var systemConnectivity: ConnectivityReport?
     @Published private(set) var systemConnectivityChecking = false
     @Published private(set) var systemConnectivityCheckedAt: Date?
+    @Published private(set) var networkInformationRefreshing = false
+    @Published private(set) var networkInformationFeedback: String?
+    private var networkInformationTask: Task<Void, Never>?
+    private let networkInformationReader: (@Sendable () async throws -> PathObservation)?
+    @Published private(set) var credentialsDeletionInProgress = false
+    @Published private(set) var credentialsDeletionMessage: String?
+    @Published private(set) var credentialsDeletionFailed = false
+    private let credentialDeletion: @Sendable () async throws -> Void
     private var systemConnectivityTask: Task<Void, Never>?
     private var systemConnectivityGeneration: UInt64 = 0
     private var systemConnectivityRecheckNeeded = false
@@ -166,6 +182,7 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
     private let isolated: Bool
     private let automaticLoopAllowed: Bool
     private let loopSleep: @Sendable (Int) async throws -> Void
+    private let verificationSleep: @Sendable (Int) async throws -> Void
     private var initialized = false
     private var monitor: NWPathMonitor?
     private var environmentRefreshTask: Task<Void, Never>?
@@ -179,6 +196,8 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
     private var loopID: UUID?
     private var manual: Task<Void, Never>?
     private var probeOwner: ConnectionPolicy.Operation?
+    @Published private var activeInternetCheck: UUID?
+    var physicalConnectivityChecking: Bool { activeInternetCheck != nil }
     private var logURL: URL?
     private var healthURL: URL?
     private var recoveryJournalURL: URL?
@@ -217,6 +236,9 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
     @Published private(set) var memoryWriteFailed = false
     @Published private(set) var memoryVerificationMessage: String?
     @Published private(set) var isVerifyingMemory = false
+    var campusVerificationInProgress: Bool {
+        busy && (isVerifyingMemory || engineStatus == "discovering")
+    }
     private var memory: NetworkMemory?
     private var memoryURL: URL?
     private var memoryGeneration: UInt64 = 0
@@ -245,7 +267,10 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
          runAutomaticLoopInIsolation: Bool = false, loopSleep: (@Sendable (Int) async throws -> Void)? = nil,
          labelsStore: URL? = nil, isolatedPreferences: UserDefaults? = nil, recordStoreDirectory: URL? = nil,
          isolatedWiFiRecoveryStore: URL? = nil,
-         systemConnectivityProbe: (@Sendable (ConnectivityProbeMode) async -> ConnectivityReport)? = nil) {
+         systemConnectivityProbe: (@Sendable (ConnectivityProbeMode) async -> ConnectivityReport)? = nil,
+         verificationSleep: (@Sendable (Int) async throws -> Void)? = nil,
+         networkInformationReader: (@Sendable () async throws -> PathObservation)? = nil,
+         credentialDeletion: (@Sendable () async throws -> Void)? = nil) {
         let preview = ProcessInfo.processInfo.arguments.contains("--offline-preview")
             || Bundle.main.bundleIdentifier == "local.SZUConnect.preview"
             || Bundle.main.bundleIdentifier?.hasPrefix("local.SZUConnect.preview.") == true
@@ -264,17 +289,38 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
         self.client = preview ? PreviewConnectionService() : client
         self.websiteChecker = preview ? PreviewWebsiteChecker() : (websiteChecker ?? (isolated ? UnconfiguredWebsiteChecker() : WebsiteProbe()))
         self.isolated = isolated || preview
+        self.networkInformationReader = networkInformationReader
+        let privateCredentials = isolated || preview
+        self.credentialDeletion = credentialDeletion ?? {
+            if !privateCredentials { try await Task.detached(priority: .userInitiated) { try CredentialStore.delete() }.value }
+        }
         if preview { self.systemConnectivityProbe = nil }
         else if let systemConnectivityProbe { self.systemConnectivityProbe = systemConnectivityProbe }
         else if isolated { self.systemConnectivityProbe = nil }
         else { self.systemConnectivityProbe = { await PortalClient.probeSystemConnectivity(mode: $0) } }
         self.automaticLoopAllowed = !preview && (!isolated || runAutomaticLoopInIsolation)
         self.loopSleep = loopSleep ?? { seconds in try await Task.sleep(for: .seconds(seconds)) }
+        let skipVerificationDelays = isolated || preview
+        self.verificationSleep = verificationSleep ?? { seconds in
+            if !skipVerificationDelays { try await Task.sleep(for: .seconds(seconds)) }
+        }
         // Read the user's choices in observe-only mode, but never retain a writable
         // preference store. Injection is limited to isolated, non-preview tests.
         let storedDefaults: UserDefaults? = self.isolated ? (preview ? nil : isolatedPreferences) : .standard
         self.defaults = readOnly ? nil : storedDefaults
         self.sessionReadOnly = readOnly
+        // Preview UI preferences use a separate domain; production data is never touched.
+        let previewIdentifier = Bundle.main.bundleIdentifier?.hasPrefix("local.SZUConnect.preview") == true
+            ? Bundle.main.bundleIdentifier! : "local.SZUConnect.preview"
+        let dockStore = preview ? UserDefaults(suiteName: previewIdentifier + ".dock") : storedDefaults
+        self.dockPreferences = readOnly ? nil : dockStore
+        if let value = dockStore?.object(forKey: "alwaysShowDockIcon") {
+            if let enabled = value as? Bool { alwaysShowDockIcon = enabled }
+            else {
+                dockPreferenceAvailable = false
+                dockVisibilityError = SharedCopy.t("settings.dock.unavailable")
+            }
+        }
         if let defaults = storedDefaults {
             area = CampusArea(rawValue: defaults.string(forKey: "area") ?? "") ?? .automatic
             monitoringMode = MonitoringMode.migrated(raw: defaults.string(forKey: "monitoringMode"),
@@ -289,7 +335,7 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
                             password = credentials.password
                             automaticCredentials = credentials
                         }
-                    } catch { errorMessage = "无法读取系统钥匙串，请解锁设备后重新打开。" }
+                    } catch { errorMessage = SharedCopy.t("account.readFailed") }
                 }
                 loadEvents()
             }
@@ -339,7 +385,7 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
                 networkLabels = labels
                 refreshRemembered()
             }
-            status = "基础联网检测通过"
+            status = SharedCopy.t("diagnosis.online.title")
             detail = "离线演示：界面使用模拟数据，不访问真实网络。"
             isOnline = true
             interfaceSummary = "Wi-Fi en0"
@@ -401,6 +447,7 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
     }
 
     deinit {
+        networkInformationTask?.cancel()
         systemConnectivityTask?.cancel()
         loop?.cancel()
         manual?.cancel()
@@ -425,7 +472,7 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
         } catch {
             recoveryJournalBlocked = true
             policy.suspendAuthentication(.security)
-            errorMessage = "无法读取自动重连的暂停记录，已保留原文件。请检查连接，再到连接页继续自动重连。"
+            errorMessage = SharedCopy.t("error.recoveryJournalUnreadable")
         }
     }
     private func loadEvents(from recordStoreDirectory: URL? = nil) {
@@ -451,7 +498,7 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
                     health.restore(saved.samples)
                 } catch {
                     self.healthURL = nil // Preserve the unreadable file; never overwrite it.
-                    errorMessage = "连接记录暂不可用，原文件已保留；检测不受影响。"
+                    errorMessage = SharedCopy.t("error.healthUnreadable")
                 }
             }
             logURL = folder.appendingPathComponent("events.json")
@@ -461,14 +508,14 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
                 } catch {
                     // Keep the unreadable original beside a fresh log instead of overwriting it.
                     if !sessionReadOnly, (try? EventLogFile.quarantine(logURL)) != nil {
-                        errorMessage = "无法读取活动记录，已备份原文件。新记录会照常保存。"
+                        errorMessage = SharedCopy.t("error.eventsQuarantined")
                     } else {
                         self.logURL = nil
-                        errorMessage = "无法读取活动记录，已保留原文件。本次打开应用期间不再保存活动记录。"
+                        errorMessage = SharedCopy.t("error.eventsUnreadable")
                     }
                 }
             }
-        } catch { errorMessage = "本地记录暂不可用，请检查存储空间与文件权限。" }
+        } catch { errorMessage = SharedCopy.t("error.storage") }
     }
 
     private func receive(_ observation: PathObservation) {
@@ -514,7 +561,7 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
             continuity.authenticationRoute = nil
             continuity.requiresPhysicalBinding = true
             continuity.descriptors = []
-            continuity.trustUnavailableReason = "正在确认校园认证使用的物理网络，确认前不会发送账号。"
+            continuity.trustUnavailableReason = SharedCopy.t("env.identification.pending")
             return PathObservation(usable: observation.usable, interfaces: observation.interfaces,
                                    constrained: observation.constrained, continuity: continuity, physicalCandidates: observation.physicalCandidates)
         }
@@ -684,14 +731,18 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
             return // Repeated observations preserve ownership, never establish network trust.
         }
         let recheckSystem = systemConnectivityChecking || systemConnectivity != nil || systemConnectivityRecheckNeeded
+        let interruptedMemoryVerification = isVerifyingMemory
         cancelOperations()
+        if interruptedMemoryVerification {
+            memoryVerificationMessage = SharedCopy.t(usable ? "memory.verification.changed" : "memory.verification.disconnected")
+        }
         systemConnectivityRecheckNeeded = recheckSystem && usable && !sleeping && monitoringMode != .manual
         if !firstPath { invalidateTransport() }
         networkRevision &+= 1
         lastInternetCheck = nil
         websiteConfigurationChanged = false
         if !sameIdentity || authenticationTunnelChanged || descriptorsChanged || trustScopeChanged || bindingChanged {
-            memoryVerificationMessage = nil
+            if !interruptedMemoryVerification { memoryVerificationMessage = nil }
             // A different network: holds scoped to the previous network no longer apply.
             networkEpoch &+= 1
             partialRecovery.reset()
@@ -699,7 +750,7 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
             lastDiscovery = nil // evidence about the previous network says nothing about this one
         }
         policy.available = usable && !sleeping
-        interfaceSummary = usable && !interfaces.isEmpty ? interfaces : "没有可用的 Wi-Fi 或有线连接"
+        interfaceSummary = usable && !interfaces.isEmpty ? interfaces : SharedCopy.t("env.physicalUnavailable")
 
         if !usable, sameIdentity, linkActive, !sleeping, !descriptorsChanged, !authenticationTunnelChanged, !trustScopeChanged, !bindingChanged,
            identity?.permitsBriefInterruption == true, policy.currentNetworkAuthorized {
@@ -708,22 +759,22 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
                 scheduleAuthorizationGraceExpiry()
             }
             if let deadline = authorizationGraceDeadline, now > deadline {
-                revokeAuthorization(reason: "网络持续不可用，已取消信任。重新连接后可以再次确认。")
+                revokeAuthorization(reason: SharedCopy.t("guard.connectionTrustExpired"))
             } else {
-                authorizationReason = "网络暂时不通，连接尚未断开，正在等待恢复。"
+                authorizationReason = SharedCopy.t("guard.waitingRecovery")
             }
         } else if !sameIdentity || authenticationTunnelChanged || descriptorsChanged || trustScopeChanged || bindingChanged || !linkActive || sleeping || !usable {
             let reason: String
             if firstPath { reason = defaultTrustReason }
-            else if !linkActive { reason = "网络连接已断开，重新连接后请再次确认。" }
-            else if identity == nil { reason = "无法确认当前网络，已暂停信任。" }
-            else if !usable { reason = "网络暂时不可用，已取消信任。恢复后请再次确认。" }
-            else if tunnelChanged { reason = "代理或 VPN 状态已变化，请重新确认当前网络。" }
-            else { reason = "网络已变化，请重新确认当前网络。" }
+            else if !linkActive { reason = SharedCopy.t("guard.disconnected") }
+            else if identity == nil { reason = SharedCopy.t("guard.networkUnknown") }
+            else if !usable { reason = SharedCopy.t("guard.networkUnavailable") }
+            else if tunnelChanged { reason = SharedCopy.t("guard.tunnelChanged") }
+            else { reason = SharedCopy.t("guard.networkChanged") }
             revokeAuthorization(reason: reason)
             policy.resetFailures()
         } else if let deadline = authorizationGraceDeadline {
-            if now > deadline { revokeAuthorization(reason: "网络中断超过 15 秒，请重新确认当前网络。") }
+            if now > deadline { revokeAuthorization(reason: SharedCopy.f("guard.trustTimeout", ["seconds": "15"])) }
             clearAuthorizationGrace()
         }
         currentIdentity = identity
@@ -736,18 +787,18 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
         lastDiagnosis = nil
         lastProbeMode = nil
         lastProbePassedCount = 0
-        probeSummary = firstPath ? "等待首次检测" : "网络状态更新，等待检测"
-        authenticationSummary = "先检测，再判断是否需要登录"
+        probeSummary = firstPath ? SharedCopy.t("status.idle.headline") : SharedCopy.t("internet.pending.title")
+        authenticationSummary = SharedCopy.t("guard.checkFirst")
         refreshAuthorization()
         if sleeping { refreshRecovery(); return }
         if usable {
-            status = "等待检测"
-            detail = policy.automaticEnabled ? "网络已就绪，开始自动检测。" : "网络已就绪，需要时可以检测或登录。"
+            status = SharedCopy.t("tray.state.idle")
+            detail = policy.automaticEnabled ? SharedCopy.t("guard.readyAutomatic") : SharedCopy.t("mode.manual.detail")
             startLoop(initialDelay: rapidRecoveryDeadline != nil ? 0 : 2)
         } else {
-            status = "尚未连接网络"
-            detail = "请连接校园 Wi-Fi 或插上网线。"
-            if previouslyAvailable { record("网络连接暂不可用，已停止本次操作。") }
+            status = SharedCopy.t("env.access.none")
+            detail = SharedCopy.t("status.noNetwork.detail")
+            if previouslyAvailable { record(SharedCopy.t("event.pathLost")) }
         }
         refreshRecovery()
     }
@@ -763,7 +814,7 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
         authorizationGraceTask = Task { [weak self] in
             do { try await Task.sleep(for: .seconds(15)) } catch { return }
             guard let self, !self.policy.available, self.authorizationGraceDeadline != nil else { return }
-            self.revokeAuthorization(reason: "网络持续不可用，已取消信任。重新连接后可以再次确认。")
+            self.revokeAuthorization(reason: SharedCopy.t("guard.connectionTrustExpired"))
         }
     }
     private func revokeAuthorization(reason: String) {
@@ -777,24 +828,24 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
     private func refreshAuthorization() {
         currentNetworkAuthorized = policy.currentNetworkAuthorized
         if currentNetworkAuthorized {
-            authorizationStatusText = policy.available ? "已信任此网络" : "仍信任此网络，等待连接恢复"
+            authorizationStatusText = policy.available ? SharedCopy.t("guard.trustGranted") : SharedCopy.t("guard.trustWaitingRecovery")
             if policy.available {
-                authorizationReason = "信任本次有效。检测、取消操作或修改账号不会取消信任；换网、休眠或退出后需重新确认。"
+                authorizationReason = SharedCopy.t("memory.sessionTrusted")
             }
         } else {
-            authorizationStatusText = "尚未信任此网络"
+            authorizationStatusText = SharedCopy.t("guard.trustNotGranted")
         }
     }
 
     private func configurationChanged() {
-        guard initialized else { return }
+        guard initialized, !credentialsDeletionInProgress else { return }
         let interrupted = busy
         cancelOperations()
         policy.resetFailures()
         if interrupted {
             // The stopped round must not leave a stale "正在登录" behind.
-            status = isOnline ? "基础联网检测通过" : "已取消"
-            detail = "账号或区域已修改，本次操作已停止，网络信任保持不变。"
+            status = isOnline ? SharedCopy.t("diagnosis.online.title") : SharedCopy.t("status.cancelled.headline")
+            detail = SharedCopy.t("guard.credentialsEdited")
         }
         // Editing an account does not change which physical network the user authorized.
         refreshRecovery()
@@ -823,11 +874,11 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
     }
 
     func saveCredentials() {
-        guard !sessionReadOnly else { return }
+        guard !sessionReadOnly, !credentialsDeletionInProgress else { return }
         let credentials = Credentials(account: account.trimmingCharacters(in: .whitespacesAndNewlines), password: password)
         guard !credentials.account.isEmpty, !credentials.password.isEmpty,
               credentials.account.utf8.count <= 256, credentials.password.utf8.count <= 1024 else {
-            errorMessage = "请填写有效的校园账号和密码。"; return
+            errorMessage = SharedCopy.t("account.invalid"); return
         }
         do {
             if !isolated { try CredentialStore.save(credentials) }
@@ -839,14 +890,45 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
             }
             automaticCredentials = credentials
             // A save is explicit, but retry is a separate user decision after rejection.
-            record("账号密码已存入本机钥匙串，自动重连会使用这个账号。")
+            record(SharedCopy.f("event.saved", ["store": SharedCopy.t("app.store")]))
             refreshRecovery()
-        } catch { errorMessage = "保存失败，原来的账号密码仍保留。请解锁设备后重试。" }
+        } catch { errorMessage = SharedCopy.t("account.saveFailed") }
     }
     /// Restores the saved account into the draft. Never touches the Keychain.
     func revertCredentialDraft() {
         account = automaticCredentials?.account ?? ""
         password = automaticCredentials?.password ?? ""
+    }
+
+    /// The caller presents confirmation. The exact application Keychain item is the only deletion target.
+    func deleteSavedCredentials() async {
+        guard !sessionReadOnly, !credentialsDeletionInProgress else { return }
+        credentialsDeletionInProgress = true
+        credentialsDeletionMessage = nil
+        credentialsDeletionFailed = false
+        // Revoke task ownership before a Keychain prompt or asynchronous deletion can yield.
+        let interrupted = busy
+        cancelOperations()
+        if interrupted {
+            engineStatus = isOnline ? "online" : "cancelled"
+            status = SharedCopy.t(isOnline ? "diagnosis.online.title" : "status.cancelled.headline")
+            detail = SharedCopy.t("status.cancelled.detail")
+        }
+        refreshRecovery()
+        defer { credentialsDeletionInProgress = false; refreshRecovery(); startLoop() }
+        do {
+            try await credentialDeletion()
+            automaticCredentials = nil
+            account = ""
+            password = ""
+            credentialsDeletionMessage = SharedCopy.t("account.deleted")
+            authenticationSummary = SharedCopy.t("guard.missingCredentials")
+            record(SharedCopy.t("account.deleted"))
+        } catch {
+            policy.pauseByUser()
+            credentialsDeletionFailed = true
+            credentialsDeletionMessage = SharedCopy.t("account.deleteFailed")
+        }
     }
 
     // MARK: - User actions
@@ -860,7 +942,7 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
         return ["idle", "offline", "online", "noNetwork", "unconfirmed", "needsTrust", "needsAccount"].contains(engineStatus)
     }
     /// Manual and automatic submissions are possible in this session and guard mode.
-    var canAuthenticate: Bool { !sessionReadOnly && monitoringMode != .observe }
+    var canAuthenticate: Bool { !sessionReadOnly && !credentialsDeletionInProgress && monitoringMode != .observe }
     /// Dormitory (or automatic) recovery needs an explicit trust decision for this network.
     var needsNetworkTrust: Bool { monitoringMode == .recover && area != .teaching }
     /// Work the user should see: any manual action, or anything while not yet online.
@@ -914,8 +996,32 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
     }
 
     func refreshDisplayedNetwork() {
-        refreshNetworkEnvironment()
-        refreshSystemConnectivity()
+        guard !networkInformationRefreshing, !sleeping else { return }
+        networkInformationRefreshing = true
+        networkInformationFeedback = nil
+        let revision = networkRevision
+        networkInformationTask = Task { [weak self] in
+            guard let self else { return }
+            defer { self.networkInformationRefreshing = false; self.networkInformationTask = nil }
+            do {
+                let observation: PathObservation?
+                if let reader = self.networkInformationReader { observation = try await reader() }
+                else if self.isolated { observation = nil }
+                else if let path = self.monitor?.currentPath {
+                    observation = await Task.detached(priority: .utility) { PathObservation.capture(path) }.value
+                } else { throw CancellationError() }
+                guard !Task.isCancelled, !self.sleeping else { return }
+                guard self.networkRevision == revision else {
+                    self.networkInformationFeedback = SharedCopy.t("env.refreshChanged"); return
+                }
+                if let observation { self.applyEnvironmentObservation(observation) }
+                let partial = self.hasPhysicalConnection && self.currentIdentity == nil
+                self.networkInformationFeedback = SharedCopy.f(partial ? "env.refreshedPartial" : "env.refreshed",
+                    ["time": self.now().formatted(date: .omitted, time: .standard)])
+            } catch {
+                if !Task.isCancelled { self.networkInformationFeedback = SharedCopy.t("env.refreshFailed") }
+            }
+        }
     }
 
     private func invalidateSystemConnectivity(recheck: Bool = false) {
@@ -940,7 +1046,7 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
         }
         catch {
             websitePreferencesCorrupt = true
-            websiteConfigurationError = "网址清单未能读取，原文件已保留。可重新添加并保存，旧文件会另存备份。"
+            websiteConfigurationError = SharedCopy.t("internet.settingsUnreadable")
         }
     }
     var selectedWebsiteCount: Int { customWebsiteTargets.filter(\.enabled).count }
@@ -951,11 +1057,11 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
         guard !sessionReadOnly else { return false }
         let selectedStrategy = strategy ?? customWebsiteStrategy
         guard canEditWebsiteTargets else {
-            websiteConfigurationError = "正在检查登录服务或登录校园网，完成后才能修改检测项目。"; return false
+            websiteConfigurationError = SharedCopy.t("internet.settingsBusy"); return false
         }
         let validated: [WebsiteTarget]
         do { validated = try WebsiteTarget.validated(targets) }
-        catch { websiteConfigurationError = (error as? LocalizedError)?.errorDescription ?? "网站设置有误，请检查。"; return false }
+        catch { websiteConfigurationError = (error as? LocalizedError)?.errorDescription ?? SharedCopy.t("internet.settingsInvalid"); return false }
         do {
             if !isolated || websitePreferencesURL != nil {
                 guard let url = websitePreferencesURL else { throw CocoaError(.fileWriteUnknown) }
@@ -963,7 +1069,7 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
                 try WebsitePreferences(targets: validated, strategy: selectedStrategy).write(url)
                 websitePreferencesCorrupt = false
             }
-        } catch { websiteConfigurationError = "网址清单未能保存，请检查本机存储空间；当前检测项目没有改变。"; return false }
+        } catch { websiteConfigurationError = SharedCopy.t("internet.settingsWriteFailed"); return false }
         websiteConfigurationError = nil
         guard validated != customWebsiteTargets || selectedStrategy != customWebsiteStrategy else { return true }
         cancelOperations()
@@ -991,6 +1097,9 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
     }
     private func runInternetCheck(mode: ConnectivityProbeMode, targets: [WebsiteTarget], strategy: WebsiteProbeStrategy,
                                   prioritizeCampusRecovery: Bool = false, deferWebsites: Bool = false) async -> InternetCheckReport {
+        let check = UUID()
+        activeInternetCheck = check
+        defer { if activeInternetCheck == check { activeInternetCheck = nil } }
         let websiteRevision = websiteEnvironmentRevision
         let report = await InternetChecker.check(mode: mode, targets: targets, checker: websiteChecker, strategy: strategy,
             prioritizeCampusRecovery: prioritizeCampusRecovery, deferWebsites: deferWebsites) { [client] selectedMode in
@@ -1036,7 +1145,7 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
     var authenticationTargetName: String? {
         guard let route = authenticationRoute else { return nil }
         if networkRemembered { return networkLabels.displayName(for: memoryMatch.record) }
-        return observedNetworkLabel?.displayName ?? (route.descriptor?.kind == "wifi" ? "当前校园 Wi-Fi" : "当前校园有线网络")
+        return observedNetworkLabel?.displayName ?? (route.descriptor?.kind == "wifi" ? SharedCopy.t("memory.item.wifi") : SharedCopy.t("memory.item.ethernet"))
     }
     var trustUnavailableDetail: String {
         networkTrustUnavailableReason ?? SharedCopy.t("banner.networkUnidentified.detail")
@@ -1105,8 +1214,8 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
         memoryVerificationMessage = SharedCopy.t("memory.verification.checking")
         lastDiscovery = nil
         engineStatus = "discovering"
-        status = "正在检查校园网络"
-        authenticationSummary = "正在检查校园网登录服务，没有发送账号密码"
+        status = SharedCopy.t("status.discovering.headline")
+        authenticationSummary = SharedCopy.t("memory.verification.checking")
         manual = Task { [weak self] in
             guard let self else { return }
             defer {
@@ -1137,7 +1246,7 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
             else { scope = selectedArea == .automatic ? .teaching : nil }
             guard let scope else {
                 self.memoryVerificationMessage = SharedCopy.t("memory.verification.needsProof")
-                self.authenticationSummary = "检查未通过，没有发送账号密码，也没有记住网络"
+                self.authenticationSummary = SharedCopy.t("memory.verification.needsProof")
                 return
             }
             switch self.rememberVerifiedNetwork(scope: scope) {
@@ -1146,7 +1255,7 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
             case .failed:
                 self.memoryVerificationMessage = SharedCopy.t("memory.verification.writeFailed")
             default:
-                self.memoryVerificationMessage = SharedCopy.t("memory.verification.changed")
+                self.memoryVerificationMessage = SharedCopy.t("memory.verification.pending")
             }
         }
     }
@@ -1169,9 +1278,9 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
             clearAuthorizationGrace()
             refreshAuthorization()
         }
-        authenticationSummary = dormitory ? "已信任并记住此网络；仍需连续两次检测失败才会登录"
-            : "已记住此校园网络，供自动找网使用；教学区自动重连仍需当次校园服务确认"
-        record("已记住当前网络，本次没有发送账号密码。")
+        authenticationSummary = dormitory ? SharedCopy.t("memory.automaticKnown")
+            : SharedCopy.t("memory.automaticKnown")
+        record(SharedCopy.t("event.remembered"))
         objectWillChange.send()
         return .remembered
     }
@@ -1188,12 +1297,12 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
             memoryVerificationMessage = nil
             cancelOperations()
             memoryGeneration &+= 1
-            revokeAuthorization(reason: "已取消信任此网络，检测会继续。")
-            authenticationSummary = "已忘记此网络，宿舍区不会自动重连"
+            revokeAuthorization(reason: SharedCopy.t("event.trustRevoked"))
+            authenticationSummary = SharedCopy.t("event.forgot")
         }
         // A failed write still revokes this record in RAM for the rest of this process.
         _ = commitMemory(next, suppress: ids)
-        record("已忘记一个记住的网络。")
+        record(SharedCopy.t("event.forgotSelected"))
         objectWillChange.send()
         if isCurrent { startLoop() }
     }
@@ -1204,14 +1313,14 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
         memoryVerificationMessage = nil
         cancelOperations()
         memoryGeneration &+= 1
-        revokeAuthorization(reason: "已取消信任此网络，检测会继续。")
+        revokeAuthorization(reason: SharedCopy.t("event.trustRevoked"))
         if var next = memory {
             let ids = next.matchingIDs(currentDescriptors, now: now())
             for id in ids { next.forget(id: id) }
             if !ids.isEmpty { _ = commitMemory(next, suppress: ids) }
         }
-        authenticationSummary = "已忘记此网络，宿舍区不会自动重连"
-        record("已忘记当前网络，需要重新确认信任。")
+        authenticationSummary = SharedCopy.t("event.forgot")
+        record(SharedCopy.t("event.forgot"))
         objectWillChange.send()
         startLoop()
     }
@@ -1221,13 +1330,13 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
         memoryVerificationMessage = nil
         cancelOperations()
         memoryGeneration &+= 1
-        revokeAuthorization(reason: "已忘记全部记住的网络。")
+        revokeAuthorization(reason: SharedCopy.t("event.forgotAll"))
         if var next = memory {
             let ids = next.records.map(\.id)
             next.forgetAll()
             if !ids.isEmpty { _ = commitMemory(next, suppress: ids) }
         }
-        record("已忘记全部记住的网络。")
+        record(SharedCopy.t("event.forgotAll"))
         objectWillChange.send()
         startLoop()
     }
@@ -1237,13 +1346,13 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
         do {
             if let data = try NetworkMemoryFile.read(url) {
                 if let decoded = NetworkMemory.decode(data, now: now()), decoded.hasSalt { memory = decoded }
-                else { memoryUnreadable = true; errorMessage = "无法读取记住的网络，已保留原文件。本次需手动信任当前网络。" }
+                else { memoryUnreadable = true; errorMessage = SharedCopy.t("memory.unreadable") }
             } else {
                 memory = NetworkMemory(salt: NetworkMemory.randomHex())
             }
         } catch {
             memoryUnreadable = true
-            errorMessage = "无法读取记住的网络，已保留原文件。本次需手动信任当前网络。"
+            errorMessage = SharedCopy.t("memory.unreadable")
         }
         refreshRemembered()
     }
@@ -1263,7 +1372,7 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
         case .missing: break
         case .unavailable:
             networkLabelsUnavailable = true
-            networkNameError = "网络名称暂不可用，原文件已保留；已有网络记忆不受影响。"
+            networkNameError = SharedCopy.t("memory.namesUnavailable")
         }
     }
 
@@ -1308,7 +1417,7 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
     private func saveNetworkLabels(_ labels: NetworkLabels) -> Bool {
         guard !sessionReadOnly, !networkLabelsUnavailable else { return false }
         if let store = networkLabelsStore, !store.save(labels) {
-            networkNameError = "未能保存网络名称，请检查存储空间和文件权限。"
+            networkNameError = SharedCopy.t("memory.namesWriteFailed")
             return false
         }
         networkLabels = labels
@@ -1381,7 +1490,7 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
         } catch {
             suppressedMemory.formUnion(suppress)
             memoryWriteFailed = true
-            errorMessage = "未能保存网络，原来记住的网络没有改变。"
+            errorMessage = SharedCopy.t("memory.writeFailed")
             refreshRemembered()
             return false
         }
@@ -1403,11 +1512,11 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
         refreshNetworkEnvironment()
         guard canTrustCurrentNetwork && policy.foreground else {
             if sessionReadOnly {
-                authorizationReason = "本次启动仅检测，不能更改信任。"
+                authorizationReason = SharedCopy.t("memory.hint.readOnly")
             } else if policy.available && currentIdentity == nil && lastLinkActive {
-                authorizationReason = "暂时无法识别当前网络，不能信任此网络。仍可手动登录。"
+                authorizationReason = SharedCopy.t("guard.trustUnavailable")
             } else {
-                authorizationReason = "网络信息还没就绪，等 Wi-Fi 或网线连接稳定后再试。"
+                authorizationReason = SharedCopy.t("memory.hint.needsProof")
             }
             refreshAuthorization()
             return
@@ -1415,8 +1524,8 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
         policy.authorizeCurrentNetwork()
         clearAuthorizationGrace()
         refreshAuthorization()
-        authenticationSummary = "已信任此网络；仍需连续两次检测失败才会登录"
-        record("已信任当前网络，本次没有发送账号密码。")
+        authenticationSummary = SharedCopy.t("auto.ready.detail")
+        record(SharedCopy.t("event.trusted"))
         if rapidRecoveryDeadline != nil { rapidRecoveryDeadline = now().addingTimeInterval(45) }
         if engineStatus == "needsTrust" { engineStatus = "idle" }
         if policy.active == nil {
@@ -1426,22 +1535,22 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
     }
     func revokeCurrentNetworkAuthorization() {
         cancelOperations()
-        revokeAuthorization(reason: "已取消信任此网络，检测会继续。")
-        authenticationSummary = "已取消信任，宿舍区不会自动重连"
+        revokeAuthorization(reason: SharedCopy.t("event.trustRevoked"))
+        authenticationSummary = SharedCopy.t("event.trustRevoked")
         startLoop()
     }
     func resumeAutomaticRecovery() {
-        guard !sessionReadOnly, monitoringMode == .recover, automaticCredentials != nil else { return }
+        guard !sessionReadOnly, !credentialsDeletionInProgress, monitoringMode == .recover, automaticCredentials != nil else { return }
         cancelOperations()
         if recoveryJournalBlocked, let url = recoveryJournalURL {
             do {
                 if FileManager.default.fileExists(atPath: url.path) { _ = try EventLogFile.quarantine(url) }
                 recoveryJournalBlocked = false; lastRecoveryJournalData = nil
-            } catch { errorMessage = "无法备份原来的暂停记录，暂时不能恢复自动重连。"; return }
+            } catch { errorMessage = SharedCopy.t("error.recoveryJournalBackupFailed"); return }
         }
         pendingRecoverySubmission = false
         policy.resumeAuthentication()
-        authenticationSummary = "已恢复自动重连，网络信任保持不变"
+        authenticationSummary = SharedCopy.t("event.resumed")
         refreshRecovery()
         startLoop()
     }
@@ -1451,7 +1560,7 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
         if policy.active?.kind == .automatic { cancelOperations() }
         policy.pauseByUser()
         clearPriorityRecovery()
-        record("你暂停了自动重连；检测会继续。")
+        record(SharedCopy.t("event.paused"))
         refreshRecovery()
         startLoop()
     }
@@ -1467,7 +1576,7 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
         return policy.holds.blocking(area, generation: generation, epoch: networkEpoch) != nil
     }
     var strongestHoldMessage: String {
-        policy.holds.strongest.map { ConnectionPolicy.AuthenticationBlock($0.reason).message } ?? "自动重连已暂停，检测会继续。"
+        policy.holds.strongest.map { ConnectionPolicy.AuthenticationBlock($0.reason).message } ?? SharedCopy.t("status.paused.detail")
     }
     private var authenticationScope: PhysicalAuthenticationScope? {
         guard requiresPhysicalBinding, let route = authenticationRoute, let descriptor = route.descriptor,
@@ -1488,10 +1597,10 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
         // Cancel this round only; automatic monitoring may resume after a quiet interval.
         if isVerifyingMemory { memoryVerificationMessage = SharedCopy.t("memory.verification.cancelled") }
         cancelOperations()
-        status = isOnline ? "基础联网检测通过" : "已取消"
+        status = isOnline ? SharedCopy.t("diagnosis.online.title") : SharedCopy.t("status.cancelled.headline")
         engineStatus = isOnline ? "online" : "cancelled"
-        detail = "已停止本次操作，没有断开网络。"
-        authenticationSummary = "本次操作已取消，网络信任保持不变"
+        detail = SharedCopy.t("status.cancelled.detail")
+        authenticationSummary = SharedCopy.t("status.cancelled.detail")
         startLoop(initialDelay: 30)
         refreshRecovery()
     }
@@ -1517,13 +1626,23 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
             busy = policy.active != nil
         }
         if mode == .manual && !isOnline {
-            status = "等待手动检测"; detail = "需要时点“检测连接”或“登录校园网”。"
+            status = SharedCopy.t("status.idle.headline"); detail = SharedCopy.t("mode.manual.detail")
         }
-        authenticationSummary = mode == .recover ? "连续两次检测失败后才会尝试登录" : "当前方式不会自动重连"
+        authenticationSummary = mode == .recover ? SharedCopy.t("auto.ready.detail") : SharedCopy.t("auto.disabledDetail")
         // Mode switches never release a credential or security rejection block.
         if mode != .manual { policy.resetFailures(); startLoop(initialDelay: canPrioritizeRecovery ? 0 : 2) }
-        record("已选择：" + mode.title + "。")
+        record(SharedCopy.f("event.modeChanged", ["mode": mode.title]))
         refreshRecovery()
+    }
+    func setAlwaysShowDockIcon(_ enabled: Bool) {
+        guard !sessionReadOnly, dockPreferenceAvailable, alwaysShowDockIcon != enabled else { return }
+        dockVisibilityError = nil
+        dockPreferences?.set(enabled, forKey: "alwaysShowDockIcon")
+        alwaysShowDockIcon = enabled
+    }
+    func reportDockVisibilityFailure() {
+        let message = SharedCopy.t("settings.dock.failed")
+        if dockVisibilityError != message { dockVisibilityError = message }
     }
     func setLaunchAtLogin(_ enabled: Bool) {
         #if os(macOS)
@@ -1532,10 +1651,10 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
             if enabled { try SMAppService.mainApp.register() }
             else { try SMAppService.mainApp.unregister() }
             launchAtLogin = SMAppService.mainApp.status == .enabled
-            if enabled && !launchAtLogin { errorMessage = "请在系统设置的登录项中允许深大随连。" }
+            if enabled && !launchAtLogin { errorMessage = SharedCopy.t("error.launchApproval") }
         } catch {
             launchAtLogin = SMAppService.mainApp.status == .enabled
-            errorMessage = "无法更新登录项，请在系统设置中检查。"
+            errorMessage = SharedCopy.t("error.launchUpdate")
         }
         #endif
     }
@@ -1556,6 +1675,7 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
     }
     func setSleeping(_ value: Bool) {
         guard sleeping != value else { return }
+        let interruptedMemoryVerification = isVerifyingMemory
         sleeping = value
         partialRecovery.resetConfirmation()
         updateWiFiRecoveryContext()
@@ -1567,21 +1687,24 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
         policy.pathChanged(to: networkEpoch)
         engineStatus = value ? "sleeping" : "idle"
         cancelOperations()
+        if value && interruptedMemoryVerification {
+            memoryVerificationMessage = SharedCopy.t("memory.verification.sleeping")
+        }
         policy.resetForPathChange()
-        revokeAuthorization(reason: "Mac 已休眠，唤醒后需重新确认当前网络。")
+        revokeAuthorization(reason: SharedCopy.t("guard.afterSleep"))
         currentIdentity = nil
         lastLinkActive = false
         policy.available = false // A pre-sleep snapshot cannot authorize the post-wake network.
         isOnline = false
         lastCheckedAt = nil
         lastDiagnosis = nil
-        status = value ? "随系统休眠" : "正在恢复"
-        detail = value ? "唤醒后会重新检测网络。" : "等待网络稳定后再检测。"
-        probeSummary = "等待重新检测"
-        authenticationSummary = "休眠后需要重新信任网络"
+        status = value ? SharedCopy.t("status.sleeping.headline") : SharedCopy.t("status.waking.headline")
+        detail = value ? SharedCopy.t("status.sleeping.detail") : SharedCopy.t("status.waking.detail")
+        probeSummary = SharedCopy.t("internet.pending.title")
+        authenticationSummary = SharedCopy.t("guard.afterSleep")
         if !value, !isolated, let path = monitor?.currentPath {
             receive(PathObservation.capture(path))
-            authorizationReason = "已重新识别网络，请再次确认是否信任。"
+            authorizationReason = SharedCopy.t("guard.afterWake")
         }
         refreshAuthorization()
         refreshRecovery()
@@ -1590,7 +1713,7 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
         loop?.cancel(); loop = nil; loopID = nil; nextCheckAt = nil
     }
     private func startLoop(initialDelay: Int = 2) {
-        guard automaticLoopAllowed, policy.canRunAutomatic, !sleeping, loop == nil else { return }
+        guard !credentialsDeletionInProgress, automaticLoopAllowed, policy.canRunAutomatic, !sleeping, loop == nil else { return }
         let id = UUID()
         loopID = id
         nextCheckAt = now().addingTimeInterval(TimeInterval(initialDelay))
@@ -1616,6 +1739,7 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
     }
     /// Also used by the offline integration harness with a fake transport.
     func runAutomaticCycle() async {
+        guard !credentialsDeletionInProgress else { return }
         await refreshNetworkEnvironmentInBackground()
         guard !Task.isCancelled, let operation = policy.begin(.automatic), !sleeping else { return }
         if !systemConnectivityChecking { refreshSystemConnectivity() }
@@ -1628,6 +1752,7 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
         if pendingRecoverySubmission { policy.suspendAuthentication(.uncertain) }
     }
     private func cancelOperations() {
+        activeInternetCheck = nil
         invalidateSystemConnectivity()
         if isVerifyingMemory && (memoryVerificationMessage == SharedCopy.t("memory.verification.checking")
             || memoryVerificationMessage == SharedCopy.t("memory.verification.pending")) {
@@ -1647,6 +1772,7 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
         offerForcedLogin = false
     }
     private func startManual(mayAuthenticate: Bool, force: Bool = false) {
+        guard !credentialsDeletionInProgress else { return }
         refreshNetworkEnvironment()
         guard policy.foreground, !sleeping else { return }
         if let active = policy.active, active.kind == .automatic, probeOwner == active {
@@ -1661,7 +1787,7 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
         guard policy.active == nil else { return }
         refreshSystemConnectivity()
         guard policy.available else {
-            status = "尚未连接网络"; detail = "请连接校园 Wi-Fi 或插上网线。"; return
+            status = SharedCopy.t("env.access.none"); detail = SharedCopy.t("status.noNetwork.detail"); return
         }
         partialRecovery.resetConfirmation()
         stopLoop()
@@ -1710,7 +1836,7 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
             }
         }
         guard await prepareTransport(for: operation) else { return }
-        if !isOnline || operation.kind == .manual { status = "正在" + selectedProbeMode.title; engineStatus = "checking" }
+        if !isOnline || operation.kind == .manual { status = SharedCopy.t("status.checking.headline"); engineStatus = "checking" }
         probeOwner = operation
         let boundSubmissionProof = awaitingSubmissionProof && requiresPhysicalBinding && authenticationRoute != nil
         let internet = await runInternetCheck(mode: selectedProbeMode, targets: selectedWebsites, strategy: selectedWebsiteStrategy,
@@ -1745,7 +1871,7 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
                         : SharedCopy.t("internet.partial.confirming")
                 } else if operation.kind == .manual, mayAuthenticate, canAuthenticate, hasCredentials {
                     offerForcedLogin = true
-                    detail = "基础检测已通过，本次没有发送账号密码。如需重新登录，点“仍要登录”。"
+                    detail = SharedCopy.f("status.online.noSubmission", ["action": SharedCopy.t("action.forceLogin")])
                     if internet.hasOnlyWebsiteIssues {
                         detail = SharedCopy.t("internet.websiteIssues.detail") + "\n\n" + detail
                     }
@@ -1754,7 +1880,7 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
             }
         } else {
             if operation.kind == .automatic { policy.observeProbe(online: false) }
-            if isOnline { record("外网检测暂未通过，稍后再检测一次。") }
+            if isOnline { record(SharedCopy.t("event.offlineAfterOnline")) }
             isOnline = false
             engineStatus = "offline"
             failedRound = true
@@ -1763,15 +1889,15 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
             if report.online { return }
             status = report.resultTitle
             detail = report.diagnosis.explanation
-            authenticationSummary = "仅检测，没有发送账号密码"
-            if operation.kind == .manual { record("手动检测未通过：" + report.diagnosis.title + "。没有发起登录。") }
+            authenticationSummary = SharedCopy.t("guard.detectionOnly")
+            if operation.kind == .manual { record(SharedCopy.f("event.manualCheckFailed", ["reason": report.diagnosis.title])) }
             return
         }
         guard let credentials, hasCredentials else {
             engineStatus = "needsAccount"
-            status = "请填写校园网账号"
-            detail = operation.kind == .automatic ? "保存账号密码后才能自动重连，检测会继续。" : "请先填写账号和密码。"
-            authenticationSummary = "缺少账号密码，没有发送登录请求"
+            status = SharedCopy.t("status.needsAccount.headline")
+            detail = operation.kind == .automatic ? SharedCopy.t("auto.needsAccount.detail") : SharedCopy.t("account.invalid")
+            authenticationSummary = SharedCopy.t("guard.missingCredentials")
             return
         }
         let generation = credentialGeneration(for: credentials)
@@ -1779,27 +1905,27 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
         if !manualRound, requiresPhysicalBinding,
            authenticationRoute == nil || (!networkRemembered && !policy.currentNetworkAuthorized) {
             engineStatus = authenticationRoute == nil ? "unconfirmed" : "needsTrust"
-            status = "请核验并记住这个新网络"
-            authenticationSummary = "当前网络未在已记住的名单中，没有发送账号密码"
+            status = SharedCopy.t("memory.remember")
+            authenticationSummary = SharedCopy.t("memory.notRemembered")
             return
         }
         if !manualRound {
             if pausedForAutomatic {
-                status = "自动重连已暂停"; detail = strongestHoldMessage
-                authenticationSummary = "继续检测，等待你恢复自动重连"
+                status = SharedCopy.t("status.paused.headline"); detail = strongestHoldMessage
+                authenticationSummary = SharedCopy.t("status.paused.detail")
                 engineStatus = "paused"
                 return
             }
             if cooldownRemaining != nil {
-                status = "等待登录生效"; detail = "刚刚发送过登录请求，90 秒内不会自动重试，期间会继续检测。"
-                authenticationSummary = "等待登录结果，期间只检测、不重复登录"
+                status = SharedCopy.t("status.coolingDown.headline"); detail = SharedCopy.t("status.coolingDown.detail")
+                authenticationSummary = SharedCopy.t("auto.coolingDown.detail")
                 engineStatus = "coolingDown"
                 return
             }
             guard partialAutomatic || policy.consecutiveProbeFailures >= 2 else {
                 let seconds = canPrioritizeRecovery ? 1 : 5
-                status = "稍后再次检测"; detail = report.diagnosis.explanation + "\(seconds) 秒后再确认一次。"
-                authenticationSummary = "检测失败 1 次，再失败 1 次才会尝试登录"
+                status = SharedCopy.t("status.confirming.headline"); detail = report.diagnosis.explanation + SharedCopy.f("status.confirming.seconds", ["seconds": String(seconds)])
+                authenticationSummary = SharedCopy.t("auto.ready.detail")
                 engineStatus = "confirming"
                 return
             }
@@ -1808,7 +1934,7 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
         // AUTO-RECOVERY-01: both entry paths discover the campus first; a pinned manual area skips it.
         var discovery = CampusDiscovery(teaching: .confirmed, dormitory: .confirmed)
         if !manualRound || authenticationArea == .automatic {
-            authenticationSummary = "正在检查校园网登录服务"
+            authenticationSummary = SharedCopy.t("status.discovering.headline")
             engineStatus = "discovering"
             discovery = await client.discoverCampus(area: authenticationArea)
             guard !Task.isCancelled, policy.owns(operation) else { return }
@@ -1824,41 +1950,41 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
         case .submit(let area):
             target = area
         case .unconfirmed:
-            status = manualRound ? "尚未确认校园网登录服务" : "暂不自动重连"
+            status = manualRound ? SharedCopy.t("status.unconfirmed.headline") : SharedCopy.t("status.awaitingProof.headline")
             #if os(macOS)
             if tunnelActive {
-                detail = "还无法确认校园服务或物理直连通道，没有发送账号密码。请检查当前校园网连接后重试。"
+                detail = SharedCopy.t("status.unconfirmed.physicalDetail")
             } else if systemProxyActive {
-                detail = "还无法确认校园网登录服务。请确认校园网连接与系统代理设置后重试。"
+                detail = SharedCopy.t("status.unconfirmed.detail")
             } else {
-                detail = "还无法确认校园网登录服务，稍后继续检测。"
+                detail = SharedCopy.t("auto.awaitingProof.detail")
             }
             #else
             if tunnelActive || systemProxyActive {
-                detail = "还无法确认校园网登录服务。检测到 VPN 或代理，请将校园网登录地址设为不使用代理。"
+                detail = SharedCopy.t("memory.wait.tunnel")
             } else {
-                detail = "还无法确认校园网登录服务，稍后继续检测。"
+                detail = SharedCopy.t("auto.awaitingProof.detail")
             }
             #endif
-            authenticationSummary = "没有发送账号密码"
+            authenticationSummary = SharedCopy.t("guard.noSubmission")
             engineStatus = "unconfirmed"
             return
         case .needsTrust:
-            status = "暂不自动重连"
-            detail = "宿舍区需要你先信任当前网络，才能自动重连。"
-            authenticationSummary = "没有发送账号密码"
+            status = SharedCopy.t("status.awaitingProof.headline")
+            detail = SharedCopy.t("auto.needsTrust.detail")
+            authenticationSummary = SharedCopy.t("guard.noSubmission")
             engineStatus = "needsTrust"
             return
         case .paused:
-            status = "自动重连已暂停"; detail = strongestHoldMessage
-            authenticationSummary = "继续检测，等待你恢复自动重连"
+            status = SharedCopy.t("status.paused.headline"); detail = strongestHoldMessage
+            authenticationSummary = SharedCopy.t("status.paused.detail")
             engineStatus = "paused"
             return
         }
         guard !Task.isCancelled, policy.owns(operation) else { return }
         // A forget / revoke while this round was in flight must not be overtaken by its stale plan.
         guard memoryGen == memoryGeneration else { return }
-        status = "正在登录"; detail = "正在连接校园网登录服务。"
+        status = SharedCopy.t("status.loggingIn.headline"); detail = SharedCopy.t("status.loggingIn.detail")
         engineStatus = "loggingIn"
         let previousSubmissionCooldown = policy.cooldownState
         let previousSubmissionPending = pendingRecoverySubmission
@@ -1912,13 +2038,13 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
                 policy.authorizeAfterManualSuccess(operation)
                 refreshAuthorization()
             }
-            record(attempt.message ?? "登录已通过")
-            if !released.isEmpty { record(target.title + "已恢复自动重连。") }
+            record(attempt.message ?? SharedCopy.t("event.accepted"))
+            if !released.isEmpty { record(SharedCopy.f("event.holdReleased", ["area": target.title])) }
             refreshRecovery()
             // At most three read-only confirmations. Never submit credentials again here.
             engineStatus = "verifying"
             for delay in [0, 2, 5] {
-                if delay > 0 && !isolated { try? await Task.sleep(for: .seconds(delay)) }
+                if delay > 0 { try? await verificationSleep(delay) }
                 guard !Task.isCancelled, policy.owns(operation) else { return }
                 let verificationReport = await runInternetCheck(mode: authenticationScope != nil ? .complete : selectedProbeMode, targets: selectedWebsites, strategy: selectedWebsiteStrategy,
                     deferWebsites: requiresPhysicalBinding && authenticationRoute != nil)
@@ -1944,25 +2070,25 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
                     : SharedCopy.t("internet.partial.afterAttempt")
                 return
             }
-            isOnline = false; status = "登录已提交，等待联网"
-            detail = "校园网已接受登录，联网检测暂未通过。90 秒内会继续检测，不会自动再次登录。"
-            authenticationSummary = "等待登录生效或外网恢复"
+            isOnline = false; status = SharedCopy.t("status.accepted.headline")
+            detail = SharedCopy.t("status.accepted.detail")
+            authenticationSummary = SharedCopy.t("status.accepted.headline")
             engineStatus = "accepted"
-            record("登录已通过，外网检测尚未通过，暂时只检测、不重复登录。")
+            record(SharedCopy.t("event.accepted"))
         case .cancelled:
             preservePendingSubmission()
             failedRound = false
         default:
             isOnline = report.online
-            status = "登录未完成"
+            status = SharedCopy.t("status.failed.headline")
             // Never expose an arbitrary transport error carrying a credential-bearing URL.
-            detail = attempt.message ?? "校园网登录服务暂时连不上，请稍后再试。"
+            detail = attempt.message ?? SharedCopy.t("portalError.network")
             engineStatus = attempt.outcome.engineStatus
             let hold = policy.recordFailure(automaticChoice: authenticationArea == .automatic, area: target,
                                             generation: generation, epoch: networkEpoch, attempt: attempt)
             record(detail)
             if let hold, hold.reason == .credentials, let heldArea = hold.area {
-                record(heldArea.title + "拒绝了登录：" + (hold.sticky ? "已长期" : "在当前网络") + "暂停该区域的自动重连。")
+                record(SharedCopy.f("event.holdCreated", ["area": heldArea.title, "scope": SharedCopy.t(hold.sticky ? "hold.scope.sticky" : "hold.scope.network")]))
             }
             refreshRecovery()
         }
@@ -1989,7 +2115,7 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
                 #if os(iOS)
                 try FileManager.default.setAttributes([.protectionKey: FileProtectionType.complete], ofItemAtPath: healthURL.path)
                 #endif
-            } catch { errorMessage = "连接记录未能保存，请检查可用存储空间。" }
+            } catch { errorMessage = SharedCopy.t("error.writeFailed") }
         }
     }
     private func setOnline() {
@@ -1999,19 +2125,19 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
             pendingRecoverySubmission = false
             policy.verifyAcceptedScope(authenticationScope, now: now())
         }
-        if !isOnline { record("基础联网检测通过。") }
+        if !isOnline { record(SharedCopy.t("event.online")) }
         // One reachable endpoint, including a quick check, cannot settle an unknown submission.
         if completelyPassed, policy.settleUncertainAuthentication() {
-            record("完整基础联网检测已通过，上次登录结果已不影响使用。")
+            record(SharedCopy.t("event.uncertainSettled"))
         }
-        authenticationSummary = "基础检测已通过"
+        authenticationSummary = SharedCopy.t("diagnosis.online.title")
         engineStatus = "online"
         isOnline = true
         policy.resetFailures()
         if let internet = lastInternetCheck, internet.base.mode == .complete {
             if internet.websitesDeferred {
-                status = "基础联网检测通过"
-                detail = "校园联网已恢复，常用网址稍后单独检测。"
+                status = SharedCopy.t("diagnosis.online.title")
+                detail = SharedCopy.t("internet.baseRecovered")
             } else if internet.hasOnlyWebsiteIssues {
                 status = SharedCopy.t("internet.websiteIssues.title")
                 detail = SharedCopy.t("internet.websiteIssues.detail")
@@ -2022,8 +2148,8 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
                     : SharedCopy.t("internet.partial.detail")
             }
         } else {
-            status = "快速检测通过"
-            detail = "至少一个检测地址可以访问。另一项若仍在等待，会结束检测，不算失败。"
+            status = SharedCopy.t("env.internet.quickPassed")
+            detail = SharedCopy.t("internet.quickDetail")
         }
     }
     @discardableResult
@@ -2032,7 +2158,7 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
         guard !isolated || recoveryJournalURL != nil else { return true }
         guard !recoveryJournalBlocked, let url = recoveryJournalURL else {
             policy.suspendAuthentication(.security)
-            errorMessage = "自动重连记录暂时不可用，已暂停登录，检测会继续。"
+            errorMessage = SharedCopy.t("error.recoveryJournalUnavailable")
             return false
         }
         let journal = RecoveryJournal(generation: savedGeneration, holds: policy.holds.holds,
@@ -2043,7 +2169,7 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
             return true
         } catch {
             policy.suspendAuthentication(.security)
-            errorMessage = "自动重连记录保存失败，已停止继续登录。请检查存储空间和权限。"
+            errorMessage = SharedCopy.t("error.recoveryJournalWriteFailed")
             return false
         }
     }
@@ -2055,16 +2181,16 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
         if isPreview { recoverySummary = "离线演示，不会在后台检测"; return }
         let next = nextCheckAt.map { " · 下次 " + $0.formatted(date: .omitted, time: .standard) } ?? ""
         if sessionReadOnly { recoverySummary = "本次启动仅检测，不会登录" }
-        else if sleeping { recoverySummary = "休眠中，唤醒后重新检测" }
-        else if monitoringMode == .observe { recoverySummary = "定时检测，不会自动重连" + next }
-        else if !autoReconnect { recoverySummary = "需要时手动检测" }
+        else if sleeping { recoverySummary = SharedCopy.t("status.sleeping.detail") }
+        else if monitoringMode == .observe { recoverySummary = SharedCopy.t("mode.observe.detail") + next }
+        else if !autoReconnect { recoverySummary = SharedCopy.t("mode.manual.detail") }
         else if pausedForAutomatic { recoverySummary = strongestHoldMessage }
-        else if !policy.available { recoverySummary = "等待 Wi-Fi 或有线网络" }
-        else if automaticCredentials == nil { recoverySummary = "正在检测，保存账号密码后才能自动重连" }
-        else if isOnline { recoverySummary = "已联网，掉线时自动重连" + next }
-        else if cooldownRemaining != nil { recoverySummary = "避免重复登录，15 秒后复查当前连接" }
-        else if nextCheckAt != nil { recoverySummary = "掉线时自动重连" + next }
-        else { recoverySummary = "正在检测" }
+        else if !policy.available { recoverySummary = SharedCopy.t("status.noNetwork.detail") }
+        else if automaticCredentials == nil { recoverySummary = SharedCopy.t("auto.needsAccount.detail") }
+        else if isOnline { recoverySummary = SharedCopy.t("auto.onlineDetail") + next }
+        else if cooldownRemaining != nil { recoverySummary = SharedCopy.t("auto.coolingDown.detail") }
+        else if nextCheckAt != nil { recoverySummary = SharedCopy.t("auto.ready.detail") + next }
+        else { recoverySummary = SharedCopy.t(busy ? "status.checking.headline" : "status.idle.headline") }
     }
     var recommendedCheckDelay: Int {
         if let deadline = rapidRecoveryDeadline, now() < deadline, engineStatus == "idle" || engineStatus == "noNetwork",
@@ -2109,7 +2235,7 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
             appVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.10.1",
             build: Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "32",
             mode: monitoringMode.rawValue, summary: diagnosticSummary,
-            measurement: "HTTP 探测响应时间，包含连接与服务响应；不是网速、ICMP 延迟或连续在线率。", samples: currentHealth.samples)
+            measurement: SharedCopy.t("records.measurement"), samples: currentHealth.samples)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
@@ -2119,28 +2245,28 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
     var diagnosticSummary: String {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.10.1"
         var environment: [String] = []
-        if tunnelActive { environment.append("检测到 VPN / 代理隧道") }
-        if systemProxyActive { environment.append("系统代理已开启（基础检测与校园认证忽略系统代理；自选网址使用所选策略）") }
-        let environmentText: String = environment.isEmpty ? "未检测到系统代理或隧道" : environment.joined(separator: "，")
-        let diagnosisText: String = lastDiagnosis?.title ?? "尚未检测"
-        let checkedText: String = lastCheckedAt?.formatted(date: .numeric, time: .standard) ?? "尚未检测"
+        if tunnelActive { environment.append(SharedCopy.t("env.tunnel.detected")) }
+        if systemProxyActive { environment.append(SharedCopy.t("diagnostic.systemProxy")) }
+        let environmentText: String = environment.isEmpty ? SharedCopy.t("diagnostic.noProxyObserved") : environment.joined(separator: "，")
+        let diagnosisText: String = lastDiagnosis?.title ?? SharedCopy.t("connection.neverChecked")
+        let checkedText: String = lastCheckedAt?.formatted(date: .numeric, time: .standard) ?? SharedCopy.t("connection.neverChecked")
         var lines: [String] = [
-            "深大随连 " + version,
-            "状态：" + (websiteConfigurationChanged ? "等待按当前配置检测" : status),
-            "接口：" + ConnectionSample.interfaceLabel(interfaceSummary),
-            "网络环境：" + environmentText,
-            "网址检测方式：" + customWebsiteStrategy.title,
-            "检测结果：" + probeSummary,
-            "自选网站：" + (lastInternetCheck.map { $0.base.mode == .complete ? "\($0.websitePassedCount)/\($0.includedCount) 项通过（不含网址）" : "快速模式未检查" } ?? "尚未检测"),
-            "可能原因：" + diagnosisText,
-            "运行方式：" + monitoringMode.title,
-            "恢复：" + recoverySummary,
-            "登录限制：" + authenticationSummary,
-            "网络信任：" + authorizationStatusText,
-            "信任说明：" + authorizationReason,
-            "最近检测：" + checkedText
+            (SharedCopy.t("app.name") + " ") + version,
+            SharedCopy.t("diagnostic.field.state") + (websiteConfigurationChanged ? SharedCopy.t("internet.pending.title") : status),
+            SharedCopy.t("diagnostic.field.interface") + ConnectionSample.interfaceLabel(interfaceSummary),
+            SharedCopy.t("diagnostic.field.environment") + environmentText,
+            SharedCopy.t("diagnostic.field.websiteStrategy") + customWebsiteStrategy.title,
+            SharedCopy.t("diagnostic.field.results") + probeSummary,
+            SharedCopy.t("diagnostic.field.websites") + (lastInternetCheck.map { $0.base.mode == .complete ? SharedCopy.f("diagnostic.websiteCount", ["passed": String($0.websitePassedCount), "total": String($0.includedCount)]) : SharedCopy.t("internet.quickSkips") } ?? SharedCopy.t("connection.neverChecked")),
+            SharedCopy.t("diagnostic.field.clues") + diagnosisText,
+            SharedCopy.t("diagnostic.field.mode") + monitoringMode.title,
+            SharedCopy.t("diagnostic.field.recovery") + recoverySummary,
+            SharedCopy.t("diagnostic.field.authentication") + authenticationSummary,
+            SharedCopy.t("diagnostic.field.trust") + authorizationStatusText,
+            SharedCopy.t("diagnostic.field.trustDetail") + authorizationReason,
+            SharedCopy.t("diagnostic.field.checkedAt") + checkedText
         ]
-        if let lastAuthDiagnosticSummary { lines.append("最近登录诊断：" + lastAuthDiagnosticSummary) }
+        if let lastAuthDiagnosticSummary { lines.append(SharedCopy.t("diagnostic.field.authenticationLast") + lastAuthDiagnosticSummary) }
         return lines.joined(separator: "\n")
     }
     private func recordAuthenticationDiagnostic(_ attempt: LoginAttempt, area: CampusArea, generation: UInt64?) {
@@ -2154,7 +2280,7 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
             "server=\(diagnostic.serverCode?.rawValue ?? "-")", "saved=\(generation == nil ? "no" : "yes")"
         ]
         lastAuthDiagnosticSummary = fields.joined(separator: " ")
-        record("登录诊断：" + fields.joined(separator: " "))
+        record(SharedCopy.t("diagnostic.field.authenticationEvent") + fields.joined(separator: " "))
     }
     private func record(_ message: String) {
         let now = Date()
@@ -2169,7 +2295,7 @@ private let defaultTrustReason = "宿舍区登录会以明文 HTTP 发送账号�
             #if os(iOS)
             try FileManager.default.setAttributes([.protectionKey: FileProtectionType.complete], ofItemAtPath: logURL.path)
             #endif
-        } catch { errorMessage = "记录写入失败，请检查可用存储空间。" }
+        } catch { errorMessage = SharedCopy.t("error.writeFailed") }
     }
 }
 

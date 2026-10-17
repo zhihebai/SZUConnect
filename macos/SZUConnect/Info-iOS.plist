@@ -41,7 +41,7 @@
 		</dict>
 	</dict>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>用于连接深圳大学校园网认证服务，仅在你连接或启用自动重连后访问。</string>
+	<string>检测或登录校园网时，用于访问校园网登录服务。</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

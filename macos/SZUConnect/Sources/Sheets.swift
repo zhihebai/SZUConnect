@@ -29,19 +29,36 @@ struct NetworkDetailsView: View {
                     .frame(minHeight: 24)
                 }
                 .buttonStyle(.bordered)
+                .disabled(model.networkInformationRefreshing)
                 .accessibilityIdentifier("network.refresh")
             }
             .padding(SharedTokens.spaceM)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Color.token("surfaceMuted"), in: RoundedRectangle(cornerRadius: SharedTokens.radiusMedium))
+            if let feedback = model.networkInformationFeedback {
+                Text(feedback).font(AppFont.caption).foregroundStyle(Color.token("textSecondary"))
+                    .accessibilityIdentifier("network.refresh.feedback")
+            }
 
             DisclosureGroup(isExpanded: $showingDetails) {
                 VStack(alignment: .leading, spacing: SharedTokens.spaceM) {
                     Text(SharedCopy.t("env.intro")).font(AppFont.caption).foregroundStyle(Color.token("textSecondary"))
                     VStack(alignment: .leading, spacing: SharedTokens.spaceS) {
-                        Text(SharedCopy.t("env.pathComparison")).font(AppFont.callout.weight(.medium))
-                        pathResult("env.systemProbe", report: model.systemConnectivity, running: model.systemConnectivityChecking)
-                        pathResult("env.physicalProbe", report: model.lastInternetCheck?.base, running: model.isForegroundBusy && !model.isVerifyingMemory)
+                        ViewThatFits(in: .horizontal) {
+                            HStack {
+                                Text(SharedCopy.t("env.pathComparison")).font(AppFont.callout.weight(.medium))
+                                Spacer(minLength: SharedTokens.spaceM)
+                                comparisonAction
+                            }
+                            VStack(alignment: .leading, spacing: SharedTokens.spaceS) {
+                                Text(SharedCopy.t("env.pathComparison")).font(AppFont.callout.weight(.medium))
+                                comparisonAction
+                            }
+                        }
+                        pathResult("env.systemProbe", report: model.systemConnectivity, running: model.systemConnectivityChecking,
+                                   checkedAt: model.systemConnectivityCheckedAt)
+                        pathResult("env.physicalProbe", report: model.lastInternetCheck?.base, running: model.physicalConnectivityChecking,
+                                   checkedAt: model.lastCheckedAt)
                         Text(SharedCopy.t("env.systemProbeNote")).font(AppFont.caption).foregroundStyle(Color.token("textSecondary"))
                         Text(SharedCopy.t("env.campusVerification." + model.campusVerificationState)).font(AppFont.caption)
                         Text(SharedCopy.t("env.historyScope")).font(AppFont.caption).foregroundStyle(Color.token("textSecondary"))
@@ -84,9 +101,9 @@ struct NetworkDetailsView: View {
                 .fixedSize(horizontal: false, vertical: true)
             } label: {
                 Text(SharedCopy.t("env.details")).font(AppFont.callout.weight(.medium))
+                    .accessibilityIdentifier("network.technicalDisclosure")
             }
             .disclosureGroupStyle(FullRowDisclosureStyle())
-            .accessibilityIdentifier("network.technicalDisclosure")
         }
         .font(AppFont.callout)
         .onChange(of: showingDetails) { _, expanded in
@@ -112,7 +129,14 @@ struct NetworkDetailsView: View {
         }
     }
 
-    private func pathResult(_ key: String, report: ConnectivityReport?, running: Bool) -> some View {
+    private var comparisonAction: some View {
+        ActionButton(title: SharedCopy.t(model.busy ? "action.cancel" : "action.check"), icon: model.busy ? "x" : "refresh") {
+            if model.busy { model.cancelCurrentOperation() } else { model.checkConnection() }
+        }
+        .accessibilityIdentifier("network.check")
+    }
+
+    private func pathResult(_ key: String, report: ConnectivityReport?, running: Bool, checkedAt: Date?) -> some View {
         VStack(alignment: .leading, spacing: SharedTokens.spaceXs) {
             Text(SharedCopy.t(key)).font(AppFont.caption.weight(.semibold))
             if running {
@@ -123,6 +147,10 @@ struct NetworkDetailsView: View {
             } else {
                 Text(report?.summary ?? SharedCopy.t("compat.result.notRun")).font(AppFont.caption)
                     .fixedSize(horizontal: false, vertical: true)
+                if report != nil, let checkedAt {
+                    Text(checkedAt.formatted(date: .omitted, time: .standard)).font(AppFont.caption)
+                        .foregroundStyle(Color.token("textSecondary"))
+                }
             }
         }
     }
@@ -249,6 +277,8 @@ struct HelpSheet: View {
 }
 
 struct AboutSheet: View {
+    @EnvironmentObject private var model: AppModel
+    @State private var confirmingAccountDeletion = false
     private var version: String {
         let info = Bundle.main.infoDictionary
         return SharedCopy.f("about.version", [
@@ -324,8 +354,24 @@ struct AboutSheet: View {
                     .font(AppFont.callout).foregroundStyle(Color.token("textSecondary"))
                     .fixedSize(horizontal: false, vertical: true)
                     .textSelection(.enabled)
+                Button(SharedCopy.t("account.delete"), role: .destructive) { confirmingAccountDeletion = true }
+                    .buttonStyle(.bordered)
+                    .disabled(model.sessionReadOnly || model.credentialsDeletionInProgress)
+                    .accessibilityIdentifier("account.delete")
+                if model.credentialsDeletionInProgress {
+                    ProgressView(SharedCopy.t("account.deleting")).font(AppFont.caption)
+                }
+                if let message = model.credentialsDeletionMessage {
+                    Text(message).font(AppFont.caption)
+                        .foregroundStyle(model.credentialsDeletionFailed ? Color.token("warning") : Color.token("textSecondary"))
+                        .accessibilityIdentifier("account.delete.result")
+                }
             }
         }
+        .alert(SharedCopy.t("account.delete"), isPresented: $confirmingAccountDeletion) {
+            Button(SharedCopy.t("account.delete"), role: .destructive) { Task { await model.deleteSavedCredentials() } }
+            Button(SharedCopy.t("action.cancel"), role: .cancel) {}
+        } message: { Text(SharedCopy.t("account.deleteDetail")) }
     }
 }
 

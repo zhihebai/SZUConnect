@@ -129,8 +129,8 @@ struct NetworkMemoryAppModelTests {
     }
 
     private static func attach(_ model: AppModel, identity: String = "private-memory-identity-731",
-                               descriptors: [NetworkDescriptor] = [descriptor]) {
-        model.receivePath(usable: true, interfaces: "Wi-Fi en0",
+                               descriptors: [NetworkDescriptor] = [descriptor], usable: Bool = true) {
+        model.receivePath(usable: usable, interfaces: "Wi-Fi en0",
                           identity: NetworkIdentity(fingerprint: identity), descriptors: descriptors)
     }
 
@@ -372,6 +372,7 @@ struct NetworkMemoryAppModelTests {
             check(model.busy && !model.canVerifyAndRememberNetwork, "Verification owns one cancellable manual operation")
             check(model.isVerifyingMemory && model.memoryVerificationMessage == SharedCopy.t("memory.verification.checking"),
                   "Campus verification exposes its own progress without claiming another public probe")
+            check(model.campusVerificationInProgress, "An owned in-flight campus operation may display active verification")
             check(!model.currentNetworkAuthorized && !FileManager.default.fileExists(atPath: store.path),
                   "Pending campus proof grants no trust and creates no memory file")
             model.verifyAndRememberCurrentNetwork()
@@ -390,6 +391,9 @@ struct NetworkMemoryAppModelTests {
             model.setMonitoringMode(.observe)
             check(model.memoryVerificationMessage == SharedCopy.t("memory.verification.remembered"),
                   "A later mode change does not replace completed feedback with cancellation")
+            model.checkConnection(); try await finish(model)
+            check(model.memoryVerificationMessage == SharedCopy.t("memory.verification.remembered") && !model.campusVerificationInProgress,
+                  "An ordinary probe preserves completed feedback and does not invent active campus verification")
             let attributes = try FileManager.default.attributesOfItem(atPath: store.path)
             check((attributes[.posixPermissions] as? NSNumber)?.intValue == 0o600, "Saved memory file has owner-only 0600 permissions")
             let saved = try Data(contentsOf: store)
@@ -538,7 +542,7 @@ struct NetworkMemoryAppModelTests {
         }
 
         // A late proof must not undo explicit cancellation, revocation, path changes or sleep.
-        for action in ["cancel", "modeObserve", "forgetCurrent", "forgetAll", "networkChange", "sleep", "descriptorChange"] {
+        for action in ["cancel", "modeObserve", "forgetCurrent", "forgetAll", "networkChange", "networkUnavailable", "sleep", "descriptorChange"] {
             let root = try folder(); defer { try? FileManager.default.removeItem(at: root) }
             let store = root.appendingPathComponent("network-memory.json")
             let service = MemoryConnectionService()
@@ -552,12 +556,23 @@ struct NetworkMemoryAppModelTests {
             case "forgetCurrent": model.forgetCurrentNetwork()
             case "forgetAll": model.forgetAllNetworks()
             case "networkChange": attach(model, identity: "changed-memory-identity", descriptors: [otherDescriptor])
+            case "networkUnavailable": attach(model, usable: false)
             case "sleep": model.setSleeping(true)
             default: attach(model, descriptors: [otherDescriptor])
             }
             if action == "cancel" || action == "modeObserve" {
                 check(!model.isVerifyingMemory && model.memoryVerificationMessage == SharedCopy.t("memory.verification.cancelled"),
                       "\(action): cancelled verification has no stale checking feedback")
+            }
+            if action == "networkChange" || action == "descriptorChange" {
+                check(model.memoryVerificationMessage == SharedCopy.t("memory.verification.changed"),
+                      "A network transition explains why the pending verification ended")
+            } else if action == "networkUnavailable" {
+                check(model.memoryVerificationMessage == SharedCopy.t("memory.verification.disconnected"),
+                      "An unavailable connection ends verification with its own result")
+            } else if action == "sleep" {
+                check(model.memoryVerificationMessage == SharedCopy.t("memory.verification.sleeping"),
+                      "Sleep ends pending verification without leaving a false in-progress message")
             }
             await service.release()
             try await waitUntil("late \(action) discovery completion") { await service.snapshot().completedDiscoveries == 1 }

@@ -20,7 +20,9 @@ struct RecordsPage: View {
     @State private var selectedDate: Date?
 
     private static let failureMarkers = ["登录未完成", "手动检测未通过", "拒绝了登录", "外网检测暂未通过", "网络路径暂不可用", "认证服务暂时连不上", "登录被拒绝", "网络连接暂不可用", "校园网登录服务暂时连不上", "登录未通过"]
-    private func isFailure(_ event: ConnectionEvent) -> Bool { Self.failureMarkers.contains { event.message.contains($0) } }
+    private func isFailure(_ event: ConnectionEvent) -> Bool {
+        RecordMessageClassifier.isFailure(event.message, legacyMarkers: Self.failureMarkers)
+    }
 
     private var shown: [ConnectionEvent] {
         model.events.reversed().filter { event in
@@ -256,7 +258,7 @@ enum NetworkNaming {
         var identifiers: [String] = []
         for part in parts {
             let words = part.split(separator: " ").map(String.init)
-            let name = part.hasPrefix("Wi-Fi") ? "Wi-Fi" : part.hasPrefix("有线") ? "网线连接" : (words.first ?? part)
+            let name = part.hasPrefix("Wi-Fi") ? "Wi-Fi" : part.hasPrefix("有线") ? SharedCopy.t("env.access.ethernet") : (words.first ?? part)
             if !names.contains(name) { names.append(name) }
             if words.count > 1, let identifier = words.last { identifiers.append(identifier) }
         }

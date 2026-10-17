@@ -338,7 +338,7 @@ struct RecoveryLatencyAppModelTests {
             await model.runAutomaticCycle(); await model.runAutomaticCycle()
             check(await service.snapshot().modes == [.quick, .complete], "Quick healthy recovery restores complete preference without a prior login")
             check(await service.snapshot().attempts.isEmpty, "A failed full follow-up cannot bypass two fresh failed rounds or send credentials")
-            check(model.authenticationSummary == "仅检测，没有发送账号密码", "Scheduled full follow-up explicitly uses the read-only operation branch")
+            check(model.authenticationSummary == SharedCopy.t("guard.detectionOnly"), "Scheduled full follow-up explicitly uses the read-only operation branch")
             check(model.lastInternetCheck?.verdict == .unavailable, "Failed full follow-up replaces quick success with the current real verdict")
             check(model.recommendedCheckDelay == 5 && !model.prioritizingCampusRecovery,
                   "Consumed full follow-up restores normal first-failure confirmation cadence")

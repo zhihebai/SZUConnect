@@ -7,9 +7,9 @@ enum MonitoringMode: String, CaseIterable, Identifiable, Codable, Sendable {
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .manual: "手动检测"
-        case .observe: "定时检测"
-        case .recover: "自动重连"
+        case .manual: SharedCopy.t("mode.manual.title")
+        case .observe: SharedCopy.t("mode.observe.title")
+        case .recover: SharedCopy.t("mode.recover.title")
         }
     }
     var symbol: String {
@@ -22,16 +22,16 @@ enum MonitoringMode: String, CaseIterable, Identifiable, Codable, Sendable {
     /// One line for a choice card; `detail` is the longer explanation.
     var caption: String {
         switch self {
-        case .manual: "需要时手动检测"
-        case .observe: "定时检测，不会自动重连"
-        case .recover: "掉线后自动重连"
+        case .manual: SharedCopy.t("mode.manual.detail")
+        case .observe: SharedCopy.t("mode.observe.detail")
+        case .recover: SharedCopy.t("mode.recover.detail")
         }
     }
     var detail: String {
         switch self {
-        case .manual: "需要时点“检测连接”或“登录校园网”，后台不会自行检测。"
-        case .observe: "定时检测并保存结果，不会自动发送账号密码。"
-        case .recover: "定时检测。连续两次失败后核验并登录；完整检测持续部分通过时也会尝试一轮。"
+        case .manual: SharedCopy.t("mode.manual.detail")
+        case .observe: SharedCopy.t("mode.observe.detail")
+        case .recover: SharedCopy.t("mode.recover.detail")
         }
     }
     static func migrated(raw: String?, legacyAutoReconnect: Bool) -> Self {
@@ -90,10 +90,10 @@ struct ConnectionSample: Identifiable, Codable, Sendable {
 
     var resultTitle: String {
         if probeMode == ConnectivityProbeMode.complete.rawValue {
-            if allSelectedPassed { return "完整检测 · 全部通过" }
-            return hasAnySelectedPass ? "完整检测 · 部分通过" : "完整检测 · 均未通过"
+            if allSelectedPassed { return SharedCopy.t("records.sampleResult.all") }
+            return hasAnySelectedPass ? SharedCopy.t("records.sampleResult.partial") : SharedCopy.t("records.sampleResult.failed")
         }
-        return online ? "基础检测通过" : diagnosis.title
+        return online ? SharedCopy.t("records.sampleResult.quick") : diagnosis.title
     }
 
     var isPartialCompleteResult: Bool {
@@ -207,5 +207,5 @@ struct ConnectionHealth: Codable, Sendable {
         return values[middle - 1] / 2 + values[middle] / 2
     }
 
-    var successSummary: String { "\(successfulCount)/\(samples.count) 次通过" }
+    var successSummary: String { SharedCopy.f("records.passedCount", ["passed": String(successfulCount), "total": String(samples.count)]) }
 }

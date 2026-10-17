@@ -276,10 +276,10 @@ struct NetworkContinuitySnapshot: Sendable {
             return .init(identity: nil, linkActive: false, tunnel: routedThroughOther || virtualPrimary || routedThroughTunnel,
                          connectedPhysicalLabels: physicalLabels, hasUsablePhysicalLink: !activePhysical.isEmpty,
                          trustUnavailableReason: routes == nil
-                            ? "暂时读不到完整的网络路由信息。可以继续检测，暂时不能信任此网络。"
+                            ? SharedCopy.t("env.identification.routesIncomplete")
                             : activePhysical.count > 1
-                            ? "同时连接多个网络，系统物理出口与路由信息尚未一致。可以继续检测，暂时不能信任此网络。"
-                            : "暂时无法识别当前网络，不能信任此网络。",
+                            ? SharedCopy.t("env.identification.multiple")
+                            : SharedCopy.t("env.identification.unavailable"),
                          descriptors: [], wifiLabelAttachments: wifiLabelAttachments)
         }
         let tunnel = selection.viaTunnel || routedThroughOther || routedThroughTunnel
@@ -302,7 +302,7 @@ struct NetworkContinuitySnapshot: Sendable {
                 + (routes?.identityComponents ?? [])
         ]
         var unavailableReason = routes == nil
-            ? "暂时读不到完整的网络信息。可以继续检测，暂时不能信任此网络。" : nil
+            ? SharedCopy.t("env.identification.incomplete") : nil
         if selection.requiresCompositeTrust {
             if let attachments = compositeAttachmentComponents(services: states, details: details,
                                                                 physicalInterfaces: physical) {
@@ -310,7 +310,7 @@ struct NetworkContinuitySnapshot: Sendable {
                 // Composite trust never carries across an interruption; every attachment must remain live.
                 components["attachment"] = []
             } else {
-                unavailableReason = "当前连接信息不完整。可以继续检测，暂时不能信任此网络。"
+                unavailableReason = SharedCopy.t("env.identification.incomplete")
             }
             // Recheck the associated services and selected primary after collecting all metadata.
             // A mixed snapshot during Wi-Fi/cable switching must never acquire session authority.
@@ -335,7 +335,7 @@ struct NetworkContinuitySnapshot: Sendable {
                     return NSDictionary(dictionary: original).isEqual(to: current)
                 }
                 && TunnelRouteSnapshot.capture(physicalInterfaces: physical) == routes
-            if !stable { unavailableReason = "网络正在切换，系统物理出口或连接信息已变化。请稍后再信任。" }
+            if !stable { unavailableReason = SharedCopy.t("env.identification.changed") }
         }
         let identity = unavailableReason == nil ? NetworkIdentity.make(components: components) : nil
         let selectedLabel = kind + " " + selection.interface

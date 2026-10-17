@@ -12,7 +12,7 @@ xcrun clang++ -std=c++17 -Wall -Wextra -DSZU_CAMPUS_CURL_TESTING \
 "$TEST_BUILD/physical-socket-tests"
 xcrun swiftc -module-cache-path "$TEST_BUILD/module-cache" \
   -Xcc -DSZU_CAMPUS_CURL_TESTING -import-objc-header "$TEST_ROOT/Sources/CampusPhysicalCurl.h" \
-  "$TEST_ROOT/Sources/NetworkLabels.swift" "$TEST_ROOT/Sources/NetworkIdentity.swift" "$TEST_ROOT/Sources/NetworkDescriptor.swift" \
+  "$TEST_ROOT/Sources/Generated/SharedCopy.swift" "$TEST_ROOT/Sources/NetworkLabels.swift" "$TEST_ROOT/Sources/NetworkIdentity.swift" "$TEST_ROOT/Sources/NetworkDescriptor.swift" \
   "$TEST_ROOT/Sources/CampusPhysicalNetwork.swift" "$TEST_ROOT/Sources/CampusPhysicalTransport.swift" \
   "$TEST_ROOT/Tests/CampusPhysicalTransportTests.swift" "$TEST_BUILD/physical.o" \
   -Xlinker -lc++ -Xlinker -lcurl -o "$TEST_BUILD/physical-transport-tests"

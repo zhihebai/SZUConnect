@@ -1,6 +1,8 @@
 import SwiftUI
 #if os(macOS)
 import AppKit
+import Combine
+import Carbon
 #endif
 
 @main struct SZUConnectApp: App {
@@ -10,13 +12,6 @@ import AppKit
     @NSApplicationDelegateAdaptor(DashboardApplicationDelegate.self) private var appDelegate
     // Acquire before constructing AppModel, including --observe-only launches.
     private let instanceLock: SingleInstanceLock
-    private var initialWindowSize: CGSize {
-        guard Bundle.main.object(forInfoDictionaryKey: "SZUOfflinePreview") as? Bool == true else {
-            return CGSize(width: 920, height: 740)
-        }
-        return CGSize(width: max(DashboardLayout.minimumWindowWidth, (Bundle.main.object(forInfoDictionaryKey: "SZUPreviewWidth") as? NSNumber)?.doubleValue ?? 920),
-                      height: max(520, (Bundle.main.object(forInfoDictionaryKey: "SZUPreviewHeight") as? NSNumber)?.doubleValue ?? 740))
-    }
     #endif
 
     init() {
@@ -24,7 +19,11 @@ import AppKit
         AppStartupSignals.configure()
         instanceLock = Self.acquireInstanceOrExit()
         #endif
-        _model = StateObject(wrappedValue: AppModel())
+        let initialModel = AppModel()
+        _model = StateObject(wrappedValue: initialModel)
+        #if os(macOS)
+        DashboardApplicationDelegate.prepare(model: initialModel)
+        #endif
     }
 
     #if os(macOS)
@@ -44,7 +43,7 @@ import AppKit
             }
         } catch { startupFailure() }
         guard let existing = runningPeer(identifier: identifier) else {
-            startupFailure("深大随连已在运行或启动中，请稍后从菜单栏打开已有窗口。")
+            startupFailure(SharedCopy.t("error.startupBusy"))
         }
         activateAndExit(existing)
     }
@@ -69,13 +68,14 @@ import AppKit
         exit(0)
     }
 
-    private static func startupFailure(_ message: String = "暂时无法启动。请检查本机缓存目录的访问权限，或重启 Mac 后重试。") -> Never {
-        NSApplication.shared.setActivationPolicy(.regular)
+    private static func startupFailure(_ message: String = SharedCopy.t("error.startupUnavailable")) -> Never {
+        let policyAccepted = NSApplication.shared.setActivationPolicy(.regular)
         NSApplication.shared.activate(ignoringOtherApps: true)
         let alert = NSAlert()
-        alert.messageText = "深大随连暂时无法启动"
+        alert.messageText = SharedCopy.t("error.startupTitle")
         alert.informativeText = message
-        alert.addButton(withTitle: "退出")
+        alert.addButton(withTitle: SharedCopy.t("tray.quit"))
+        if !policyAccepted { alert.window.level = .floating }
         alert.runModal()
         exit(1)
     }
@@ -83,19 +83,6 @@ import AppKit
 
     var body: some Scene {
         #if os(macOS)
-        // A Window scene is a singleton. Repeated menu-bar opens must reuse it.
-        Window("深大随连", id: "dashboard") {
-            ContentView().environmentObject(model)
-                .onChange(of: phase, initial: true) { _, value in model.setForeground(value == .active) }
-        }
-        .defaultSize(width: initialWindowSize.width, height: initialWindowSize.height)
-        .windowResizability(.contentMinSize)
-        .windowToolbarStyle(.unified)
-        .commands {
-            CommandGroup(replacing: .newItem) {}
-            DashboardCommands()
-        }
-
         // Window style shows the same status, actions and guard mode as the main window.
         // Its "打开主窗口" reuses the single dashboard through DashboardApplicationDelegate.
         MenuBarExtra {
@@ -105,8 +92,12 @@ import AppKit
             Image(model.menuBarImageName).accessibilityLabel(SharedCopy.t("app.name"))
         }
         .menuBarExtraStyle(.window)
+        .commands {
+            CommandGroup(replacing: .newItem) {}
+            DashboardCommands()
+        }
         #else
-        WindowGroup("深大随连", id: "dashboard") {
+        WindowGroup(SharedCopy.t("app.name"), id: "dashboard") {
             ContentView().environmentObject(model)
                 .onChange(of: phase, initial: true) { _, value in model.setForeground(value == .active) }
         }
@@ -118,29 +109,119 @@ import AppKit
 @MainActor
 final class DashboardApplicationDelegate: NSObject, NSApplicationDelegate {
     static let windowIdentifier = NSUserInterfaceItemIdentifier("SZUConnect.dashboard")
+    private static weak var current: DashboardApplicationDelegate?
+    private static weak var preparedModel: AppModel?
+    private let dockVisibility = DockVisibilityController()
+    private weak var model: AppModel?
+    private var preferenceObservation: AnyCancellable?
+    private var dashboardWindow: NSWindow?
+    private var windowCloseObserver: NSObjectProtocol?
+    private var finishedLaunching = false
+    private var startupHandled = false
+    private var backgroundLaunch = false
+
+    override init() {
+        super.init()
+        Self.current = self
+    }
+
+    static func prepare(model: AppModel) { preparedModel = model }
+
+    private func configure() {
+        guard let value = Self.preparedModel, model !== value else { return }
+        model = value
+        dockVisibility.onFailure = { [weak value] in value?.reportDockVisibilityFailure() }
+        dockVisibility.start(alwaysShow: value.alwaysShowDockIcon)
+        preferenceObservation = value.$alwaysShowDockIcon.removeDuplicates().sink { [weak self] enabled in
+            self?.dockVisibility.setAlwaysShow(enabled)
+        }
+    }
+
+    static func registerMainWindow(_ window: NSWindow) {
+        current?.dockVisibility.track(window)
+    }
+
+    private func completeStartup() {
+        guard finishedLaunching, !startupHandled else { return }
+        startupHandled = true
+        if !backgroundLaunch { Self.showDashboard() }
+        dockVisibility.finishStartup()
+    }
 
     static func showExistingWindow() -> Bool {
-        guard let window = NSApp.windows.first(where: { $0.identifier == windowIdentifier }) else { return false }
+        guard let current, let window = current.dashboardWindow else { return false }
+        current.dockVisibility.prepareToPresent(window)
         if window.isMiniaturized { window.deminiaturize(nil) }
+        NSApp.unhide(nil)
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+        current.model?.setForeground(true)
         return true
     }
 
-    static func showDashboard(using openWindow: OpenWindowAction) {
-        if !showExistingWindow() { openWindow(id: "dashboard") }
+    static func showDashboard() {
+        guard let current else { return }
+        current.configure()
+        guard let model = current.model else { return }
+        current.dockVisibility.prepareToPresent()
+        if showExistingWindow() { return }
+        // Own one native window explicitly, including on macOS 14. Menu-bar-only starts
+        // never create or momentarily expose a default SwiftUI Window scene.
+        let width = max(DashboardLayout.minimumWindowWidth,
+            (Bundle.main.object(forInfoDictionaryKey: "SZUPreviewWidth") as? NSNumber)?.doubleValue ?? 920)
+        let height = max(520, (Bundle.main.object(forInfoDictionaryKey: "SZUPreviewHeight") as? NSNumber)?.doubleValue ?? 740)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: height),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+            backing: .buffered, defer: false)
+        window.identifier = windowIdentifier
+        window.title = SharedCopy.t("app.name")
+        window.titleVisibility = .hidden
+        window.toolbarStyle = .unified
+        window.tabbingMode = .disallowed
+        window.isReleasedWhenClosed = false
+        window.contentMinSize = CGSize(width: DashboardLayout.minimumWindowWidth, height: 520)
+        window.contentView = NSHostingView(rootView: ContentView().environmentObject(model))
+        current.dashboardWindow = window
+        current.dockVisibility.track(window)
+        window.center()
+        if let observer = current.windowCloseObserver { NotificationCenter.default.removeObserver(observer) }
+        current.windowCloseObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification, object: window, queue: .main) { [weak current, weak window] _ in
+                MainActor.assumeIsolated {
+                    if current?.dashboardWindow === window { current?.dashboardWindow = nil }
+                    if let token = current?.windowCloseObserver {
+                        NotificationCenter.default.removeObserver(token)
+                        current?.windowCloseObserver = nil
+                    }
+                }
+            }
+        window.makeKeyAndOrderFront(nil)
+        NSApp.unhide(nil)
         NSApp.activate(ignoringOtherApps: true)
+        model.setForeground(true)
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
+    func applicationWillFinishLaunching(_ notification: Notification) { configure() }
+    func applicationDidBecomeActive(_ notification: Notification) { model?.setForeground(true) }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSWindow.allowsAutomaticWindowTabbing = false
+        let event = NSAppleEventManager.shared().currentAppleEvent
+        let loginEvent = event?.paramDescriptor(forKeyword: keyAEPropData)?.enumCodeValue == keyAELaunchedAsLogInItem
+            || event?.paramDescriptor(forKeyword: keyAELaunchedAsLogInItem) != nil
+        let isolatedBackground = Self.preparedModel?.isPreview == true
+            && Bundle.main.object(forInfoDictionaryKey: "SZUPreviewBackgroundLaunch") as? Bool == true
+        backgroundLaunch = loginEvent || isolatedBackground
+        finishedLaunching = true
+        configure()
+        completeStartup()
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        // Restore minimized and previously closed windows before requesting a new scene.
-        !Self.showExistingWindow()
+        Self.showDashboard()
+        return false
     }
 }
 
@@ -173,7 +254,10 @@ struct DashboardWindowRegistration: NSViewRepresentable {
             window?.identifier = DashboardApplicationDelegate.windowIdentifier
             window?.tabbingMode = .disallowed
             window?.titleVisibility = .hidden
-            if let window { coordinator?.install(in: window) }
+            if let window {
+                coordinator?.install(in: window)
+                DashboardApplicationDelegate.registerMainWindow(window)
+            }
         }
     }
 
@@ -246,12 +330,11 @@ struct DashboardWindowRegistration: NSViewRepresentable {
 }
 
 struct DashboardCommands: Commands {
-    @Environment(\.openWindow) private var openWindow
 
     var body: some Commands {
         CommandGroup(before: .windowArrangement) {
             Button(SharedCopy.t("action.showWindow")) {
-                DashboardApplicationDelegate.showDashboard(using: openWindow)
+                DashboardApplicationDelegate.showDashboard()
             }
             .keyboardShortcut("0", modifiers: .command)
         }

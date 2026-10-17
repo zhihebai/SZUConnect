@@ -14,17 +14,17 @@ struct WebsiteTarget: Identifiable, Equatable, Sendable {
     }
 
     var displayName: String {
-        (try? WebsiteAddress.normalize(url).host) ?? "自定义网站"
+        (try? WebsiteAddress.normalize(url).host) ?? SharedCopy.t("internet.targets.title")
     }
 
     enum ValidationError: Error, LocalizedError {
         case tooMany, duplicateAddress, invalidIdentity, duplicateIdentity
         var errorDescription: String? {
             switch self {
-            case .tooMany: "最多添加 \(WebsiteTarget.maximumCount) 个自定义网站。"
-            case .duplicateAddress: "已经添加过这个网址，请换一个。"
-            case .invalidIdentity: "这项网站设置已损坏，请删除后重新添加。"
-            case .duplicateIdentity: "网站设置有重复项，请删除重复项后重新添加。"
+            case .tooMany: SharedCopy.f("internet.maximumCount", ["max": String(WebsiteTarget.maximumCount)])
+            case .duplicateAddress: SharedCopy.t("internet.duplicateWebsite")
+            case .invalidIdentity: SharedCopy.t("internet.invalidWebsite")
+            case .duplicateIdentity: SharedCopy.t("internet.duplicateIdentity")
             }
         }
     }
@@ -227,7 +227,7 @@ enum InternetChecker {
     }
 
     private static func cancelledWebsite() -> WebsiteProbeResult {
-        WebsiteProbeResult(state: .cancelled, title: "检测已取消", detail: "检测已停止，网站能否访问还不确定。",
+        WebsiteProbeResult(state: .cancelled, title: SharedCopy.t("website.state.cancelled.title"), detail: SharedCopy.t("website.state.cancelled.detail"),
                            statusCode: nil, elapsed: 0, displayURL: nil, strategy: .system)
     }
 }

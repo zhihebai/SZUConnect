@@ -6,6 +6,22 @@ struct ConnectionEvent: Identifiable, Codable {
     let message: String
 }
 
+/// Keep legacy matching at the call site and recognize the current, reviewed failure messages.
+enum RecordMessageClassifier {
+    static func isFailure(_ message: String, legacyMarkers: [String]) -> Bool {
+        if legacyMarkers.contains(where: { message.contains($0) }) { return true }
+        let currentKeys = [
+            "event.offlineAfterOnline", "portalError.network", "portalError.timeout",
+            "portalError.dns", "portalError.redirect", "portalError.httpStatus",
+            "portalError.responseTooLarge", "portalError.protocolConflict", "portalError.tls",
+            "portalError.response", "portalError.rejected", "portalError.cryptography",
+            "portalError.forbiddenTarget", "portalError.challengeRefused"
+        ]
+        // An uncertain submission is not a confirmed login failure.
+        return currentKeys.contains { message.contains(SharedCopy.t($0)) }
+    }
+}
+
 
 /// Bounded local storage, independent of AppModel and testable with disposable files.
 enum EventLogFile {

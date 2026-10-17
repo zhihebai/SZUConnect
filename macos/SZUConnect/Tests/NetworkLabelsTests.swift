@@ -10,7 +10,7 @@ import Foundation
         }
         let one = "01234567", two = "89abcdef", three = "23456789"
         var labels = NetworkLabels()
-        expect(labels.displayName(for: one) == "待命名的校园网络", "legacy record must not invent a name")
+        expect(labels.displayName(for: one) == "未命名的校园网络", "legacy record must not invent a name")
         expect(labels.updateAutomatic(id: one, displayName: "SZU-Campus", kind: .wifi, ssid: "SZU-Campus"), "create observed wifi")
         expect(labels.displayName(for: one) == "SZU-Campus", "show actual SSID")
         expect(labels.entries[one]?.ssid == "SZU-Campus", "SSID stored separately")

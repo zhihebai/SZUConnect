@@ -7,7 +7,7 @@ enum CampusPhysicalTransportError: Error, Equatable {
 }
 
 /// Each request owns its cancellation token until DNS and libcurl have both returned.
-/// Cancelling a session only sets the flag; the worker retains and releases its token.
+/// Cancelling sets the flag and wakes the transfer; the worker retains and releases its token.
 final class CampusPhysicalCancellation: @unchecked Sendable {
     let pointer: OpaquePointer
     init() throws {

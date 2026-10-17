@@ -21,9 +21,9 @@ struct NetworkLabel: Codable, Equatable, Sendable {
 }
 
 struct NetworkLabels: Equatable, Sendable {
-    static let unnamed = "待命名的校园网络"
-    static let wifiUnnamed = "校园 Wi-Fi（名称待补全）"
-    static let ethernetUnnamed = "校园有线网络"
+    static let unnamed = SharedCopy.t("memory.item")
+    static let wifiUnnamed = SharedCopy.t("memory.item.wifi")
+    static let ethernetUnnamed = SharedCopy.t("memory.item.ethernet")
     static let maxNameLength = 80
     private(set) var entries: [String: NetworkLabel] = [:]
 

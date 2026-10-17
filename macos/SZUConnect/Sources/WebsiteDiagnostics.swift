@@ -5,11 +5,11 @@ import Foundation
 enum WebsiteProbeStrategy: String, CaseIterable, Sendable {
     case system, direct
 
-    var title: String { self == .system ? "按系统设置" : "忽略系统代理" }
+    var title: String { self == .system ? SharedCopy.t("website.strategy.system.title") : SharedCopy.t("website.strategy.direct.title") }
     var detail: String {
         self == .system
-            ? "按系统代理、自动配置及例外规则连接；不保证每个网址都经过代理。VPN、TUN 或按应用分流仍可能改变路径。"
-            : "本次不使用系统 HTTP／HTTPS 代理。VPN、TUN、DNS 或分流规则仍可能影响连接，不能视为绕过所有代理工具。"
+            ? SharedCopy.t("website.strategy.system.detail")
+            : SharedCopy.t("website.strategy.direct.detail")
     }
 }
 
@@ -18,11 +18,11 @@ enum WebsiteAddress {
         case empty, tooLong, unsupportedScheme, sensitiveComponents, invalid
         var errorDescription: String? {
             switch self {
-            case .empty: return "请填写网站地址，例如 https://www.baidu.com。"
-            case .tooLong: return "地址过长，请使用网站首页地址。"
-            case .unsupportedScheme: return "仅支持 http:// 或 https:// 网站地址。"
-            case .sensitiveComponents: return "请去掉网址中的账号密码、问号及其后的参数、# 及其后的内容，避免泄露登录信息。"
-            case .invalid: return "网址格式不正确，请检查域名或 IP 地址。"
+            case .empty: return SharedCopy.t("website.error.empty")
+            case .tooLong: return SharedCopy.t("website.error.tooLong")
+            case .unsupportedScheme: return SharedCopy.t("website.error.unsupportedScheme")
+            case .sensitiveComponents: return SharedCopy.t("website.error.sensitiveComponents")
+            case .invalid: return SharedCopy.t("website.error.invalid")
             }
         }
     }
@@ -104,20 +104,20 @@ struct WebsiteProbeResult: Sendable {
         let detail: String
         switch code {
         case 200..<300:
-            state = .accessible; title = strategy == .direct ? "绕过系统代理有响应" : "按系统设置有响应"
-            detail = "本次请求收到响应（HTTP \(code)）。没有下载完整网页，尚未检查网页内容、登录功能或网速。"
+            state = .accessible; title = SharedCopy.t("website.state.accessible.title")
+            detail = SharedCopy.f("website.state.accessible.detail", ["code": String(code)])
         case 300..<400:
-            state = .redirected; title = "网站要求跳转"
-            detail = "网站要求打开另一个地址（HTTP \(code)）。本次没有继续打开，跳转后的页面还没检测。跳转也可能来自网站或代理，不能据此确认校园网需要登录。"
+            state = .redirected; title = SharedCopy.t("website.state.redirected.title")
+            detail = SharedCopy.f("website.state.redirected.detail", ["code": String(code)])
         case 401:
-            state = .authenticationRequired; title = "网站需要登录"
-            detail = "本次请求收到登录要求（HTTP 401），没有发送账号密码。该网址的登录要求与校园认证需要分别确认。"
+            state = .authenticationRequired; title = SharedCopy.t("website.state.authenticationRequired.title")
+            detail = SharedCopy.t("website.state.authenticationRequired.detail")
         case 403:
-            state = .httpStatus; title = "网站拒绝访问"
-            detail = "本次请求被拒绝（HTTP 403），可能与网站限制或代理规则有关。不能据此判断校园网掉线。"
+            state = .httpStatus; title = SharedCopy.t("website.state.forbidden.title")
+            detail = SharedCopy.t("website.state.forbidden.detail")
         default:
-            state = .httpStatus; title = "网站响应异常"
-            detail = "本次请求收到异常响应（HTTP \(code)）。请检查网站状态或代理规则；其他网址可能仍可正常访问。"
+            state = .httpStatus; title = SharedCopy.t("website.state.httpStatus.title")
+            detail = SharedCopy.f("website.state.httpStatus.detail", ["code": String(code)])
         }
         return Self(state: state, title: title, detail: detail, statusCode: code,
                     elapsed: elapsed, displayURL: url.absoluteString, strategy: strategy,
@@ -130,22 +130,22 @@ struct WebsiteProbeResult: Sendable {
         let detail: String
         switch code {
         case .cancelled:
-            state = .cancelled; title = "检测已取消"; detail = "检测已停止，网站能否访问还不确定。"
+            state = .cancelled; title = SharedCopy.t("website.state.cancelled.title"); detail = SharedCopy.t("website.state.cancelled.detail")
         case .timedOut:
-            state = .timeout; title = "网站响应超时"; detail = "未及时收到网站回复。VPN、代理节点、分流、DNS、隧道重连或网站服务都可能造成超时，不能据此判断校园网掉线。"
+            state = .timeout; title = SharedCopy.t("website.state.timeout.title"); detail = SharedCopy.t("website.state.timeout.detail")
         case .cannotFindHost, .dnsLookupFailed:
-            state = .dns; title = "找不到网站地址"; detail = "找不到域名对应的地址。请检查网址、DNS 和代理解析规则；浏览器可能使用不同的解析设置。此结果不能确认校园网登录状态。"
+            state = .dns; title = SharedCopy.t("website.state.dns.title"); detail = SharedCopy.t("website.state.dns.detail")
         case .secureConnectionFailed, .serverCertificateHasBadDate, .serverCertificateUntrusted,
              .serverCertificateHasUnknownRoot, .serverCertificateNotYetValid,
              .clientCertificateRejected, .clientCertificateRequired:
-            state = .tls; title = "无法确认安全连接"; detail = "HTTPS 连接或证书验证失败。请检查设备时间、证书和代理的 HTTPS 解密设置。检测保留证书检查，不会发送本机证书；此结果不能确认校园网登录状态。"
+            state = .tls; title = SharedCopy.t("website.state.tls.title"); detail = SharedCopy.t("website.state.tls.detail")
         case .userAuthenticationRequired, .userCancelledAuthentication:
-            state = .authenticationRequired; title = "网站或代理需要登录"; detail = "本次没有使用系统保存的账号密码，也不会弹出登录窗口。网站或代理的登录要求与校园认证需要分别确认。"
+            state = .authenticationRequired; title = SharedCopy.t("website.state.authenticationRequired.title"); detail = SharedCopy.t("website.state.authenticationRequired.detail")
         case .appTransportSecurityRequiresSecureConnection:
-            state = .securityPolicy; title = "需要 HTTPS 网址"
-            detail = "系统安全策略阻止了 HTTP 连接，请改用 https:// 网址。不能据此判断网站断网；检测没有降低系统安全要求。"
+            state = .securityPolicy; title = SharedCopy.t("website.state.securityPolicy.title")
+            detail = SharedCopy.t("website.state.securityPolicy.detail")
         default:
-            state = .network; title = "未能连接网站"; detail = "没有收到网站的有效回复。请检查网络、网址、VPN、代理节点或分流规则。该结果只针对本次网址和连接方式，不能据此判断校园网掉线。"
+            state = .network; title = SharedCopy.t("website.state.network.title"); detail = SharedCopy.t("website.state.network.detail")
         }
         let recoverySignal: WebsiteRecoverySignal
         switch code {
@@ -174,8 +174,8 @@ actor WebsiteProbe {
         let url: URL
         do { url = try WebsiteAddress.normalize(input) }
         catch {
-            return WebsiteProbeResult(state: .invalidInput, title: "请检查网站地址",
-                detail: (error as? WebsiteAddress.ValidationError)?.errorDescription ?? "网址格式不正确。",
+            return WebsiteProbeResult(state: .invalidInput, title: SharedCopy.t("website.error.title"),
+                detail: (error as? WebsiteAddress.ValidationError)?.errorDescription ?? SharedCopy.t("website.error.invalid"),
                 statusCode: nil, elapsed: 0, displayURL: nil, strategy: strategy)
         }
         let operation = WebsiteHeaderOperation(url: url, strategy: strategy, timeout: timeout)
@@ -302,8 +302,8 @@ final class WebsiteHeaderOperation: NSObject, URLSessionDataDelegate, @unchecked
             } else {
                 // A challenge never counts as success, even if a server associates
                 // it with an unexpected success status in failureResponse.
-                complete(WebsiteProbeResult(state: .authenticationRequired, title: "网站或代理需要登录",
-                    detail: "本次没有使用系统保存的账号密码，也不会弹出登录窗口。网站或代理的登录要求与校园认证需要分别确认。",
+                complete(WebsiteProbeResult(state: .authenticationRequired, title: SharedCopy.t("website.state.authenticationRequired.title"),
+                    detail: SharedCopy.t("website.state.authenticationRequired.detail"),
                     statusCode: (challenge.failureResponse as? HTTPURLResponse)?.statusCode,
                     elapsed: elapsed, displayURL: url.absoluteString, strategy: strategy))
             }
