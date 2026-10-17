@@ -6,7 +6,7 @@ import AppKit
 /// Setup follows live state and uses the ordinary controls. Wi-Fi association is optional.
 struct ConnectionSetupView: View {
     @EnvironmentObject private var model: AppModel
-    let open: (AppSheet) -> Void
+    let open: (DashboardDestination) -> Void
     var openNetworkSettings: () -> Void = {}
     @State private var expanded = true
 

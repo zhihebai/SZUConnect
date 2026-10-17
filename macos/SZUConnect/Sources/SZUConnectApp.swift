@@ -139,10 +139,6 @@ final class DashboardApplicationDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    static func registerMainWindow(_ window: NSWindow) {
-        current?.dockVisibility.track(window)
-    }
-
     private func completeStartup() {
         guard finishedLaunching, !startupHandled else { return }
         startupHandled = true
@@ -165,13 +161,16 @@ final class DashboardApplicationDelegate: NSObject, NSApplicationDelegate {
         guard let current else { return }
         current.configure()
         guard let model = current.model else { return }
-        current.dockVisibility.prepareToPresent()
         if showExistingWindow() { return }
+        current.dockVisibility.prepareToPresent()
         // Own one native window explicitly, including on macOS 14. Menu-bar-only starts
         // never create or momentarily expose a default SwiftUI Window scene.
-        let width = max(DashboardLayout.minimumWindowWidth,
-            (Bundle.main.object(forInfoDictionaryKey: "SZUPreviewWidth") as? NSNumber)?.doubleValue ?? 720)
-        let height = max(520, (Bundle.main.object(forInfoDictionaryKey: "SZUPreviewHeight") as? NSNumber)?.doubleValue ?? 680)
+        let width = max(DashboardLayout.minimumWindowSize.width,
+            (Bundle.main.object(forInfoDictionaryKey: "SZUPreviewWidth") as? NSNumber)?.doubleValue
+                ?? DashboardLayout.defaultWindowSize.width)
+        let height = max(DashboardLayout.minimumWindowSize.height,
+            (Bundle.main.object(forInfoDictionaryKey: "SZUPreviewHeight") as? NSNumber)?.doubleValue
+                ?? DashboardLayout.defaultWindowSize.height)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: height),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered, defer: false)
@@ -181,19 +180,16 @@ final class DashboardApplicationDelegate: NSObject, NSApplicationDelegate {
         window.toolbarStyle = .unified
         window.tabbingMode = .disallowed
         window.isReleasedWhenClosed = false
-        window.contentMinSize = CGSize(width: DashboardLayout.minimumWindowWidth, height: 520)
-        let hostingView = NSHostingView(rootView: ContentView().environmentObject(model))
-        // The user's window size owns the layout; switching pages must not resize it to
-        // SwiftUI's changing ideal content size. Keep the explicit minimum above.
-        hostingView.sizingOptions = []
-        window.contentView = hostingView
+        window.contentView = DashboardLayout.makeHostingView(ContentView().environmentObject(model))
         current.dashboardWindow = window
         current.dockVisibility.track(window)
         // Restore the frame, not a content size, so the toolbar cannot add height on each reopen.
         let restored = window.setFrameUsingName(Self.frameAutosaveName)
         if let frame = current.lastDashboardFrame {
-            window.setFrame(window.constrainFrameRect(frame, to: window.screen), display: false)
-        } else if !restored { window.center() }
+            DashboardLayout.restoreFrame(frame, in: window)
+        } else if restored {
+            DashboardLayout.restoreFrame(window.frame, in: window)
+        } else { window.center() }
         if !model.sessionReadOnly { _ = window.setFrameAutosaveName(Self.frameAutosaveName) }
         if let observer = current.windowCloseObserver { NotificationCenter.default.removeObserver(observer) }
         current.windowCloseObserver = NotificationCenter.default.addObserver(
@@ -250,14 +246,14 @@ final class DashboardApplicationDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
-/// Identifies only the dashboard; menu-bar windows and export panels are excluded.
-struct DashboardWindowRegistration: NSViewRepresentable {
+/// Bridges the dashboard's stateful navigation into its native toolbar.
+struct DashboardToolbarBridge: NSViewRepresentable {
     let toolbarContent: AnyView
 
     func makeCoordinator() -> Coordinator { Coordinator(content: toolbarContent) }
 
     func makeNSView(context: Context) -> NSView {
-        let view = RegisteredDashboardView()
+        let view = ToolbarAnchorView()
         view.coordinator = context.coordinator
         return view
     }
@@ -271,18 +267,12 @@ struct DashboardWindowRegistration: NSViewRepresentable {
         coordinator.detach()
     }
 
-    private final class RegisteredDashboardView: NSView {
+    private final class ToolbarAnchorView: NSView {
         weak var coordinator: Coordinator?
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
-            window?.identifier = DashboardApplicationDelegate.windowIdentifier
-            window?.tabbingMode = .disallowed
-            window?.titleVisibility = .hidden
-            if let window {
-                coordinator?.install(in: window)
-                DashboardApplicationDelegate.registerMainWindow(window)
-            }
+            if let window { coordinator?.install(in: window) }
         }
     }
 
@@ -298,14 +288,15 @@ struct DashboardWindowRegistration: NSViewRepresentable {
             hostingView = NSHostingView(rootView: content)
             hostingView.sizingOptions = []
             hostingView.translatesAutoresizingMaskIntoConstraints = false
-            let container = NSView(frame: NSRect(x: 0, y: 0, width: 378, height: 36))
+            let container = NSView(frame: NSRect(x: 0, y: 0,
+                width: DashboardLayout.toolbarMinimumWidth, height: DashboardLayout.toolbarHeight))
             container.translatesAutoresizingMaskIntoConstraints = false
             container.addSubview(hostingView)
             NSLayoutConstraint.activate([
-                container.widthAnchor.constraint(greaterThanOrEqualToConstant: 378),
+                container.widthAnchor.constraint(greaterThanOrEqualToConstant: DashboardLayout.toolbarMinimumWidth),
                 // AppKit chooses the width within this range from the available toolbar space.
                 container.widthAnchor.constraint(lessThanOrEqualToConstant: 100_000),
-                container.heightAnchor.constraint(equalToConstant: 36),
+                container.heightAnchor.constraint(equalToConstant: DashboardLayout.toolbarHeight),
                 hostingView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
                 hostingView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
                 hostingView.topAnchor.constraint(equalTo: container.topAnchor),

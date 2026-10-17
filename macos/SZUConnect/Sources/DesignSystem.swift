@@ -109,11 +109,6 @@ enum AppFont {
     static var caption: Font { .system(size: SharedTokens.fontCaptionSize) }
 }
 
-enum DashboardLayout {
-    // Narrow layouts wrap page controls while preserving the readable three-tab toolbar.
-    static let minimumWindowWidth: CGFloat = 500
-}
-
 /// Draws a shared icon (absolute M/L/C/Z path on a 24-unit grid) as a round-capped stroke.
 struct IconShape: Shape {
     let name: String
