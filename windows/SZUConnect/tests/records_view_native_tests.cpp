@@ -226,6 +226,109 @@ int ink_pixels(HWND window, float dpi_scale, D2D1_RECT_F area, COLORREF backgrou
     SelectObject(memory, previous); DeleteObject(image); DeleteDC(memory); ReleaseDC(window, dc);
     return ink;
 }
+std::vector<COLORREF> capture_pixels(HWND window, float dpi_scale, D2D1_RECT_F area) {
+    std::vector<COLORREF> result;
+    HDC dc = GetDC(window);
+    if (!dc) return result;
+    const int left = static_cast<int>(area.left * dpi_scale), top = static_cast<int>(area.top * dpi_scale);
+    const int width = static_cast<int>(area.right * dpi_scale) - left, height = static_cast<int>(area.bottom * dpi_scale) - top;
+    if (width <= 0 || height <= 0) { ReleaseDC(window, dc); return result; }
+    HDC memory = CreateCompatibleDC(dc);
+    BITMAPINFO info{}; info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    info.bmiHeader.biWidth = width; info.bmiHeader.biHeight = -height;
+    info.bmiHeader.biPlanes = 1; info.bmiHeader.biBitCount = 32; info.bmiHeader.biCompression = BI_RGB;
+    void* bits = nullptr;
+    HBITMAP image = memory ? CreateDIBSection(dc, &info, DIB_RGB_COLORS, &bits, nullptr, 0) : nullptr;
+    if (!image || !bits) { if (image) DeleteObject(image); if (memory) DeleteDC(memory); ReleaseDC(window, dc); return result; }
+    const auto previous = SelectObject(memory, image);
+    if (BitBlt(memory, 0, 0, width, height, dc, left, top, SRCCOPY) && GdiFlush()) {
+        const auto* pixels = static_cast<const unsigned char*>(bits);
+        result.reserve(static_cast<std::size_t>(width) * height);
+        for (int i = 0; i < width * height; ++i) {
+            const auto offset = static_cast<std::size_t>(i) * 4;
+            result.push_back(RGB(pixels[offset + 2], pixels[offset + 1], pixels[offset]));
+        }
+    }
+    SelectObject(memory, previous); DeleteObject(image); DeleteDC(memory); ReleaseDC(window, dc);
+    return result;
+}
+int changed_pixels(const std::vector<COLORREF>& before, const std::vector<COLORREF>& after) {
+    if (before.empty() || before.size() != after.size()) return -1;
+    int changed = 0;
+    for (std::size_t i = 0; i < before.size(); ++i) if (before[i] != after[i]) ++changed;
+    return changed;
+}
+void paint_nested_modal_feedback(HWND window) {
+    Canvas canvas;
+    const float dpi = static_cast<float>(GetDpiForWindow(window)), scale = dpi / 96;
+    const bool initialized = canvas.init() && canvas.attach(window, dpi);
+    check(initialized, "nested modal feedback creates a native drawing surface");
+    if (!initialized) return;
+    RECT client{}; GetClientRect(window, &client);
+    const float width = client.right / scale, height = client.bottom / scale;
+    const float half = std::min({22.0f, width / 8, height / 4});
+    const auto parent_rect = D2D1::RectF(width / 4 - half, height / 2 - half, width / 4 + half, height / 2 + half);
+    const auto child_rect = D2D1::RectF(width * 3 / 4 - half, height / 2 - half, width * 3 / 4 + half, height / 2 + half);
+    struct Pixels { std::vector<COLORREF> parent, child; };
+    for (bool dark : {false, true}) {
+        Scene scene; scene.layers.resize(3);
+        scene.layers[1].modal = scene.layers[2].modal = true;
+        for (int layer : {1, 2}) {
+            Widget surface; surface.layer = layer; surface.scrolls = false; surface.fill = "surface";
+            surface.rect = layer == 1 ? D2D1::RectF(0, 0, width, height) : inflate(child_rect, 8);
+            scene.widgets.push_back(surface);
+            Widget close; close.layer = layer; close.scrolls = false;
+            close.id = "sheet.close"; close.kind = Kind::button; close.button = ButtonStyle::plain;
+            close.icon = "x"; close.radius = 8; close.focusable = true;
+            close.rect = layer == 1 ? parent_rect : child_rect;
+            scene.widgets.push_back(close);
+        }
+        const auto palette = make_palette(dark, false);
+        auto render = [&](const Interaction& state) {
+            Pixels pixels;
+            const bool began = canvas.begin();
+            check(began, "begin native modal feedback repaint");
+            if (!began) return pixels;
+            paint(canvas, palette, scene, state, width, height, 0);
+            check(canvas.end(), "complete native modal feedback repaint");
+            DwmFlush();
+            pixels.parent = capture_pixels(window, scale, inflate(parent_rect, 5));
+            pixels.child = capture_pixels(window, scale, inflate(child_rect, 5));
+            check(!pixels.parent.empty() && !pixels.child.empty(), "capture both modal controls including their focus rings");
+            return pixels;
+        };
+        const auto baseline = render({});
+        const std::vector<Interaction> interactions{
+            {"sheet.close", "", ""}, {"sheet.close", "sheet.close", ""}, {"", "", "sheet.close"}
+        };
+        int state_index = 0;
+        for (const auto& state : interactions) {
+            const auto active = render(state);
+            const int parent_changes = changed_pixels(baseline.parent, active.parent);
+            const int child_changes = changed_pixels(baseline.child, active.child);
+            std::printf("native modal feedback: %s state %d, parent %d changed pixels, child %d\n",
+                dark ? "dark" : "light", state_index++, parent_changes, child_changes);
+            check(parent_changes == 0, "child hover, pressed and focus leave the obscured same-id parent pixels unchanged");
+            check(child_changes > 10, "top-layer close visibly responds to hover, pressed and focus");
+        }
+        scene.widgets.back().enabled = false;
+        const auto disabled_baseline = render({});
+        for (const auto& state : interactions) {
+            const auto active = render(state);
+            check(changed_pixels(disabled_baseline.child, active.child) == 0 &&
+                changed_pixels(disabled_baseline.parent, active.parent) == 0,
+                "disabled child close ignores hover, pressed and focus without highlighting the parent");
+        }
+        std::erase_if(scene.widgets, [](const Widget& widget) { return widget.layer == 2; });
+        scene.layers.pop_back();
+        const auto parent_baseline = render({});
+        for (const auto& state : interactions) {
+            const auto active = render(state);
+            check(changed_pixels(parent_baseline.parent, active.parent) > 10,
+                "parent close regains hover, pressed and focus feedback after the child is removed");
+        }
+    }
+}
 void paint_history(HWND window) {
     Canvas canvas;
     const float dpi = static_cast<float>(GetDpiForWindow(window)), scale = dpi / 96;
@@ -288,7 +391,7 @@ int main() {
     check(window != nullptr, "create fake history window without application services");
     if (window) {
         ShowWindow(window, SW_SHOWNOACTIVATE); UpdateWindow(window);
-        nested_modal_actions(window); provider_history(window); paint_history(window); DestroyWindow(window);
+        nested_modal_actions(window); provider_history(window); paint_nested_modal_feedback(window); paint_history(window); DestroyWindow(window);
     }
     CoUninitialize();
     std::printf("native records view: %d checks, %d failures; no data/network services\n", checks, failures);

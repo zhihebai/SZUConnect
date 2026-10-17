@@ -1092,7 +1092,7 @@ void MainWindow::rebuild() {
         sample.card_end();
     }
     const Widget* focused = scene_.find(interaction_.focused);
-    if (!focused || focused->layer != scene_.top_layer()) {
+    if (!focused || !focused->enabled || !focused->focusable || focused->layer != scene_.top_layer()) {
         interaction_.focused.clear();
         if (keyboard_cues_) {
             const auto order = scene_.focus_order();
@@ -1559,6 +1559,7 @@ void MainWindow::open_overlay(const std::string& name) {
     if (name.rfind("info:", 0) == 0) { open_info(name.substr(5)); return; }
     dismiss_info();
     if (name == "tutorial") {
+        interaction_ = {};
         ui_.overlays.clear(); ui_.tutorial_visible = true; ui_.tutorial_step = 1;
         ui_.tutorial_entered_at = AppController::wall_now();
         focus_tutorial(*ctx_); return;
@@ -1569,7 +1570,7 @@ void MainWindow::open_overlay(const std::string& name) {
         ui_.home_focus = name == "website" ? "home.websites" : "home." + name;
         if (name == "network") { ui_.advanced_network = true; ui_.technical_network = true; }
         ui_.show_password = false;
-        interaction_.focused.clear();
+        interaction_ = {};
         request_rebuild();
         return;
     }
@@ -1582,13 +1583,14 @@ void MainWindow::open_overlay(const std::string& name) {
         ui_.account_feedback.clear();
         ui_.show_password = false;
     }
-    interaction_.focused.clear();
+    interaction_ = {};
     request_rebuild();
 }
 
 void MainWindow::close_overlay() {
     if (ui_.overlays.empty()) {
         if (ui_.tutorial_visible) {
+            interaction_ = {};
             ui_.tutorial_visible = false;
             if (app_->settings().tutorial == "none") app_->set_tutorial("skipped");
             request_rebuild();
@@ -1599,7 +1601,7 @@ void MainWindow::close_overlay() {
     if (top == "account") ui_.show_password = false;
     if (top == "network") app_->cancel_compat();
     ui_.overlays.pop_back();
-    interaction_.focused.clear();
+    interaction_ = {};
     request_rebuild();
 }
 
