@@ -726,7 +726,7 @@ enum SharedCopy {
         "settings.appearance.title": "外观",
         "settings.closeNote": "关掉窗口后，应用仍在菜单栏运行。要完全退出，点菜单栏图标，选“退出”。",
         "settings.dock.always": "始终显示 Dock 图标",
-        "settings.dock.detail": "默认随窗口显示。关闭最后一个窗口后，应用仍在菜单栏运行；最小化或隐藏窗口时保留 Dock 图标。",
+        "settings.dock.detail": "默认关闭窗口后隐藏 Dock 图标，只在菜单栏运行。勾选后，Dock 图标会一直显示。",
         "settings.dock.failed": "Dock 显示设置暂未生效，仍可从菜单栏打开应用。",
         "settings.dock.title": "Dock 图标",
         "settings.dock.unavailable": "无法读取 Dock 设置，原值已保留。",

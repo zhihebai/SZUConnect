@@ -15,8 +15,9 @@ for header in ['SrunCore.h', 'CampusPhysicalCurl.h']:
 src_group = add('PBXGroup',children=refs,path='Sources',sourceTree='<group>')
 assets = add('PBXFileReference',lastKnownFileType='folder.assetcatalog',path='Assets.xcassets',sourceTree='<group>')
 legal_notice = add('PBXFileReference',lastKnownFileType='text',path='Resources/AutoSZUWeb-LICENSE.txt',sourceTree='<group>')
+distribution_notice = add('PBXFileReference',lastKnownFileType='text',path='../../docs/DISTRIBUTION-NOTICES.txt',sourceTree='<group>')
 products = add('PBXGroup',children=[],name='Products',sourceTree='<group>')
-main = add('PBXGroup',children=[src_group,assets,legal_notice,products],sourceTree='<group>')
+main = add('PBXGroup',children=[src_group,assets,legal_notice,distribution_notice,products],sourceTree='<group>')
 base = {'CLANG_CXX_LANGUAGE_STANDARD':'c++17','CLANG_ENABLE_MODULES':'YES','SWIFT_VERSION':'5.0','SWIFT_OBJC_BRIDGING_HEADER':'Sources/SrunCore.h','SWIFT_EMIT_LOC_STRINGS':'NO','MARKETING_VERSION':'0.10.1','CURRENT_PROJECT_VERSION':'32','ENABLE_USER_SCRIPT_SANDBOXING':'YES','ASSETCATALOG_COMPILER_APPICON_NAME':'AppIcon'}
 def configs(settings):
     result=[]
@@ -31,7 +32,7 @@ for platform in ['macOS','iOS']:
     product=add('PBXFileReference',explicitFileType='wrapper.application',includeInIndex=0,path='SZUConnect.app',sourceTree='BUILT_PRODUCTS_DIR')
     objects[products]['children'].append(product)
     phase=add('PBXSourcesBuildPhase',buildActionMask=2147483647,files=[add('PBXBuildFile',fileRef=r) for r in source_refs],runOnlyForDeploymentPostprocessing=0)
-    res=add('PBXResourcesBuildPhase',buildActionMask=2147483647,files=[add('PBXBuildFile',fileRef=assets),add('PBXBuildFile',fileRef=legal_notice)],runOnlyForDeploymentPostprocessing=0)
+    res=add('PBXResourcesBuildPhase',buildActionMask=2147483647,files=[add('PBXBuildFile',fileRef=assets),add('PBXBuildFile',fileRef=legal_notice),add('PBXBuildFile',fileRef=distribution_notice)],runOnlyForDeploymentPostprocessing=0)
     framework=add('PBXFrameworksBuildPhase',buildActionMask=2147483647,files=[],runOnlyForDeploymentPostprocessing=0)
     setting=dict(base,PRODUCT_NAME='SZUConnect',PRODUCT_BUNDLE_IDENTIFIER='local.SZUConnect.'+('mac' if platform=='macOS' else 'ios'),INFOPLIST_FILE='Info-'+platform+'.plist',CODE_SIGN_STYLE='Automatic',GENERATE_INFOPLIST_FILE='NO')
     if platform=='macOS':

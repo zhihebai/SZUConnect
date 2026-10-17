@@ -60,96 +60,89 @@ struct SettingsPage: View {
 
     private var pageContent: some View {
         PageScroll(title: SharedCopy.t("settings.title")) {
-            SectionTitle(text: SharedCopy.t("settings.appearance.title"))
-            Picker(SharedCopy.t("settings.appearance.title"), selection: $appearance) {
-                ForEach(AppearancePreference.allCases) { Text($0.title).tag($0.rawValue) }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            #if os(macOS)
             VStack(alignment: .leading, spacing: SharedTokens.spaceM) {
-                SectionTitle(text: SharedCopy.t("settings.launch.title"))
-                Toggle(isOn: Binding(get: { model.launchAtLogin }, set: { model.setLaunchAtLogin($0) })) {
-                    VStack(alignment: .leading, spacing: SharedTokens.spaceXs) {
-                        Text(SharedCopy.t("settings.launch.title")).font(AppFont.body)
-                        Text(SharedCopy.t("settings.launch.detail"))
-                            .font(AppFont.caption).foregroundStyle(Color.token("textSecondary"))
-                            .fixedSize(horizontal: false, vertical: true)
+                SectionTitle(text: SharedCopy.t("settings.appearance.title"))
+                Card(padding: SharedTokens.spaceL) {
+                    Picker(SharedCopy.t("settings.appearance.title"), selection: $appearance) {
+                        ForEach(AppearancePreference.allCases) { Text($0.title).tag($0.rawValue) }
                     }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
                 }
-                .frame(minHeight: SharedTokens.sizeMinTarget)
-                .disabled(model.sessionReadOnly)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .tourTarget(.startup)
-            .id("startup")
-            VStack(alignment: .leading, spacing: SharedTokens.spaceS) {
-                SectionTitle(text: SharedCopy.t("settings.dock.title"))
-                Toggle(SharedCopy.t("settings.dock.always"), isOn: Binding(
-                    get: { model.alwaysShowDockIcon }, set: { model.setAlwaysShowDockIcon($0) }))
+            #if os(macOS)
+            Card(padding: SharedTokens.spaceL) {
+                SettingToggleRow(title: SharedCopy.t("settings.launch.title"), detail: SharedCopy.t("settings.launch.detail"),
+                    isOn: Binding(get: { model.launchAtLogin }, set: { model.setLaunchAtLogin($0) }))
+                .disabled(model.sessionReadOnly)
+                .tourTarget(.startup)
+                .id("startup")
+                Divider()
+                SettingToggleRow(title: SharedCopy.t("settings.dock.always"), detail: SharedCopy.t("settings.dock.detail"),
+                    isOn: Binding(get: { model.alwaysShowDockIcon }, set: { model.setAlwaysShowDockIcon($0) }))
                     .disabled(model.sessionReadOnly || !model.dockPreferenceAvailable)
-                Text(SharedCopy.t("settings.dock.detail"))
-                    .font(AppFont.caption).foregroundStyle(Color.token("textSecondary"))
-                    .fixedSize(horizontal: false, vertical: true)
                 if let error = model.dockVisibilityError { Banner(tone: "warning", title: error) }
             }
             #endif
-            HStack(spacing: 4) {
-                SectionTitle(text: SharedCopy.t("memory.title"))
-                InfoButton(topic: "memory")
-            }
-            if model.memoryUnreadable { Banner(tone: "warning", title: SharedCopy.t("memory.unreadable")) }
-            if model.rememberedNetworks.isEmpty {
-                Text(SharedCopy.t("memory.none")).font(AppFont.callout).foregroundStyle(Color.token("textSecondary"))
-            } else {
-                Card(padding: SharedTokens.spaceM) {
-                    Text(SharedCopy.f("memory.count", ["count": String(model.rememberedNetworks.count)])).font(AppFont.bodyStrong)
-                    ForEach(model.rememberedNetworks) { record in
-                        HStack(spacing: SharedTokens.spaceS) {
-                            AppIcon(name: "shield-check", size: 18, color: .token("accent"))
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(model.rememberedNetworkDisplayName(for: record.id))
-                                    .font(AppFont.callout.weight(.medium))
-                                    .fixedSize(horizontal: false, vertical: true)
-                                Text(model.rememberedNetworkDetail(for: record))
-                                    .font(AppFont.caption).foregroundStyle(Color.token("textSecondary"))
-                                Text(SharedCopy.f("memory.verified", ["date": Date(timeIntervalSince1970: record.verified).formatted(date: .abbreviated, time: .shortened)]))
-                                    .font(AppFont.caption).foregroundStyle(Color.token("textSecondary"))
-                            }
-                            Spacer(minLength: 0)
-                            Menu {
-                                Button(SharedCopy.t("memory.rename")) {
-                                    networkName = model.networkLabels.entries[record.id]?.displayName ?? ""
-                                    renamingNetwork = record
+            VStack(alignment: .leading, spacing: SharedTokens.spaceM) {
+                HStack(spacing: 4) {
+                    SectionTitle(text: SharedCopy.t("memory.title"))
+                    InfoButton(topic: "memory")
+                }
+                if model.memoryUnreadable { Banner(tone: "warning", title: SharedCopy.t("memory.unreadable")) }
+                if model.rememberedNetworks.isEmpty {
+                    Text(SharedCopy.t("memory.none")).font(AppFont.callout).foregroundStyle(Color.token("textSecondary"))
+                } else {
+                    Card(padding: SharedTokens.spaceM) {
+                        Text(SharedCopy.f("memory.count", ["count": String(model.rememberedNetworks.count)])).font(AppFont.bodyStrong)
+                        ForEach(model.rememberedNetworks) { record in
+                            HStack(spacing: SharedTokens.spaceS) {
+                                AppIcon(name: "shield-check", size: 18, color: .token("accent"))
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(model.rememberedNetworkDisplayName(for: record.id))
+                                        .font(AppFont.callout.weight(.medium))
+                                        .fixedSize(horizontal: false, vertical: true)
+                                    Text(model.rememberedNetworkDetail(for: record))
+                                        .font(AppFont.caption).foregroundStyle(Color.token("textSecondary"))
+                                    Text(SharedCopy.f("memory.verified", ["date": Date(timeIntervalSince1970: record.verified).formatted(date: .abbreviated, time: .shortened)]))
+                                        .font(AppFont.caption).foregroundStyle(Color.token("textSecondary"))
                                 }
-                                .disabled(model.networkLabelsUnavailable)
-                                Button(SharedCopy.t("memory.forget"), role: .destructive) { forgettingNetwork = record }
-                            } label: {
-                                Text(SharedCopy.t("memory.manage"))
-                                    .font(AppFont.callout)
-                                    .frame(minHeight: 32)
-                                    .contentShape(Rectangle())
+                                Spacer(minLength: 0)
+                                Menu {
+                                    Button(SharedCopy.t("memory.rename")) {
+                                        networkName = model.networkLabels.entries[record.id]?.displayName ?? ""
+                                        renamingNetwork = record
+                                    }
+                                    .disabled(model.networkLabelsUnavailable)
+                                    Button(SharedCopy.t("memory.forget"), role: .destructive) { forgettingNetwork = record }
+                                } label: {
+                                    Text(SharedCopy.t("memory.manage"))
+                                        .font(AppFont.callout)
+                                        .frame(minHeight: 32)
+                                        .contentShape(Rectangle())
+                                }
+                                #if os(macOS)
+                                .menuStyle(.borderlessButton)
+                                #endif
+                                .fixedSize()
+                                .disabled(model.sessionReadOnly)
+                                .accessibilityLabel(SharedCopy.t("memory.manage") + "：" + model.rememberedNetworkDisplayName(for: record.id))
+                                .accessibilityIdentifier("memory.manage." + record.id)
                             }
-                            #if os(macOS)
-                            .menuStyle(.borderlessButton)
-                            #endif
-                            .fixedSize()
-                            .disabled(model.sessionReadOnly)
-                            .accessibilityLabel(SharedCopy.t("memory.manage") + "：" + model.rememberedNetworkDisplayName(for: record.id))
-                            .accessibilityIdentifier("memory.manage." + record.id)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .accessibilityElement(children: .contain)
                         }
-                        .accessibilityElement(children: .contain)
                     }
+                    if model.hasUnnamedRememberedNetworks {
+                        Text(SharedCopy.t("memory.legacyName"))
+                            .font(AppFont.caption).foregroundStyle(Color.token("textSecondary"))
+                    }
+                    ActionButton(title: SharedCopy.t("memory.forgetAll"), kind: .plain) { model.forgetAllNetworks() }
+                        .disabled(model.sessionReadOnly)
                 }
-                if model.hasUnnamedRememberedNetworks {
-                    Text(SharedCopy.t("memory.legacyName"))
-                        .font(AppFont.caption).foregroundStyle(Color.token("textSecondary"))
-                }
-                ActionButton(title: SharedCopy.t("memory.forgetAll"), kind: .plain) { model.forgetAllNetworks() }
-                    .disabled(model.sessionReadOnly)
+                if let error = model.networkNameError { Banner(tone: "warning", title: error) }
+                Text(SharedCopy.t("memory.namesPrivacy")).font(AppFont.caption).foregroundStyle(Color.token("textSecondary"))
             }
-            if let error = model.networkNameError { Banner(tone: "warning", title: error) }
-            Text(SharedCopy.t("memory.namesPrivacy")).font(AppFont.caption).foregroundStyle(Color.token("textSecondary"))
             #if os(macOS)
             WiFiRecoverySettingsView(controller: model.wifiRecovery, rememberedNetworkCount: model.rememberedNetworks.count)
                 .disabled(model.sessionReadOnly)
@@ -158,11 +151,7 @@ struct SettingsPage: View {
             #endif
             VStack(alignment: .leading, spacing: SharedTokens.spaceM) {
                 SectionTitle(text: SharedCopy.t("settings.helpTitle"))
-                ViewThatFits(in: .horizontal) {
-                    HStack(spacing: SharedTokens.spaceS) { helpButtons }
-                    VStack(alignment: .leading, spacing: SharedTokens.spaceS) { helpButtons }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
+                FlowLayout(spacing: SharedTokens.spaceS) { helpButtons }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -171,8 +160,12 @@ struct SettingsPage: View {
             if let error = model.errorMessage {
                 Banner(tone: "warning", title: error)
             }
-            Text(SharedCopy.t("settings.privacy")).font(AppFont.caption).foregroundStyle(Color.token("textTertiary"))
-            Text(SharedCopy.t("settings.closeNote")).font(AppFont.caption).foregroundStyle(Color.token("textTertiary"))
+            VStack(alignment: .leading, spacing: SharedTokens.spaceS) {
+                Text(SharedCopy.t("settings.privacy"))
+                Text(SharedCopy.t("settings.closeNote"))
+            }
+            .font(AppFont.callout).foregroundStyle(Color.token("textSecondary"))
+            .fixedSize(horizontal: false, vertical: true)
             if model.sessionReadOnly {
                 Text(SharedCopy.t("settings.readOnlyLaunch")).font(AppFont.caption).foregroundStyle(Color.tone("warning"))
             }

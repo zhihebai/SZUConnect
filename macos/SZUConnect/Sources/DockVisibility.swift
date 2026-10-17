@@ -37,8 +37,8 @@ final class DockVisibilityController {
     private(set) var alwaysShow = false
     var onFailure: (() -> Void)?
 
-    init(application: NSApplication = .shared) {
-        self.application = application
+    init(application: NSApplication? = nil) {
+        self.application = application ?? .shared
     }
 
     func start(alwaysShow: Bool) {

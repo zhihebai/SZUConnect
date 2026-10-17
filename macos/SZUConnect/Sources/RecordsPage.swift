@@ -1,3 +1,24 @@
+import Foundation
+
+/// Selection is local to the visible ribbon; dates need not be unique.
+struct RecordSampleSelection {
+    private(set) var id: UUID?
+
+    mutating func toggle(_ sampleID: UUID) {
+        id = id == sampleID ? nil : sampleID
+    }
+
+    mutating func retain(among visibleIDs: [UUID]) {
+        if let id, !visibleIDs.contains(id) { self.id = nil }
+    }
+
+    mutating func clear() { id = nil }
+
+    func selected<Sample: Identifiable>(from samples: [Sample]) -> Sample? where Sample.ID == UUID {
+        samples.first { $0.id == id }
+    }
+}
+
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -17,7 +38,7 @@ struct RecordsPage: View {
     @State private var exporting = false
     @State private var exportDocument: DiagnosticsDocument?
     @State private var feedback: String?
-    @State private var selectedDate: Date?
+    @State private var sampleSelection = RecordSampleSelection()
 
     private static let failureMarkers = ["登录未完成", "手动检测未通过", "拒绝了登录", "外网检测暂未通过", "网络路径暂不可用", "认证服务暂时连不上", "登录被拒绝", "网络连接暂不可用", "校园网登录服务暂时连不上", "登录未通过"]
     private func isFailure(_ event: ConnectionEvent) -> Bool {
@@ -102,12 +123,12 @@ struct RecordsPage: View {
             if !recent.isEmpty {
                 HStack(spacing: 3) {
                     ForEach(recent) { sample in
-                        Button { selectedDate = selectedDate == sample.date ? nil : sample.date } label: {
+                        Button { sampleSelection.toggle(sample.id) } label: {
                             RoundedRectangle(cornerRadius: 3)
                                 .fill(Color.tone(sample.online && !sample.isPartialCompleteResult ? "success" : "warning"))
                                 .frame(height: 22)
                                 .overlay(RoundedRectangle(cornerRadius: 3)
-                                    .strokeBorder(Color.token("textPrimary"), lineWidth: selectedDate == sample.date ? 2 : 0))
+                                    .strokeBorder(Color.token("textPrimary"), lineWidth: sampleSelection.id == sample.id ? 2 : 0))
                                 .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
@@ -116,13 +137,16 @@ struct RecordsPage: View {
                     }
                 }
                 Text(SharedCopy.t("records.ribbon.hint")).font(AppFont.caption).foregroundStyle(Color.token("textTertiary"))
-                if let picked = samples.first(where: { $0.date == selectedDate }) { detail(picked) }
+                if let picked = sampleSelection.selected(from: recent) { detail(picked) }
             }
             let complete = samples.filter { $0.probeMode == "complete" }
             if !complete.isEmpty {
                 Text(SharedCopy.f("dashboard.completeHistory", ["passed": String(complete.filter(\.allSelectedPassed).count), "total": String(complete.count)]))
                     .font(AppFont.caption).foregroundStyle(Color.token("textSecondary"))
             }
+        }
+        .onChange(of: recent.map(\.id), initial: true) { _, visibleIDs in
+            sampleSelection.retain(among: visibleIDs)
         }
     }
 
@@ -132,7 +156,7 @@ struct RecordsPage: View {
             HStack {
                 Text(SharedCopy.t("records.detail.title")).font(AppFont.bodyStrong)
                 Spacer(minLength: 0)
-                Button(SharedCopy.t("records.detail.close")) { selectedDate = nil }
+                Button(SharedCopy.t("records.detail.close")) { sampleSelection.clear() }
             }
             detailRow("records.detail.time", sample.date.formatted(date: .abbreviated, time: .standard))
             detailRow("records.detail.mode", SharedCopy.t(sample.probeMode == "complete" ? "probe.complete.title" : "probe.quick.title"))

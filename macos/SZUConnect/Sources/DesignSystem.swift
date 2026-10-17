@@ -28,17 +28,20 @@ extension View {
 #if os(macOS)
 private struct AppAppearanceModifier: ViewModifier {
     let preference: AppearancePreference
-    @StateObject private var systemAppearance = SystemAppearanceObserver()
+    @StateObject private var applicationAppearance = ApplicationAppearanceObserver()
 
     func body(content: Content) -> some View {
-        // Resolve system independently from this presentation's overridden environment.
-        // Keeping a concrete preference avoids a stale macOS nil transition.
-        content.preferredColorScheme(preference.colorScheme ?? systemAppearance.colorScheme)
+        // Native alerts inherit the application appearance, outside SwiftUI's presentation.
+        // A concrete effective scheme also refreshes existing sheets when system mode changes.
+        content.preferredColorScheme(preference.colorScheme ?? applicationAppearance.colorScheme)
+            .onChange(of: preference, initial: true) { _, value in
+                applicationAppearance.apply(value)
+            }
     }
 }
 
 @MainActor
-private final class SystemAppearanceObserver: ObservableObject {
+private final class ApplicationAppearanceObserver: ObservableObject {
     @Published private(set) var colorScheme: ColorScheme
     private var observation: NSKeyValueObservation?
 
@@ -52,6 +55,22 @@ private final class SystemAppearanceObserver: ObservableObject {
                 if colorScheme != scheme { colorScheme = scheme }
             }
         }
+    }
+
+    func apply(_ preference: AppearancePreference) {
+        let name: NSAppearance.Name?
+        switch preference {
+        case .system: name = nil
+        case .light: name = .aqua
+        case .dark: name = .darkAqua
+        }
+        let application = NSApplication.shared
+        if application.appearance?.name != name {
+            // Clear the app override to follow macOS again; never change system preferences.
+            application.appearance = name.flatMap { NSAppearance(named: $0) }
+        }
+        let scheme = Self.resolve(application.effectiveAppearance)
+        if colorScheme != scheme { colorScheme = scheme }
     }
 
     private static func resolve(_ appearance: NSAppearance) -> ColorScheme {
@@ -350,8 +369,27 @@ struct SectionTitle: View {
     let text: String
     var body: some View {
         Text(text).font(AppFont.headline).foregroundStyle(Color.token("textPrimary"))
-            .padding(.top, SharedTokens.spaceS)
             .accessibilityAddTraits(.isHeader)
+    }
+}
+
+/// Keep sibling preferences aligned: the checkbox labels share a baseline and all
+/// descriptions begin after the checkbox, including when the text wraps.
+struct SettingToggleRow: View {
+    let title: String
+    let detail: String
+    @Binding var isOn: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: SharedTokens.spaceXs) {
+            Toggle(isOn: $isOn) { Text(title).font(AppFont.body) }
+                .frame(minHeight: 32)
+            Text(detail).font(AppFont.callout).foregroundStyle(Color.token("textSecondary"))
+                .fixedSize(horizontal: false, vertical: true)
+                .lineSpacing(SharedTokens.spaceXs / 2)
+                .padding(.leading, SharedTokens.sizeIconMedium)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

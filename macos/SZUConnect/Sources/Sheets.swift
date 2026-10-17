@@ -42,7 +42,7 @@ struct NetworkDetailsView: View {
 
             DisclosureGroup(isExpanded: $showingDetails) {
                 VStack(alignment: .leading, spacing: SharedTokens.spaceM) {
-                    Text(SharedCopy.t("env.intro")).font(AppFont.caption).foregroundStyle(Color.token("textSecondary"))
+                    Text(SharedCopy.t("env.intro")).font(AppFont.callout).foregroundStyle(Color.token("textSecondary"))
                     VStack(alignment: .leading, spacing: SharedTokens.spaceS) {
                         ViewThatFits(in: .horizontal) {
                             HStack {
@@ -55,27 +55,24 @@ struct NetworkDetailsView: View {
                                 comparisonAction
                             }
                         }
-                        pathResult("env.systemProbe", report: model.systemConnectivity, running: model.systemConnectivityChecking,
-                                   checkedAt: model.systemConnectivityCheckedAt)
-                        pathResult("env.physicalProbe", report: model.lastInternetCheck?.base, running: model.physicalConnectivityChecking,
-                                   checkedAt: model.lastCheckedAt)
-                        Text(SharedCopy.t("env.systemProbeNote")).font(AppFont.caption).foregroundStyle(Color.token("textSecondary"))
-                        Text(SharedCopy.t("env.campusVerification." + model.campusVerificationState)).font(AppFont.caption)
-                        Text(SharedCopy.t("env.historyScope")).font(AppFont.caption).foregroundStyle(Color.token("textSecondary"))
+                        connectivityTable
+                        Text(SharedCopy.t("env.systemProbeNote")).font(AppFont.callout).foregroundStyle(Color.token("textSecondary"))
+                        Text(SharedCopy.t("env.campusVerification." + model.campusVerificationState)).font(AppFont.callout)
+                        Text(SharedCopy.t("env.historyScope")).font(AppFont.callout).foregroundStyle(Color.token("textSecondary"))
                     }
                     Divider()
                     VStack(alignment: .leading, spacing: SharedTokens.spaceXs) {
                         Text(SharedCopy.f("env.interfaces", ["list": model.interfaceSummary]))
                             .font(AppFont.callout).textSelection(.enabled)
                         Text(SharedCopy.t("env.note.access"))
-                            .font(AppFont.caption).foregroundStyle(Color.token("textSecondary"))
+                            .font(AppFont.callout).foregroundStyle(Color.token("textSecondary"))
                     }
                     VStack(alignment: .leading, spacing: SharedTokens.spaceXs) {
                         Text(proxyText).font(AppFont.callout)
                         Text(SharedCopy.t("env.note.proxy"))
-                            .font(AppFont.caption).foregroundStyle(Color.token("textSecondary"))
+                            .font(AppFont.callout).foregroundStyle(Color.token("textSecondary"))
                         Text(SharedCopy.t("env.note.tunnel"))
-                            .font(AppFont.caption).foregroundStyle(Color.token("textSecondary"))
+                            .font(AppFont.callout).foregroundStyle(Color.token("textSecondary"))
                     }
                     Divider()
                     VStack(alignment: .leading, spacing: SharedTokens.spaceS) {
@@ -83,14 +80,14 @@ struct NetworkDetailsView: View {
                         Picker(SharedCopy.t("internet.strategy"), selection: Binding(get: { model.customWebsiteStrategy }, set: { model.setWebsiteStrategy($0) })) {
                             ForEach(WebsiteProbeStrategy.allCases, id: \.self) { Text($0.title).tag($0) }
                         }.pickerStyle(.segmented).labelsHidden().disabled(!model.canEditWebsiteTargets)
-                        Text(model.customWebsiteStrategy.sharedDetail).font(AppFont.caption).foregroundStyle(Color.token("textSecondary"))
+                        Text(model.customWebsiteStrategy.sharedDetail).font(AppFont.callout).foregroundStyle(Color.token("textSecondary"))
                     }
                     Divider()
                     diagnosis
                     Divider()
                     VStack(alignment: .leading, spacing: SharedTokens.spaceS) {
                         Text(SharedCopy.t("compat.rules.title")).font(AppFont.callout.weight(.medium))
-                        Text(SharedCopy.t("compat.rules.detail")).font(AppFont.caption).foregroundStyle(Color.token("textSecondary"))
+                        Text(SharedCopy.t("compat.rules.detail")).font(AppFont.callout).foregroundStyle(Color.token("textSecondary"))
                         Text(ProxyRules.rulesText).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
                         ActionButton(title: SharedCopy.t(copied ? "compat.rules.copied" : "compat.rules.copy"), icon: copied ? "check" : "copy") {
                             Clipboard.copy(ProxyRules.rulesText)
@@ -136,29 +133,71 @@ struct NetworkDetailsView: View {
         .accessibilityIdentifier("network.check")
     }
 
-    private func pathResult(_ key: String, report: ConnectivityReport?, running: Bool, checkedAt: Date?) -> some View {
+    private var connectivityTable: some View {
+        Grid(alignment: .leading, horizontalSpacing: SharedTokens.spaceM, verticalSpacing: SharedTokens.spaceM) {
+            GridRow(alignment: .top) {
+                Color.clear.frame(width: 70, height: 1).accessibilityHidden(true)
+                pathHeading("env.systemProbe", checkedAt: model.systemConnectivity == nil ? nil : model.systemConnectivityCheckedAt,
+                            running: model.systemConnectivityChecking)
+                pathHeading("env.physicalProbe", checkedAt: model.lastInternetCheck == nil ? nil : model.lastCheckedAt,
+                            running: model.physicalConnectivityChecking)
+            }
+            Divider().gridCellUnsizedAxes(.horizontal)
+            connectivityRow("records.detail.apple", system: model.systemConnectivity?.appleResult,
+                            physical: model.lastInternetCheck?.base.appleResult)
+            Divider().gridCellUnsizedAxes(.horizontal)
+            connectivityRow("records.detail.microsoft", system: model.systemConnectivity?.microsoftResult,
+                            physical: model.lastInternetCheck?.base.microsoftResult)
+        }
+        .padding(SharedTokens.spaceM)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.token("surfaceMuted"), in: RoundedRectangle(cornerRadius: SharedTokens.radiusMedium))
+        .accessibilityIdentifier("network.comparison")
+    }
+
+    private func pathHeading(_ key: String, checkedAt: Date?, running: Bool) -> some View {
         VStack(alignment: .leading, spacing: SharedTokens.spaceXs) {
-            Text(SharedCopy.t(key)).font(AppFont.caption.weight(.semibold))
-            if running {
-                HStack(spacing: SharedTokens.spaceS) {
-                    ProgressView().controlSize(.small)
-                    Text(SharedCopy.t("dashboard.checking")).font(AppFont.caption)
-                }
-            } else {
-                Text(report?.summary ?? SharedCopy.t("compat.result.notRun")).font(AppFont.caption)
-                    .fixedSize(horizontal: false, vertical: true)
-                if report != nil, let checkedAt {
-                    Text(checkedAt.formatted(date: .omitted, time: .standard)).font(AppFont.caption)
-                        .foregroundStyle(Color.token("textSecondary"))
-                }
+            Text(SharedCopy.t(key)).font(AppFont.callout.weight(.semibold))
+            if !running, let checkedAt {
+                Text(checkedAt.formatted(date: .omitted, time: .standard))
+                    .font(AppFont.caption).foregroundStyle(Color.token("textSecondary"))
             }
         }
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func connectivityRow(_ key: String, system: ConnectivityEndpointResult?,
+                                 physical: ConnectivityEndpointResult?) -> some View {
+        GridRow(alignment: .top) {
+            Text(SharedCopy.t(key)).font(AppFont.callout.weight(.medium))
+            endpointResult(system, running: model.systemConnectivityChecking)
+                .accessibilityLabel(SharedCopy.t(key) + "，" + SharedCopy.t("env.systemProbe") + "，"
+                    + endpointText(system, running: model.systemConnectivityChecking))
+            endpointResult(physical, running: model.physicalConnectivityChecking)
+                .accessibilityLabel(SharedCopy.t(key) + "，" + SharedCopy.t("env.physicalProbe") + "，"
+                    + endpointText(physical, running: model.physicalConnectivityChecking))
+        }
+    }
+
+    private func endpointText(_ result: ConnectivityEndpointResult?, running: Bool) -> String {
+        if running { return SharedCopy.t("dashboard.checking") }
+        guard let result else { return SharedCopy.t("compat.result.notRun") }
+        return result.state == .notCompleted ? SharedCopy.t("dashboard.notWaited") : result.summary
+    }
+
+    private func endpointResult(_ result: ConnectivityEndpointResult?, running: Bool) -> some View {
+        Text(endpointText(result, running: running))
+            .font(AppFont.body)
+            .foregroundStyle(result?.succeeded == true && !running ? Color.tone("success") : Color.token("textPrimary"))
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var diagnosis: some View {
         VStack(alignment: .leading, spacing: SharedTokens.spaceS) {
             Text(SharedCopy.t("compat.title")).font(AppFont.callout.weight(.medium))
-            Text(SharedCopy.t("compat.intro")).font(AppFont.caption).foregroundStyle(Color.token("textSecondary"))
+            Text(SharedCopy.t("compat.intro")).font(AppFont.callout).foregroundStyle(Color.token("textSecondary"))
             if runner.running {
                 HStack(spacing: SharedTokens.spaceS) {
                     ProgressView()
@@ -174,8 +213,8 @@ struct NetworkDetailsView: View {
                 Grid(alignment: .leading, horizontalSpacing: SharedTokens.spaceL, verticalSpacing: SharedTokens.spaceS) {
                     GridRow {
                         Text("")
-                        Text(SharedCopy.t("compat.column.direct")).font(AppFont.caption)
-                        Text(SharedCopy.t("compat.column.system")).font(AppFont.caption)
+                        Text(SharedCopy.t("compat.column.direct")).font(AppFont.callout.weight(.semibold))
+                        Text(SharedCopy.t("compat.column.system")).font(AppFont.callout.weight(.semibold))
                     }
                     GridRow {
                         Text(SharedCopy.t("compat.row.campus"))
@@ -188,6 +227,11 @@ struct NetworkDetailsView: View {
                         Text(SharedCopy.t("compat.result." + input.publicSystem))
                     }
                 }
+                .font(AppFont.body)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(SharedTokens.spaceM)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.token("surfaceMuted"), in: RoundedRectangle(cornerRadius: SharedTokens.radiusMedium))
                 Banner(tone: verdict.offerRules ? "warning" : (verdict.verdict == "allReachable" ? "success" : "info"),
                        title: SharedCopy.t("compat.verdict.\(verdict.verdict).title"),
                        detail: SharedCopy.t("compat.verdict.\(verdict.verdict).detail"))
@@ -208,7 +252,6 @@ struct NetworkDetailsView: View {
         return text
     }
 }
-
 struct HelpSheet: View {
     private let faqs = ["wifi", "cooldown", "noInternet", "rejected", "vpn", "nonCampus", "dorm", "official"]
     private let linkGroups: [(title: String, keys: [String])] = [

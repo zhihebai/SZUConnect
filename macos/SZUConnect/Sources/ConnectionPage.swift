@@ -112,7 +112,8 @@ struct ConnectionPage: View {
         var parts = [SharedCopy.t(model.systemPathIsLeading || model.systemPathIsChecking ? "env.systemProbe" : "env.physicalProbe"), model.connectionKindTitle]
         if model.systemProxyActive { parts.append(SharedCopy.t("dashboard.proxy")) }
         if model.tunnelActive { parts.append(SharedCopy.t("dashboard.tunnel")) }
-        if let date = model.systemPathIsLeading ? model.systemConnectivityCheckedAt : model.lastCheckedAt {
+        if model.displayedConnectivity != nil,
+           let date = model.systemPathIsLeading ? model.systemConnectivityCheckedAt : model.lastCheckedAt {
             let mode = model.displayedConnectivity?.mode ?? model.lastProbeMode
             parts.append((mode?.title ?? "") + " " + date.formatted(date: .omitted, time: .standard))
         }
@@ -276,12 +277,9 @@ struct ConnectionPage: View {
                 Text(SharedCopy.t(model.networkRemembered ? "memory.remembered" : model.currentNetworkAuthorized ? "memory.sessionTrusted" : "memory.notRemembered"))
                     .font(AppFont.caption).foregroundStyle(Color.token("textSecondary"))
                     .fixedSize(horizontal: false, vertical: true)
-                HStack(spacing: 8) {
-                    ViewThatFits(in: .horizontal) {
-                        HStack(spacing: 8) { recoveryActions }
-                        VStack(alignment: .leading, spacing: 8) { recoveryActions }
-                    }
-                    Spacer(minLength: 0)
+                HStack(alignment: .top, spacing: SharedTokens.spaceS) {
+                    FlowLayout(spacing: SharedTokens.spaceS) { recoveryActions }
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     InfoButton(topic: "memory")
                 }
                 if let message = model.memoryVerificationMessage {
