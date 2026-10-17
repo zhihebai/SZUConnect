@@ -1,5 +1,6 @@
 #include "accessibility.hpp"
 
+#include <charconv>
 #include <cstdlib>
 #include <map>
 #include <vector>
@@ -367,10 +368,16 @@ IFACEMETHODIMP NodeProvider::Navigate(NavigateDirection direction, IRawElementPr
     if (!state_->host) return static_cast<HRESULT>(UIA_E_ELEMENTNOTAVAILABLE);
     const Scene& scene = state_->host->host_scene();
     const auto items = accessible(scene);
+    std::size_t anonymous_index = items.size();
+    if (key_.rfind("auto.", 0) == 0) {
+        const char* first = key_.data() + 5;
+        const char* last = key_.data() + key_.size();
+        const auto parsed = std::from_chars(first, last, anonymous_index);
+        if (parsed.ec != std::errc{} || parsed.ptr != last ||
+            (last - first > 1 && *first == '0')) anonymous_index = items.size();
+    }
     for (std::size_t i = 0; i < items.size(); ++i) {
-        // Reuse indexes from the complete accessible list to bound traversal work.
-        const auto current_key = items[i]->id.empty() ? "auto." + std::to_string(i) : items[i]->id;
-        if (current_key != key_) continue;
+        if (items[i]->id.empty() ? i != anonymous_index : items[i]->id != key_) continue;
         const bool next = direction == NavigateDirection_NextSibling;
         if ((next && i + 1 < items.size()) || (!next && i > 0)) {
             const auto adjacent = next ? i + 1 : i - 1;
