@@ -43,7 +43,7 @@ bool SmokeReceipt::finish(const SmokeResult& r, const RuntimeEvidence* e) {
     const bool isolated = e && e->formal_services_created == 0 && e->production_storage_accesses == 0 && e->vault_accesses == 0 &&
         e->network_calls == 0 && e->wifi_calls == 0 && e->watchers_started == 0 && e->autostart_writes == 0;
     const bool passed = r.failure.empty() && isolated && r.window_created && r.canvas_initialized && r.clean_shutdown &&
-        r.fake_auth_passed && r.native_painted_pages.size() == 3 && r.render_frames >= 3 && r.scene_widgets > 0 && r.interaction_checks == 29;
+        r.fake_auth_passed && r.native_painted_pages.size() == 3 && r.render_frames >= 3 && r.scene_widgets > 0 && r.interaction_checks == 49;
     json::Value root = json::Value::object();
     root.set("schemaVersion", json::Value::number(2)); root.set("version", json::Value::string(kVersion));
     root.set("build", json::Value::string(kBuild)); root.set("mode", json::Value::string("offlineSmoke"));

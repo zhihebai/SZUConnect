@@ -22,12 +22,24 @@ class FixtureHost final : public AccessHost {
 public:
     HWND window = nullptr;
     Scene scene;
+    std::string focused;
     HWND host_window() const override { return window; }
     const Scene& host_scene() const override { return scene; }
     float host_scale() const override { return 1; }
-    std::string host_focus() const override { return {}; }
-    void host_set_focus(const std::string&) override {}
-    void host_activate(const std::string&) override {}
+    std::string host_focus() const override { return focused; }
+    void host_set_focus(const std::string& id) override {
+        const Widget* widget = scene.find(id);
+        if (widget && widget->layer == scene.top_layer() && widget->enabled && widget->focusable) focused = id;
+    }
+    void host_activate(const std::string& id) override {
+        const Widget* widget = scene.find(id);
+        if (!widget || widget->layer != scene.top_layer() || !widget->enabled || !widget->action) return;
+        const auto action = widget->action;
+        action();
+    }
+    void key_down(int key) {
+        if (key == VK_RETURN || key == VK_SPACE) host_activate(focused);
+    }
 };
 bool property_is(IRawElementProviderFragment* node, PROPERTYID property, const std::wstring& expected) {
     ComPtr<IRawElementProviderSimple> simple;
@@ -38,6 +50,95 @@ bool property_is(IRawElementProviderFragment* node, PROPERTYID property, const s
         std::wstring(value.bstrVal, SysStringLen(value.bstrVal)) == expected;
     VariantClear(&value);
     return equal;
+}
+void nested_modal_actions(HWND window) {
+    Scene ordering;
+    ordering.layers.resize(3);
+    Widget upper; upper.id = "sheet.close"; upper.layer = 2;
+    Widget lower = upper; lower.layer = 1;
+    ordering.widgets = {upper, lower};
+    check(ordering.find("sheet.close") == &ordering.widgets[0],
+        "same-id lookup prefers the highest modal layer even if a lower layer was appended later");
+    ordering.widgets.push_back(upper);
+    check(ordering.find("sheet.close") == &ordering.widgets.back(),
+        "same-layer lookup prefers the last painted same-id widget");
+    check(!ordering.find("") && !ordering.find("missing"), "empty and missing modal ids do not resolve");
+
+    // Exercise mouse, both keyboard activation keys and actual COM invocation.
+    for (int route : {0, 1, 2, 3}) {
+        FixtureHost host; host.window = window;
+        host.scene.layers.resize(3);
+        host.scene.layers[1].modal = host.scene.layers[2].modal = true;
+        int parent_closed = 0, child_closed = 0;
+        auto close_layer = [&](int layer) {
+            if (layer == 2) ++child_closed; else ++parent_closed;
+            std::erase_if(host.scene.widgets, [=](const Widget& widget) { return widget.layer == layer; });
+            host.scene.layers.pop_back();
+            host.focused.clear();
+        };
+        for (int layer : {1, 2}) {
+            Widget close;
+            close.id = "sheet.close"; close.kind = Kind::button; close.role = Role::button;
+            close.name = layer == 2 ? L"Close account deletion" : L"Close about";
+            close.layer = layer; close.focusable = true; close.scrolls = false;
+            close.rect = D2D1::RectF(340, 12, 384, 56);
+            close.action = [&, layer] { close_layer(layer); };
+            host.scene.widgets.push_back(close);
+        }
+        Accessibility access(host);
+        ComPtr<IRawElementProviderFragment> root;
+        root.Attach(access.root_for_testing());
+        ComPtr<IRawElementProviderFragment> child;
+        const HRESULT child_result = root->Navigate(NavigateDirection_FirstChild, child.GetAddressOf());
+        ComPtr<IInvokeProvider> child_invoke;
+        if (child) child.As(&child_invoke);
+        check(SUCCEEDED(child_result) && child_invoke &&
+            property_is(child.Get(), UIA_NamePropertyId, L"Close account deletion"),
+            "UIA exposes the child close action rather than the obscured parent action");
+
+        host.scene.widgets[1].enabled = false;
+        const Widget* disabled = host.scene.find("sheet.close");
+        host.host_set_focus("sheet.close");
+        host.host_activate("sheet.close");
+        check(disabled && disabled->layer == 2 && !disabled->enabled && !host.scene.hit(362, 34) &&
+            host.scene.focus_order().empty() && host.host_focus().empty() && parent_closed == 0 && child_closed == 0,
+            "disabled child close never falls through to an enabled parent by lookup, mouse, focus or activation");
+        check(child_invoke && child_invoke->Invoke() == static_cast<HRESULT>(UIA_E_ELEMENTNOTENABLED) &&
+            parent_closed == 0 && child_closed == 0,
+            "UIA reports disabled child close without invoking the parent");
+
+        host.scene.widgets[1].enabled = true;
+        const Widget* hit = host.scene.hit(362, 34);
+        const auto focus = host.scene.focus_order();
+        check(hit && hit->layer == 2 && host.scene.find("sheet.close") == hit &&
+            focus.size() == 1 && focus.front() == hit,
+            "nested close lookup, mouse hit and keyboard order identify the same top-layer widget");
+        if (route == 0) {
+            if (hit) { const std::string id = hit->id; host.host_activate(id); }
+        } else if (route == 1 || route == 2) {
+            if (!focus.empty()) host.host_set_focus(focus.front()->id);
+            check(host.host_focus() == "sheet.close", "keyboard can focus the nested close control");
+            host.key_down(route == 1 ? VK_RETURN : VK_SPACE);
+        } else {
+            check(child && SUCCEEDED(child->SetFocus()) && host.host_focus() == "sheet.close",
+                "native UIA focus routes to the nested close control");
+            check(child_invoke && SUCCEEDED(child_invoke->Invoke()), "native UIA invokes the nested close control");
+        }
+        check(child_closed == 1 && parent_closed == 0 && host.scene.top_layer() == 1,
+            "nested close removes only the child and leaves the parent open");
+        const Widget* parent = host.scene.find("sheet.close");
+        check(parent && parent->layer == 1 && host.scene.hit(362, 34) == parent,
+            "parent close is available again after the child is removed");
+        ComPtr<IRawElementProviderFragment> parent_node;
+        const HRESULT parent_result = root->Navigate(NavigateDirection_FirstChild, parent_node.GetAddressOf());
+        ComPtr<IInvokeProvider> parent_invoke;
+        if (parent_node) parent_node.As(&parent_invoke);
+        check(SUCCEEDED(parent_result) && parent_invoke &&
+            property_is(parent_node.Get(), UIA_NamePropertyId, L"Close about") && SUCCEEDED(parent_invoke->Invoke()) &&
+            parent_closed == 1 && child_closed == 1 && host.scene.top_layer() == 0,
+            "fresh native UIA invocation can close the parent after closing its child");
+        access.disconnect();
+    }
 }
 void provider_history(HWND window) {
     constexpr std::size_t count = 1100;
@@ -187,7 +288,7 @@ int main() {
     check(window != nullptr, "create fake history window without application services");
     if (window) {
         ShowWindow(window, SW_SHOWNOACTIVATE); UpdateWindow(window);
-        provider_history(window); paint_history(window); DestroyWindow(window);
+        nested_modal_actions(window); provider_history(window); paint_history(window); DestroyWindow(window);
     }
     CoUninitialize();
     std::printf("native records view: %d checks, %d failures; no data/network services\n", checks, failures);

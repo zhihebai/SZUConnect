@@ -59,7 +59,7 @@ public:
     std::vector<Widget> widgets;
     std::vector<Layer> layers{Layer{}};
     int top_layer() const { return static_cast<int>(layers.size()) - 1; }
-    const Widget* find(const std::string& id) const;
+    const Widget* find(const std::string& id) const;  // highest layer, then last in paint order; includes disabled widgets
     D2D1_RECT_F visible_rect(const Widget& w) const;  // client DIPs, scroll applied
     const Widget* hit(float x, float y) const;        // topmost enabled interactive widget of the top layer
     std::vector<const Widget*> focus_order() const;   // focusable widgets of the top layer, in reading order

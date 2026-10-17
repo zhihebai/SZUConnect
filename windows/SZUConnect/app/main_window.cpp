@@ -480,6 +480,30 @@ void MainWindow::prepare_smoke_scene() {
             }
             close_action();
             if (!state.overlays.empty()) { fail("closeAction"); return; }
+
+            state.overlays = {"about", name};
+            ViewContext nested_context{*app_, state, hwnd_, [] {}, [](const std::string&) {},
+                [&state] { if (!state.overlays.empty()) state.overlays.pop_back(); }, [](const std::string&) {}};
+            const auto before_nested_close = app_->snapshot();
+            for (int expected_layer : {2, 1}) {
+                sample = Scene{};
+                build_scene(sample, canvas_, nested_context, test_width, test_height);
+                const auto* nested_close = sample.find("sheet.close");
+                const auto* nested_title = sample.find("sheet.title");
+                if (sample.top_layer() != expected_layer || !nested_close || !nested_title ||
+                    nested_close->layer != expected_layer || nested_title->layer != expected_layer ||
+                    !nested_close->enabled || !nested_close->action) { fail("nestedCloseLookup"); return; }
+                const auto r = sample.visible_rect(*nested_close);
+                const auto* hit = sample.hit((r.left + r.right) / 2, (r.top + r.bottom) / 2);
+                if (hit != nested_close || sample.find(hit->id) != hit) { fail("nestedCloseHit"); return; }
+                const auto action = nested_close->action;
+                action();
+                if (state.overlays.size() != static_cast<std::size_t>(expected_layer - 1) ||
+                    (expected_layer == 2 && state.overlays.front() != "about")) { fail("nestedCloseStack"); return; }
+                ++smoke_result_.interaction_checks;
+            }
+            if (before_nested_close.has_saved != app_->snapshot().has_saved ||
+                before_nested_close.memory_count != app_->snapshot().memory_count) { fail("nestedCloseMutation"); return; }
         }
     }
     // A resize may synchronously paint; require a fresh paint of the final scrolled scene.
