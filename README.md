@@ -12,8 +12,12 @@
 
 | 平台 | 安装包 | 系统要求 |
 | --- | --- | --- |
-| macOS | [下载 DMG](https://github.com/zhihebai/SZUConnect/releases/download/v0.10.1/SZUConnect-0.10.1-32-macOS-universal.dmg) | macOS 14+，Apple 芯片或 Intel |
-| Windows | [下载 EXE](https://github.com/zhihebai/SZUConnect/releases/download/v0.10.1/SZUConnect-0.10.1-32-win-x64.exe) · [ZIP](https://github.com/zhihebai/SZUConnect/releases/download/v0.10.1/SZUConnect-0.10.1-32-win-x64.zip) | Windows 11 x64 |
+| macOS | [下载 DMG](https://github.com/zhihebai/SZUConnect/releases/download/v1.0.0/SZUConnect-1.0.0-33-macOS-universal.dmg) | macOS 14+，Apple 芯片或 Intel |
+| Windows | [下载 EXE](https://github.com/zhihebai/SZUConnect/releases/download/v1.0.0/SZUConnect-1.0.0-33-win-x64.exe) · [ZIP](https://github.com/zhihebai/SZUConnect/releases/download/v1.0.0/SZUConnect-1.0.0-33-win-x64.zip) | Windows 11 x64 |
+
+[项目说明与使用教程（PDF）](https://github.com/zhihebai/SZUConnect/releases/download/v1.0.0/SZUConnect-Guide.pdf)
+
+PDF 附项目自签证书，用于核对文件完整性；阅读器可能提示签名者身份未知。[签名校验说明](https://github.com/zhihebai/SZUConnect/releases/download/v1.0.0/DOCUMENT-VERIFICATION.md)
 
 macOS 版已签名并通过 Apple 公证。Windows 版尚未签名，首次打开时可能出现系统提示。
 
