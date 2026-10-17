@@ -1,6 +1,6 @@
 # 平台差异
 
-正式交付平台为 macOS 与 Windows。
+目前发布 macOS 与 Windows 版。
 
 | 功能 | macOS | Windows |
 | --- | --- | --- |
@@ -15,7 +15,7 @@
 | 联网显示 | 系统与校园直连分别检测，校园核验独立显示 | 相同；换网后重新检测系统路径 |
 | 辅助功能 | SwiftUI 辅助标签 | UI Automation 提供者 |
 
-Windows 可移植核心用于跨平台规则检查，mock SDK 用于有限语法检查；它们不能替代原生 MSVC 构建或实际界面与设备验收。
+Windows 可移植核心用于跨平台规则检查，mock SDK 用于语法检查；原生构建、界面和设备行为在 Windows 上单独验证。
 
 Windows 提供一键构建、原生核心测试、隔离窗口自检和 ZIP 打包脚本。`--observe-only` 仍可进行真实检测，但不写正式数据或提交校园认证；`--offline-smoke` 使用假服务并自动退出，两种模式不可同时启用。参数及回执说明见 [Windows 构建](../BUILD-WINDOWS.md)。
 

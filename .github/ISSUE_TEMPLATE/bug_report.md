@@ -23,4 +23,4 @@ labels: bug
 
 ## 附件
 
-分享日志或截图前，请隐藏账号、密码、网络名称、令牌和本机路径。安全问题请按[安全报告方式](https://github.com/zhihebai/SZUConnect/security/policy)处理。
+分享日志或截图前，请先隐藏账号、密码、网络名称、令牌和本机路径。安全问题请按[安全报告方式](https://github.com/zhihebai/SZUConnect/security/policy)处理。

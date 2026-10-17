@@ -6,7 +6,13 @@
 
 ## macOS
 
-`AppModel` 在主线程管理状态；`ConnectionPolicy` 和 `RecoveryHolds` 处理提交、暂停、冷却及取消。`PortalClient` 处理门户发现与校园认证；`NetworkIdentity`、`NetworkMemory`、`NetworkLabels` 和 `WiFiRecovery` 分别处理网络观察、恢复资格、显示名称与受限找网。
+| 模块 | 职责 |
+| --- | --- |
+| `AppModel` | 在主线程管理应用状态 |
+| `ConnectionPolicy`、`RecoveryHolds` | 管理提交、暂停、冷却和取消 |
+| `PortalClient` | 发现登录页面，完成校园认证 |
+| `NetworkIdentity`、`NetworkMemory` | 观察网络变化，管理自动恢复资格 |
+| `NetworkLabels`、`WiFiRecovery` | 保存显示名称，按用户设置搜索并连接校园 Wi-Fi |
 
 `ConnectionHealth`、`InternetCheck` 和 `WebsiteDiagnostics` 汇总检测结果。SwiftUI 页面读取状态及共享资源。SRun 编码核心保留 C++ 实现。
 
@@ -32,7 +38,7 @@ iOS 工程用于 Swift/C++ 代码复用探索，尚不属于正式交付平台�
 
 ## 操作归属
 
-换网、休眠、账户编辑和取消会使旧操作失效。异步结果返回后重新检查归属，禁止将旧网络或旧账户结果写入当前状态。已经提交但结果失去归属时保留结果不明保护。
+换网、休眠、账户编辑和取消会使旧操作失效。异步结果返回后，先确认它仍属于当前网络、账户和操作，再更新状态。已提交的旧操作按结果不明处理，继续保留保护。
 
 ## 测试
 
