@@ -6,7 +6,7 @@
 namespace szu::copy {
 namespace {
 struct Entry { std::string_view key; std::string_view value; };
-constexpr std::array<Entry, 961> kEntries = {{
+constexpr std::array<Entry, 963> kEntries = {{
     Entry{"about.atmluck.detail", "校园认证的实现参考并改编自此项目。MIT License © 2026 ATMLuck，完整许可随应用一起提供。"},
     Entry{"about.atmluck.name", "ATMLuck/AutoSZUWeb"},
     Entry{"about.creditsBody", "校园认证参考并改编自 AutoSZUWeb，感谢原作者开源分享。欢迎在 GitHub 提交问题、建议或代码。"},
@@ -727,10 +727,12 @@ constexpr std::array<Entry, 961> kEntries = {{
     Entry{"settings.appearance.light", "浅色"},
     Entry{"settings.appearance.system", "跟随系统"},
     Entry{"settings.appearance.title", "外观"},
+    Entry{"settings.backgroundTitle", "启动与后台"},
     Entry{"settings.closeNote", "关掉窗口后，应用仍在系统托盘运行。要完全退出，可在窗口里按 Ctrl+Q，或在托盘菜单选“退出”。"},
     Entry{"settings.dock.always", "始终显示 Dock 图标"},
     Entry{"settings.dock.detail", "默认随窗口显示。关闭最后一个窗口后，应用仍在菜单栏运行；最小化或隐藏窗口时保留 Dock 图标。"},
     Entry{"settings.dock.failed", "Dock 显示设置暂未生效，仍可从菜单栏打开应用。"},
+    Entry{"settings.dock.systemNote", "macOS 仍可能在 Dock 中保留固定或最近使用的应用入口。"},
     Entry{"settings.dock.title", "Dock 图标"},
     Entry{"settings.dock.unavailable", "无法读取 Dock 设置，原值已保留。"},
     Entry{"settings.helpTitle", "帮助"},

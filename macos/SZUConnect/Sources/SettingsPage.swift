@@ -71,17 +71,21 @@ struct SettingsPage: View {
                 }
             }
             #if os(macOS)
-            Card(padding: SharedTokens.spaceL) {
-                SettingToggleRow(title: SharedCopy.t("settings.launch.title"), detail: SharedCopy.t("settings.launch.detail"),
-                    isOn: Binding(get: { model.launchAtLogin }, set: { model.setLaunchAtLogin($0) }))
-                .disabled(model.sessionReadOnly)
-                .tourTarget(.startup)
-                .id("startup")
-                Divider()
-                SettingToggleRow(title: SharedCopy.t("settings.dock.always"), detail: SharedCopy.t("settings.dock.detail"),
-                    isOn: Binding(get: { model.alwaysShowDockIcon }, set: { model.setAlwaysShowDockIcon($0) }))
-                    .disabled(model.sessionReadOnly || !model.dockPreferenceAvailable)
-                if let error = model.dockVisibilityError { Banner(tone: "warning", title: error) }
+            VStack(alignment: .leading, spacing: SharedTokens.spaceM) {
+                SectionTitle(text: SharedCopy.t("settings.backgroundTitle"))
+                Card(padding: SharedTokens.spaceL) {
+                    SettingToggleRow(title: SharedCopy.t("settings.launch.title"), detail: SharedCopy.t("settings.launch.detail"),
+                        isOn: Binding(get: { model.launchAtLogin }, set: { model.setLaunchAtLogin($0) }))
+                    .disabled(model.sessionReadOnly)
+                    .tourTarget(.startup)
+                    .id("startup")
+                    Divider()
+                    SettingToggleRow(title: SharedCopy.t("settings.dock.always"), detail: SharedCopy.t("settings.dock.detail"),
+                        isOn: Binding(get: { model.alwaysShowDockIcon }, set: { model.setAlwaysShowDockIcon($0) }))
+                        .disabled(model.sessionReadOnly || !model.dockPreferenceAvailable)
+                        .help(SharedCopy.t("settings.dock.systemNote"))
+                    if let error = model.dockVisibilityError { Banner(tone: "warning", title: error) }
+                }
             }
             #endif
             VStack(alignment: .leading, spacing: SharedTokens.spaceM) {
