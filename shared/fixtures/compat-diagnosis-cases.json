@@ -1,0 +1,235 @@
+{
+ "schemaVersion": 1,
+ "description": "只读网络排查用例。对校园与公共端点执行可取消的限时请求头检查；有系统代理时对照两条路径。结果为 reachable、tls、dns、timeout、network、cancelled 或 notRun。由 Python、Swift 和 C++ compat 测试读取；不修改系统设置，offerRules 仅提供可复制规则。",
+ "directRules": [
+  "- DOMAIN,net.szu.edu.cn,DIRECT",
+  "- IP-CIDR,172.30.255.42/32,DIRECT,no-resolve"
+ ],
+ "cases": [
+  {
+   "id": "all-good",
+   "input": {
+    "proxy": "off",
+    "tunnel": "notDetected",
+    "campusDirect": "reachable",
+    "publicDirect": "reachable"
+   },
+   "expected": {
+    "verdict": "allReachable",
+    "recommendations": [
+     "nothingToFix"
+    ],
+    "offerRules": false
+   }
+  },
+  {
+   "id": "needs-login",
+   "input": {
+    "proxy": "off",
+    "tunnel": "notDetected",
+    "campusDirect": "reachable",
+    "publicDirect": "timeout"
+   },
+   "expected": {
+    "verdict": "loginLikelyNeeded",
+    "recommendations": [
+     "loginFirst"
+    ],
+    "offerRules": false
+   }
+  },
+  {
+   "id": "needs-login-proxy-hides",
+   "input": {
+    "proxy": "on",
+    "tunnel": "notDetected",
+    "campusDirect": "reachable",
+    "campusSystem": "reachable",
+    "publicDirect": "network",
+    "publicSystem": "reachable"
+   },
+   "expected": {
+    "verdict": "publicOnlyViaProxy",
+    "recommendations": [
+     "loginFirst",
+     "proxyMayHideLogin"
+    ],
+    "offerRules": false
+   }
+  },
+  {
+   "id": "tun-blocks-campus",
+   "input": {
+    "proxy": "on",
+    "tunnel": "detected",
+    "campusDirect": "timeout",
+    "campusSystem": "timeout",
+    "publicDirect": "reachable",
+    "publicSystem": "reachable"
+   },
+   "expected": {
+    "verdict": "campusBlockedByTunnel",
+    "recommendations": [
+     "addDirectRules",
+     "tunBypassCampus",
+     "retryAfterRules"
+    ],
+    "offerRules": true
+   }
+  },
+  {
+   "id": "tun-blocks-campus-dns",
+   "input": {
+    "proxy": "off",
+    "tunnel": "detected",
+    "campusDirect": "dns",
+    "publicDirect": "reachable"
+   },
+   "expected": {
+    "verdict": "campusBlockedByTunnel",
+    "recommendations": [
+     "addDirectRules",
+     "tunBypassCampus",
+     "retryAfterRules"
+    ],
+    "offerRules": true
+   }
+  },
+  {
+   "id": "campus-only-via-proxy",
+   "input": {
+    "proxy": "on",
+    "tunnel": "notDetected",
+    "campusDirect": "network",
+    "campusSystem": "reachable",
+    "publicDirect": "reachable",
+    "publicSystem": "reachable"
+   },
+   "expected": {
+    "verdict": "campusOnlyViaProxy",
+    "recommendations": [
+     "addDirectRules",
+     "checkRouting"
+    ],
+    "offerRules": true
+   }
+  },
+  {
+   "id": "proxy-on-campus-down",
+   "input": {
+    "proxy": "on",
+    "tunnel": "notDetected",
+    "campusDirect": "timeout",
+    "campusSystem": "timeout",
+    "publicDirect": "timeout",
+    "publicSystem": "timeout"
+   },
+   "expected": {
+    "verdict": "campusUnreachableWithProxy",
+    "recommendations": [
+     "confirmCampusNetwork",
+     "addDirectRules"
+    ],
+    "offerRules": true
+   }
+  },
+  {
+   "id": "off-campus",
+   "input": {
+    "proxy": "off",
+    "tunnel": "notDetected",
+    "campusDirect": "dns",
+    "publicDirect": "reachable"
+   },
+   "expected": {
+    "verdict": "notOnCampusNetwork",
+    "recommendations": [
+     "confirmCampusNetwork"
+    ],
+    "offerRules": false
+   }
+  },
+  {
+   "id": "nothing-reachable",
+   "input": {
+    "proxy": "off",
+    "tunnel": "notDetected",
+    "campusDirect": "network",
+    "publicDirect": "network"
+   },
+   "expected": {
+    "verdict": "campusUnreachable",
+    "recommendations": [
+     "confirmCampusNetwork",
+     "checkCable"
+    ],
+    "offerRules": false
+   }
+  },
+  {
+   "id": "nothing-reachable-tunnel-unknown",
+   "input": {
+    "proxy": "unknown",
+    "tunnel": "unknown",
+    "campusDirect": "timeout",
+    "publicDirect": "timeout"
+   },
+   "expected": {
+    "verdict": "campusUnreachable",
+    "recommendations": [
+     "confirmCampusNetwork",
+     "checkCable",
+     "tunnelStateUnknown"
+    ],
+    "offerRules": false
+   }
+  },
+  {
+   "id": "campus-tls",
+   "input": {
+    "proxy": "on",
+    "tunnel": "detected",
+    "campusDirect": "tls",
+    "publicDirect": "reachable"
+   },
+   "expected": {
+    "verdict": "campusTLS",
+    "recommendations": [
+     "checkClock",
+     "checkInterception"
+    ],
+    "offerRules": false
+   }
+  },
+  {
+   "id": "cancelled",
+   "input": {
+    "proxy": "off",
+    "tunnel": "notDetected",
+    "campusDirect": "cancelled",
+    "publicDirect": "reachable"
+   },
+   "expected": {
+    "verdict": "cancelled",
+    "recommendations": [],
+    "offerRules": false
+   }
+  },
+  {
+   "id": "cancelled-system",
+   "input": {
+    "proxy": "on",
+    "tunnel": "notDetected",
+    "campusDirect": "reachable",
+    "campusSystem": "cancelled",
+    "publicDirect": "reachable",
+    "publicSystem": "reachable"
+   },
+   "expected": {
+    "verdict": "cancelled",
+    "recommendations": [],
+    "offerRules": false
+   }
+  }
+ ]
+}

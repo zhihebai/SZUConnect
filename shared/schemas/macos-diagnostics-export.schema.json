@@ -1,0 +1,934 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "macOS diagnostics export",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "formatVersion",
+    "exportedAt",
+    "appVersion",
+    "build",
+    "mode",
+    "summary",
+    "measurement",
+    "samples",
+    "campusVerification"
+  ],
+  "properties": {
+    "formatVersion": {
+      "const": 1
+    },
+    "exportedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "appVersion": {
+      "type": "string"
+    },
+    "build": {
+      "type": "string"
+    },
+    "mode": {
+      "enum": [
+        "manual",
+        "observe",
+        "recover"
+      ]
+    },
+    "summary": {
+      "type": "string"
+    },
+    "measurement": {
+      "type": "string"
+    },
+    "samples": {
+      "type": "array",
+      "maxItems": 360,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "date",
+          "online",
+          "appleState",
+          "microsoftState",
+          "interface"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "date": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "online": {
+            "type": "boolean"
+          },
+          "latencyMilliseconds": {
+            "type": "number",
+            "minimum": 0
+          },
+          "appleState": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "microsoftState": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "interface": {
+            "enum": [
+              "Wi-Fi",
+              "有线",
+              "Wi-Fi · 有线",
+              "有线 · Wi-Fi",
+              "未知接口"
+            ]
+          },
+          "probeMode": {
+            "enum": [
+              "quick",
+              "complete"
+            ]
+          },
+          "websiteTotal": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 12
+          },
+          "websitePassed": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 12
+          },
+          "appleMilliseconds": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 120000
+          },
+          "microsoftMilliseconds": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 120000
+          },
+          "context": {
+            "$ref": "#/$defs/sampleContext"
+          },
+          "completeResult": {
+            "enum": [
+              "basicPassed",
+              "allPassed",
+              "partial",
+              "unavailable",
+              "cancelled"
+            ]
+          }
+        }
+      }
+    },
+    "campusVerification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state",
+        "issue"
+      ],
+      "properties": {
+        "state": {
+          "enum": [
+            "notChecked",
+            "checking",
+            "confirmed",
+            "unconfirmed"
+          ]
+        },
+        "issue": {
+          "enum": [
+            "none",
+            "dnsTimeout",
+            "dns",
+            "dnsTls",
+            "tls",
+            "connection",
+            "http",
+            "page",
+            "binding"
+          ]
+        }
+      }
+    },
+    "physicalNetwork": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "physicalInterfaceCount",
+        "serviceCount",
+        "candidateCount",
+        "rejections"
+      ],
+      "properties": {
+        "physicalInterfaceCount": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4096
+        },
+        "serviceCount": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4096
+        },
+        "candidateCount": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4096
+        },
+        "rejections": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "systemConfigurationUnavailable": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4096
+            },
+            "interfaceSnapshotUnavailable": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4096
+            },
+            "routeSnapshotUnavailable": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4096
+            },
+            "addressSnapshotUnavailable": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4096
+            },
+            "serviceSnapshotUnavailable": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4096
+            },
+            "invalidDHCPServer": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4096
+            },
+            "invalidDHCPDNS": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4096
+            },
+            "invalidServiceRecord": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4096
+            },
+            "duplicateService": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4096
+            },
+            "missingDescriptor": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4096
+            },
+            "unsupportedInterface": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4096
+            },
+            "inactiveLink": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4096
+            },
+            "missingInterfaceIndex": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4096
+            },
+            "missingSourceAddress": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4096
+            },
+            "invalidSourceAddress": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4096
+            },
+            "sourceAddressMismatch": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4096
+            },
+            "invalidSubnet": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4096
+            },
+            "invalidGateway": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4096
+            },
+            "missingDNS": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4096
+            },
+            "invalidDNS": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4096
+            },
+            "missingDefaultRoute": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4096
+            },
+            "conflictingDefaultRoutes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4096
+            },
+            "gatewayMismatch": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4096
+            },
+            "unstableSnapshot": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4096
+            },
+            "noIPv4Service": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4096
+            },
+            "unsupportedPlatform": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4096
+            }
+          }
+        }
+      }
+    },
+    "environment": {
+      "$ref": "#/$defs/environment"
+    },
+    "recovery": {
+      "$ref": "#/$defs/recovery"
+    },
+    "settings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "monitoringMode",
+        "area",
+        "probeMode",
+        "websiteStrategy"
+      ],
+      "properties": {
+        "monitoringMode": {
+          "enum": [
+            "manual",
+            "observe",
+            "recover"
+          ]
+        },
+        "area": {
+          "enum": [
+            "automatic",
+            "teaching",
+            "dormitory"
+          ]
+        },
+        "probeMode": {
+          "enum": [
+            "quick",
+            "complete"
+          ]
+        },
+        "websiteStrategy": {
+          "enum": [
+            "system",
+            "direct"
+          ]
+        },
+        "intervalSeconds": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 86400
+        }
+      }
+    },
+    "physicalCollectedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "events": {
+      "type": "array",
+      "maxItems": 300,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "date",
+          "message"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "date": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "message": {
+            "type": "string",
+            "maxLength": 8192
+          },
+          "kind": {
+            "const": "failure"
+          },
+          "context": {
+            "$ref": "#/$defs/failureContext"
+          },
+          "authentication": {
+            "$ref": "#/$defs/authentication"
+          }
+        },
+        "dependentRequired": {
+          "kind": [
+            "context"
+          ],
+          "context": [
+            "kind"
+          ]
+        }
+      }
+    },
+    "crashes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "lookbackDays",
+        "records"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "notCollected",
+            "found",
+            "none",
+            "accessDenied",
+            "unavailable",
+            "cancelled",
+            "partial"
+          ]
+        },
+        "lookbackDays": {
+          "const": 7
+        },
+        "collectedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "reason": {
+          "enum": [
+            "unsupportedMetadataSource",
+            "readOnlyOrPreview"
+          ]
+        },
+        "records": {
+          "type": "array",
+          "maxItems": 5,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "date",
+              "version",
+              "exceptionCode"
+            ],
+            "properties": {
+              "date": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "version": {
+                "type": "string",
+                "maxLength": 23,
+                "pattern": "^[0-9]{1,5}(\\.[0-9]{1,5}){0,3}$"
+              },
+              "exceptionCode": {
+                "type": "string",
+                "pattern": "^0x[0-9A-F]{8}([0-9A-F]{8})?$"
+              },
+              "moduleOffset": {
+                "type": "string",
+                "pattern": "^0x00000000(0[0-9A-F]{7}|10000000)$"
+              }
+            }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "notCollected"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "records": {
+                "maxItems": 0
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "reason"
+            ]
+          },
+          "then": {
+            "properties": {
+              "status": {
+                "const": "notCollected"
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  "$defs": {
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "connection",
+        "systemProxy",
+        "tun",
+        "refreshing"
+      ],
+      "properties": {
+        "connection": {
+          "enum": [
+            "wifi",
+            "ethernet",
+            "multiple",
+            "tunnelHidden",
+            "none",
+            "unknown"
+          ]
+        },
+        "systemProxy": {
+          "enum": [
+            "on",
+            "off",
+            "unknown"
+          ]
+        },
+        "tun": {
+          "enum": [
+            "detected",
+            "notDetected",
+            "unknown"
+          ]
+        },
+        "refreshing": {
+          "type": "boolean"
+        }
+      }
+    },
+    "recovery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state",
+        "readOnly",
+        "paused",
+        "networkAvailable",
+        "networkRemembered",
+        "sessionTrusted",
+        "holdReasons"
+      ],
+      "properties": {
+        "state": {
+          "enum": [
+            "off",
+            "needsAccount",
+            "paused",
+            "needsTrust",
+            "coolingDown",
+            "limited",
+            "ready",
+            "awaitingProof",
+            "unknown"
+          ]
+        },
+        "readOnly": {
+          "type": "boolean"
+        },
+        "paused": {
+          "type": "boolean"
+        },
+        "networkAvailable": {
+          "type": "boolean"
+        },
+        "networkRemembered": {
+          "type": "boolean"
+        },
+        "sessionTrusted": {
+          "type": "boolean"
+        },
+        "holdReasons": {
+          "type": "array",
+          "maxItems": 4,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "userPaused",
+              "security",
+              "uncertain",
+              "credentials"
+            ]
+          }
+        },
+        "cooldownRemainingSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 86400
+        }
+      }
+    },
+    "sampleContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "phase",
+        "operation",
+        "monitoringMode",
+        "area",
+        "startedAt",
+        "environment"
+      ],
+      "properties": {
+        "phase": {
+          "const": "connectivityCheck"
+        },
+        "operation": {
+          "enum": [
+            "manual",
+            "automatic"
+          ]
+        },
+        "monitoringMode": {
+          "enum": [
+            "manual",
+            "observe",
+            "recover"
+          ]
+        },
+        "area": {
+          "enum": [
+            "automatic",
+            "teaching",
+            "dormitory"
+          ]
+        },
+        "startedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "environment": {
+          "$ref": "#/$defs/environment"
+        }
+      }
+    },
+    "failureContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "phase",
+        "kind",
+        "result",
+        "startedAt",
+        "collectedAt",
+        "operation",
+        "monitoringMode",
+        "area",
+        "environment",
+        "status",
+        "campusVerification",
+        "recovery"
+      ],
+      "properties": {
+        "phase": {
+          "const": "operationResult"
+        },
+        "kind": {
+          "enum": [
+            "connection",
+            "campusVerification"
+          ]
+        },
+        "result": {
+          "enum": [
+            "operationFailed",
+            "verificationFailed",
+            "memoryWriteFailed",
+            "identificationUnavailable"
+          ]
+        },
+        "startedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "collectedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "operation": {
+          "enum": [
+            "manual",
+            "automatic"
+          ]
+        },
+        "monitoringMode": {
+          "enum": [
+            "manual",
+            "observe",
+            "recover"
+          ]
+        },
+        "area": {
+          "enum": [
+            "automatic",
+            "teaching",
+            "dormitory"
+          ]
+        },
+        "environment": {
+          "$ref": "#/$defs/environment"
+        },
+        "status": {
+          "enum": [
+            "idle",
+            "checking",
+            "discovering",
+            "loggingIn",
+            "verifying",
+            "online",
+            "offline",
+            "confirming",
+            "paused",
+            "coolingDown",
+            "unconfirmed",
+            "needsTrust",
+            "needsAccount",
+            "accepted",
+            "rejected",
+            "uncertain",
+            "security",
+            "unavailable",
+            "cancelled",
+            "noNetwork",
+            "sleeping",
+            "unknown"
+          ]
+        },
+        "campusVerification": {
+          "$ref": "#/properties/campusVerification"
+        },
+        "recovery": {
+          "$ref": "#/$defs/recovery"
+        },
+        "physicalNetwork": {
+          "$ref": "#/properties/physicalNetwork"
+        },
+        "physicalCollectedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "authentication": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "area",
+        "stage",
+        "path",
+        "result",
+        "code",
+        "saved"
+      ],
+      "properties": {
+        "area": {
+          "enum": [
+            "teaching",
+            "dormitory"
+          ]
+        },
+        "stage": {
+          "enum": [
+            "homepage",
+            "challenge",
+            "submission"
+          ]
+        },
+        "path": {
+          "enum": [
+            "/srun_portal_pc",
+            "/cgi-bin/get_challenge",
+            "/cgi-bin/srun_portal",
+            "/eportal/portal/login"
+          ]
+        },
+        "httpStatus": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 599
+        },
+        "acID": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]{0,7}$"
+        },
+        "result": {
+          "enum": [
+            "success",
+            "rejected",
+            "invalidCredentials",
+            "uncertain",
+            "security",
+            "unavailable",
+            "challengeRefused",
+            "cancelled"
+          ]
+        },
+        "code": {
+          "enum": [
+            "accepted",
+            "explicitRejection",
+            "missingStatus",
+            "conflictingStatus",
+            "invalidStatus",
+            "existingSession",
+            "malformedResponse",
+            "transportFailure",
+            "httpFailure",
+            "securityFailure",
+            "cancelled"
+          ]
+        },
+        "serverCode": {
+          "enum": [
+            "E2553",
+            "E2531",
+            "E2833",
+            "nas_ip_error",
+            "ac_id_error",
+            "ip_already_online_error",
+            "unknown"
+          ]
+        },
+        "saved": {
+          "type": "boolean"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "stage": {
+                "const": "homepage"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "area": {
+                "const": "teaching"
+              },
+              "path": {
+                "const": "/srun_portal_pc"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "stage": {
+                "const": "challenge"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "area": {
+                "const": "teaching"
+              },
+              "path": {
+                "const": "/cgi-bin/get_challenge"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "stage": {
+                "const": "submission"
+              }
+            }
+          },
+          "then": {
+            "oneOf": [
+              {
+                "properties": {
+                  "area": {
+                    "const": "teaching"
+                  },
+                  "path": {
+                    "const": "/cgi-bin/srun_portal"
+                  }
+                }
+              },
+              {
+                "properties": {
+                  "area": {
+                    "const": "dormitory"
+                  },
+                  "path": {
+                    "const": "/eportal/portal/login"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

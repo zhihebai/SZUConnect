@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "description": "提交后明确拒绝的分类用例，由 Python、Swift PortalWire 和 C++ wire 校验。密码、账号和固定区域错误保留持久保护，其他候选拒绝仅限当前网络；未知文本归为 unspecified，不因此重试认证。",
+  "cases": [
+    {"id": "srun-password-code", "response": {"error": "login_error", "error_msg": "E2553: Password is error.", "res": "login_error"}, "kind": "password"},
+    {"id": "srun-ldap", "response": {"error": "login_error", "error_msg": "ldap auth error"}, "kind": "password"},
+    {"id": "srun-user-not-found", "response": {"error": "login_error", "error_msg": "E2531: User not found."}, "kind": "account"},
+    {"id": "srun-dhcp-table", "response": {"error": "login_error", "error_msg": "E2833: Your IP address is not in the dhcp table. Maybe you need to renew the IP address."}, "kind": "areaMismatch"},
+    {"id": "srun-ac-id", "response": {"error": "login_error", "ploy_msg": "ac_id_error"}, "kind": "areaMismatch"},
+    {"id": "srun-generic", "response": {"error": "login_error", "res": "login_error"}, "kind": "unspecified"},
+    {"id": "srun-arrears", "response": {"error": "login_error", "error_msg": "E2616: Arrearage users."}, "kind": "unspecified"},
+    {"id": "drcom-password-cn", "response": {"result": 0, "msg": "账号或密码错误"}, "kind": "password"},
+    {"id": "drcom-user-missing", "response": {"result": 0, "msg": "userid error1"}, "kind": "account"},
+    {"id": "drcom-area-cn", "response": {"result": 0, "msg": "IP地址不在认证范围内"}, "kind": "areaMismatch"},
+    {"id": "drcom-unknown", "response": {"result": 0, "msg": "认证失败"}, "kind": "unspecified"},
+    {"id": "empty-object", "response": {}, "kind": "unspecified"},
+    {"id": "non-string-fields", "response": {"error": 1, "msg": ["密码错误"]}, "kind": "unspecified"},
+    {"id": "case-insensitive", "response": {"error_msg": "PASSWORD IS ERROR"}, "kind": "password"}
+  ]
+}

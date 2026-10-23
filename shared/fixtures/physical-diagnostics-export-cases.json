@@ -1,0 +1,31 @@
+{
+  "cases": [
+    {
+      "id": "bounded-rejections",
+      "interfaceCount": 1000000,
+      "candidateCount": 0,
+      "rejections": {"missingDNS": 1000000, "inactiveLink": 1, "invalidDNS": 0},
+      "expected": {"physicalInterfaceCount": 4096, "candidateCount": 0, "rejections": {"inactiveLink": 1, "missingDNS": 4096}},
+      "detailKey": "env.identification.reason.missingDNS",
+      "summary": "physical interfaces=4096 candidates=0 reasons=inactiveLink=1,missingDNS=4096"
+    },
+    {
+      "id": "candidate-is-not-authority",
+      "interfaceCount": 2,
+      "candidateCount": 1,
+      "rejections": {"missingDNS": 1},
+      "expected": {"physicalInterfaceCount": 2, "candidateCount": 1, "rejections": {"missingDNS": 1}},
+      "detailKey": "env.identification.awaitingRefresh",
+      "summary": "physical interfaces=2 candidates=1 reasons=missingDNS=1"
+    },
+    {
+      "id": "empty-counters",
+      "interfaceCount": 0,
+      "candidateCount": 0,
+      "rejections": {},
+      "expected": {"physicalInterfaceCount": 0, "candidateCount": 0, "rejections": {}},
+      "detailKey": "env.identification.notCollected",
+      "summary": "physical interfaces=0 candidates=0 reasons=none"
+    }
+  ]
+}

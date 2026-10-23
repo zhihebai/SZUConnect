@@ -1,0 +1,45 @@
+# Build products and local tool state
+build/
+.build/
+build-core-tests/
+DerivedData/
+.swiftpm/
+node_modules/
+Pods/
+__pycache__/
+*.py[cod]
+*.o
+*.obj
+*.exe
+*.dll
+*.pdb
+*.ilk
+*.app/
+*.dSYM/
+*.ipa
+*.dmg
+*.zip
+*.log
+.DS_Store
+
+# IDE and signing state
+xcuserdata/
+*.xcuserstate
+.vs/
+*.user
+*.suo
+*.p12
+*.pfx
+*.mobileprovision
+*.provisionprofile
+*.key
+.env
+.env.*
+!.env.example
+
+# Private diagnostics, local reports and screenshots
+evidence/
+private/
+local-reports/
+outputs/
+preview-output/

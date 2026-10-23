@@ -1,0 +1,148 @@
+{
+  "schemaVersion": 1,
+  "description": "SRun 编码与请求格式用例，由 Python 参考模型及 macOS／Windows 离线测试读取。输入为公开测试假值，覆盖范围限于可打印字符。",
+  "alphabet": "LVoJPiCN2R8G90yg+hmFHuacZ1OWMnrsSTXkYpUq/3dlbfKwv6xztjI7DeBE45QA",
+  "xencodeBase64": [
+    {
+      "id": "empty",
+      "data": "",
+      "key": "k",
+      "expected": ""
+    },
+    {
+      "id": "one-byte",
+      "data": "a",
+      "key": "0123456789abcdef",
+      "expected": "ozirbATTtMD="
+    },
+    {
+      "id": "three-bytes",
+      "data": "abc",
+      "key": "0123456789abcdef",
+      "expected": "IfN+sI8mbyv="
+    },
+    {
+      "id": "four-bytes",
+      "data": "abcd",
+      "key": "0123456789abcdef",
+      "expected": "8mldMaXaIpH="
+    },
+    {
+      "id": "five-bytes",
+      "data": "abcde",
+      "key": "0123456789abcdef",
+      "expected": "nCtT/geAfwqqAkKB"
+    },
+    {
+      "id": "short-key",
+      "data": "hello srun",
+      "key": "k",
+      "expected": "11iN7s8I1tk94m8WSOVhcL=="
+    },
+    {
+      "id": "long-key",
+      "data": "hello srun",
+      "key": "kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk",
+      "expected": "oGYr/9XjivELZnhxRl5aZ+=="
+    },
+    {
+      "id": "utf8-cjk",
+      "data": "深圳大学 校园网",
+      "key": "0123456789abcdef0123456789abcdef",
+      "expected": "QAmRQ8wu29TNraV7f1yMllYOcFcnhxujkAciUS=="
+    },
+    {
+      "id": "json-like",
+      "data": "{\"username\":\"student\",\"password\":\"p@ss\"}",
+      "key": "0123456789abcdef0123456789abcdef",
+      "expected": "Zgi2Hw96gBztWJi7CHeIWZfCZixbdYTPYFjb4os0Aw7aKVldOqjv4ihT9gS="
+    },
+    {
+      "id": "sixteen",
+      "data": "0123456789abcdef",
+      "key": "0123456789abcdef0123456789abcdef",
+      "expected": "F/HPuiib51QvIv4cd7GWWFLkNGt="
+    },
+    {
+      "id": "sixty-five",
+      "data": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "key": "0123456789abcdef0123456789abcdef",
+      "expected": "bzKPK4QAEbwC3syt20HJptG8M0iB6NPkmZlu4RHdOg2T+LDRZZ+XI5HWMgZCufSeS4YgfXOpa9mK9q1lMqrRzmWFl7KDqXZ8"
+    }
+  ],
+  "hmacMD5": [
+    {
+      "id": "basic",
+      "data": "pass+&word",
+      "key": "0123456789abcdef0123456789abcdef",
+      "expected": "88cc168aaf538f35a446bf5101fb6ce4"
+    },
+    {
+      "id": "empty-data",
+      "data": "",
+      "key": "0123456789abcdef0123456789abcdef",
+      "expected": "eae937a2fce2d5bb7ac00c6bcbcbaca7"
+    },
+    {
+      "id": "cjk",
+      "data": "密码🙂",
+      "key": "0123456789abcdef0123456789abcdef",
+      "expected": "efc0b39a11133ef54a7f362aa190db1f"
+    }
+  ],
+  "sha1": [
+    {
+      "id": "empty",
+      "data": "",
+      "expected": "da39a3ee5e6b4b0d3255bfef95601890afd80709"
+    },
+    {
+      "id": "abc",
+      "data": "abc",
+      "expected": "a9993e364706816aba3e25717850c26c9cd0d89d"
+    },
+    {
+      "id": "cjk",
+      "data": "深大随连",
+      "expected": "7cee4ed0f24b713501d8b3545d03b7014b5afa2e"
+    }
+  ],
+  "payload": [
+    {
+      "id": "baseline",
+      "account": "student",
+      "password": "pass+&word",
+      "challenge": "0123456789abcdef0123456789abcdef",
+      "ip": "10.2.3.4",
+      "acID": "1",
+      "infoJSON": "{\"username\":\"student\",\"password\":\"pass+&word\",\"ip\":\"10.2.3.4\",\"acid\":\"1\",\"enc_ver\":\"srun_bx1\"}",
+      "info": "{SRBX1}hIv/DExCB4eKvW9Wraa1oNYV1tQ46tgselGVxjee4cNQSomKI1JXP+bNsnF1/869dYzg8jy5J6yyt0fgY3Xojj3daok6ruiYbrve5PNdLC9UxdNQOZUt+TeuYPIuqGr6j++TBS==",
+      "hash": "88cc168aaf538f35a446bf5101fb6ce4",
+      "checksum": "7e5547e0de24a1c287076e4a94fb7d959dd1ddc8"
+    },
+    {
+      "id": "quote-and-slash",
+      "account": "2023123456",
+      "password": "a\"b\\c/d",
+      "challenge": "0123456789abcdef0123456789abcdef",
+      "ip": "172.29.1.2",
+      "acID": "12",
+      "infoJSON": "{\"username\":\"2023123456\",\"password\":\"a\\\"b\\\\c/d\",\"ip\":\"172.29.1.2\",\"acid\":\"12\",\"enc_ver\":\"srun_bx1\"}",
+      "info": "{SRBX1}u69wHAGRHi+pN1xxvjEjUbRIdk5Y+0ED/PYqPhGqV1rz7tpiIfTWz5slNb/aFpokSof1ZKkRWEgs2J7t83oGKWhTiAEs8Jgpmod1ZQoB9BWX8eImkeuzo2ZFLlg1BMlvq8vQZ/bjhnZ=",
+      "hash": "decccb77042dddefdeca0b4beda1a531",
+      "checksum": "1c1f30dd08109ad42a17b33eccac82ac529568a2"
+    },
+    {
+      "id": "unicode-password",
+      "account": "fixture-A",
+      "password": "密码 with space",
+      "challenge": "0123456789abcdef0123456789abcdef",
+      "ip": "10.0.0.8",
+      "acID": "3",
+      "infoJSON": "{\"username\":\"fixture-A\",\"password\":\"密码 with space\",\"ip\":\"10.0.0.8\",\"acid\":\"3\",\"enc_ver\":\"srun_bx1\"}",
+      "info": "{SRBX1}4s8FlKsKAcgtkQzBMcaY5yOIJnEGUWMizKWELOwxJOrysJPuJwqZH2ehv13LhIMKqitobswSIuEi2nR4tCLXdJqxhYFPmkyKUG5jS3dvOpfwtAVUuT8mt0duxV4KtDRAagfbp7OC/MxsNa8j",
+      "hash": "028190bdb6a0960e04c23742242b72ec",
+      "checksum": "b4d455b85c234e92c2539c407380e65f2c566b89"
+    }
+  ]
+}

@@ -1,0 +1,189 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Windows diagnostics export",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["formatVersion", "exportedAt", "app", "settings", "summary", "measurement", "samples", "events", "privacy"],
+  "properties": {
+    "formatVersion": {"const": 1},
+    "exportedAt": {"type": "string", "format": "date-time"},
+    "app": {
+      "type": "object", "additionalProperties": false,
+      "required": ["version", "build", "platform"],
+      "properties": {"version": {"type": "string"}, "build": {"type": "string"}, "platform": {"const": "windows"}}
+    },
+    "settings": {
+      "type": "object", "additionalProperties": false,
+      "required": ["monitoringMode", "area", "probeMode"],
+      "properties": {
+        "monitoringMode": {"enum": ["manual", "observe", "recover"]},
+        "area": {"enum": ["automatic", "teaching", "dormitory"]},
+        "probeMode": {"enum": ["quick", "complete"]}
+      }
+    },
+    "summary": {
+      "type": "object", "additionalProperties": false,
+      "required": ["samples", "successPercent"],
+      "properties": {
+        "samples": {"type": "integer", "minimum": 0, "maximum": 360},
+        "successPercent": {"type": "integer", "minimum": 0, "maximum": 100},
+        "medianLatencyMilliseconds": {"type": "number", "minimum": 0}
+      }
+    },
+    "measurement": {"type": "string"},
+    "samples": {
+      "type": "array", "maxItems": 360,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["date", "online", "mode", "apple", "microsoft"],
+        "properties": {
+          "date": {"type": "string", "format": "date-time"},
+          "online": {"type": "boolean"},
+          "mode": {"type": "string"},
+          "apple": {"type": "string"},
+          "microsoft": {"type": "string"},
+          "appleMilliseconds": {"type": "number", "minimum": 0, "maximum": 120000},
+          "microsoftMilliseconds": {"type": "number", "minimum": 0, "maximum": 120000},
+          "diagnosis": {"enum": ["online", "portal", "response", "security", "dns", "timeout", "unreachable", "incomplete"]},
+          "completeResult": {"enum": ["allPassed", "partial", "unavailable", "cancelled"]},
+          "context": {"$ref": "#/$defs/sampleContext"},
+          "latencyMilliseconds": {"type": "number", "minimum": 0},
+          "websiteTotal": {"type": "integer", "minimum": 0, "maximum": 12},
+          "websitePassed": {"type": "integer", "minimum": 0, "maximum": 12}
+        }
+      }
+    },
+    "events": {
+      "type": "array", "maxItems": 300,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["date", "message"],
+        "properties": {"date": {"type": "string", "format": "date-time"}, "message": {"type": "string"}, "kind": {"const": "failure"}, "context": {"$ref": "#/$defs/failureContext"}}
+      }
+    },
+    "privacy": {"type": "string"},
+    "campusVerification": {
+      "type": "object", "additionalProperties": false,
+      "required": ["state", "issue"],
+      "properties": {
+        "state": {"enum": ["notChecked", "checking", "confirmed", "unconfirmed"]},
+        "issue": {"enum": ["none", "dnsTimeout", "dns", "tls", "connection", "http", "page", "binding", "dnsTls"]}
+      }
+    },
+    "physicalNetwork": {"$ref": "#/$defs/physicalNetwork"},
+    "crashes": {
+      "type": "object", "additionalProperties": false,
+      "required": ["status", "lookbackDays", "records"],
+      "properties": {
+        "status": {"enum": ["notCollected", "found", "none", "accessDenied", "unavailable", "cancelled", "partial"]},
+        "lookbackDays": {"const": 7},
+        "collectedAt": {"type": "string", "format": "date-time"},
+        "records": {
+          "type": "array", "maxItems": 5,
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["date", "version", "exceptionCode"],
+            "properties": {
+              "date": {"type": "string", "format": "date-time"},
+              "version": {"type": "string", "maxLength": 23, "pattern": "^[0-9]{1,5}(\\.[0-9]{1,5}){0,3}$"},
+              "exceptionCode": {"type": "string", "pattern": "^0x[0-9A-F]{8}$"},
+              "moduleOffset": {"type": "string", "pattern": "^0x00000000(0[0-9A-F]{7}|10000000)$"}
+            }
+          }
+        }
+      }
+    },
+    "environment": {
+      "type": "object", "additionalProperties": false,
+      "required": ["connection", "systemProxy", "tun", "refreshing"],
+      "properties": {
+        "connection": {"enum": ["wifi", "ethernet", "multiple", "tunnelHidden", "none", "unknown"]},
+        "systemProxy": {"enum": ["on", "off", "unknown"]},
+        "tun": {"enum": ["detected", "notDetected", "unknown"]},
+        "refreshing": {"type": "boolean"}
+      }
+    },
+    "recovery": {
+      "type": "object", "additionalProperties": false,
+      "required": ["state", "readOnly", "paused", "networkAvailable", "networkRemembered", "sessionTrusted", "holdReasons"],
+      "properties": {
+        "state": {"enum": ["off", "needsAccount", "paused", "needsTrust", "coolingDown", "limited", "ready", "awaitingProof", "unknown"]},
+        "readOnly": {"type": "boolean"},
+        "paused": {"type": "boolean"},
+        "networkAvailable": {"type": "boolean"},
+        "networkRemembered": {"type": "boolean"},
+        "sessionTrusted": {"type": "boolean"},
+        "holdReasons": {"type": "array", "maxItems": 4, "uniqueItems": true, "items": {"enum": ["userPaused", "security", "uncertain", "credentials"]}},
+        "cooldownRemainingSeconds": {"type": "integer", "minimum": 1, "maximum": 86400}
+      }
+    }
+  },
+  "$defs": {
+    "failureContext": {
+      "type": "object", "additionalProperties": false,
+      "required": ["phase", "kind", "result", "startedAt", "collectedAt", "operation", "monitoringMode", "area", "environment", "status", "campusVerification", "recovery"],
+      "properties": {
+        "phase": {"const": "operationResult"},
+        "kind": {"enum": ["connection", "campusVerification"]},
+        "result": {"enum": ["operationFailed", "verificationFailed", "memoryWriteFailed", "identificationUnavailable"]},
+        "startedAt": {"type": "string", "format": "date-time"},
+        "collectedAt": {"type": "string", "format": "date-time"},
+        "operation": {"enum": ["manual", "automatic"]},
+        "monitoringMode": {"enum": ["manual", "observe", "recover"]},
+        "area": {"enum": ["automatic", "teaching", "dormitory"]},
+        "environment": {"$ref": "#/properties/environment"},
+        "status": {"enum": ["idle", "checking", "discovering", "loggingIn", "verifying", "online", "offline", "confirming", "paused", "coolingDown", "unconfirmed", "needsTrust", "needsAccount", "accepted", "rejected", "uncertain", "security", "unavailable", "cancelled", "noNetwork", "sleeping", "unknown"]},
+        "campusVerification": {"$ref": "#/properties/campusVerification"},
+        "recovery": {"$ref": "#/properties/recovery"},
+        "physicalNetwork": {"$ref": "#/$defs/physicalNetwork"},
+        "physicalCollectedAt": {"type": "string", "format": "date-time"}
+      }
+    },
+    "sampleContext": {
+      "type": "object", "additionalProperties": false,
+      "required": ["phase", "operation", "monitoringMode", "area", "startedAt", "environment"],
+      "properties": {
+        "phase": {"const": "connectivityCheck"},
+        "operation": {"enum": ["manual", "automatic"]},
+        "monitoringMode": {"enum": ["manual", "observe", "recover"]},
+        "area": {"enum": ["automatic", "teaching", "dormitory"]},
+        "startedAt": {"type": "string", "format": "date-time"},
+        "environment": {"$ref": "#/properties/environment"}
+      }
+    },
+    "counter": {"type": "integer", "minimum": 0, "maximum": 4096},
+    "reasonCounter": {"type": "integer", "minimum": 1, "maximum": 4096},
+    "physicalNetwork": {
+      "type": "object", "additionalProperties": false,
+      "required": ["physicalInterfaceCount", "candidateCount", "rejections"],
+      "properties": {
+        "physicalInterfaceCount": {"$ref": "#/$defs/counter"},
+        "candidateCount": {"$ref": "#/$defs/counter"},
+        "rejections": {
+          "type": "object", "additionalProperties": false,
+          "properties": {
+            "systemSnapshotUnavailable": {"$ref": "#/$defs/reasonCounter"},
+            "duplicateInterface": {"$ref": "#/$defs/reasonCounter"},
+            "unsupportedInterface": {"$ref": "#/$defs/reasonCounter"},
+            "inactiveLink": {"$ref": "#/$defs/reasonCounter"},
+            "missingInterfaceIndex": {"$ref": "#/$defs/reasonCounter"},
+            "missingSourceAddress": {"$ref": "#/$defs/reasonCounter"},
+            "invalidSourceAddress": {"$ref": "#/$defs/reasonCounter"},
+            "invalidSubnet": {"$ref": "#/$defs/reasonCounter"},
+            "invalidGateway": {"$ref": "#/$defs/reasonCounter"},
+            "missingDNS": {"$ref": "#/$defs/reasonCounter"},
+            "invalidDNS": {"$ref": "#/$defs/reasonCounter"},
+            "missingDescriptor": {"$ref": "#/$defs/reasonCounter"},
+            "missingDefaultRoute": {"$ref": "#/$defs/reasonCounter"},
+            "conflictingDefaultRoutes": {"$ref": "#/$defs/reasonCounter"},
+            "gatewayMismatch": {"$ref": "#/$defs/reasonCounter"},
+            "associatedDNSMismatch": {"$ref": "#/$defs/reasonCounter"},
+            "invalidDHCPServer": {"$ref": "#/$defs/reasonCounter"},
+            "unstableSnapshot": {"$ref": "#/$defs/reasonCounter"},
+            "noIPv4Service": {"$ref": "#/$defs/reasonCounter"}
+          }
+        }
+      }
+    }
+  }
+}

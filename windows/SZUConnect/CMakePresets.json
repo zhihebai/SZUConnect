@@ -1,0 +1,30 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": {"major": 3, "minor": 21, "patch": 0},
+  "configurePresets": [
+    {
+      "name": "windows-x64",
+      "displayName": "Windows 11 x64 (Visual Studio 2022, MSVC)",
+      "generator": "Visual Studio 17 2022",
+      "architecture": {"value": "x64", "strategy": "set"},
+      "binaryDir": "${sourceDir}/build/windows-x64",
+      "condition": {"type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows"}
+    },
+    {
+      "name": "core-only",
+      "displayName": "Portable core + tests (any OS, default generator)",
+      "binaryDir": "${sourceDir}/build/core",
+      "cacheVariables": {"CMAKE_BUILD_TYPE": "Release"}
+    }
+  ],
+  "buildPresets": [
+    {"name": "windows-release", "configurePreset": "windows-x64", "configuration": "Release"},
+    {"name": "windows-debug", "configurePreset": "windows-x64", "configuration": "Debug"},
+    {"name": "core", "configurePreset": "core-only"}
+  ],
+  "testPresets": [
+    {"name": "windows-release", "configurePreset": "windows-x64", "configuration": "Release", "output": {"outputOnFailure": true}},
+    {"name": "windows-debug", "configurePreset": "windows-x64", "configuration": "Debug", "output": {"outputOnFailure": true}},
+    {"name": "core", "configurePreset": "core-only", "output": {"outputOnFailure": true}}
+  ]
+}

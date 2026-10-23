@@ -1,0 +1,946 @@
+{
+  "schemaVersion": 1,
+  "description": "首页状态用例。输入为引擎事实，预期为文案键、颜色语义和操作标识；由 Python、Swift StatusPresenter 和 C++ status::present 校验。文案键须存在于 shared/copy.zh-CN.json。",
+  "statusVocabulary": [
+    "idle",
+    "checking",
+    "discovering",
+    "loggingIn",
+    "verifying",
+    "online",
+    "offline",
+    "confirming",
+    "paused",
+    "coolingDown",
+    "unconfirmed",
+    "needsTrust",
+    "needsAccount",
+    "accepted",
+    "rejected",
+    "uncertain",
+    "security",
+    "unavailable",
+    "cancelled",
+    "noNetwork",
+    "sleeping"
+  ],
+  "actionVocabulary": [
+    "check",
+    "login",
+    "cancel",
+    "account",
+    "resume",
+    "trust",
+    "network",
+    "forceLogin",
+    "guard"
+  ],
+  "toneVocabulary": [
+    "neutral",
+    "info",
+    "busy",
+    "success",
+    "warning",
+    "danger"
+  ],
+  "cases": [
+    {
+      "id": "S01",
+      "title": "新装：未检测、无账户、手动检测",
+      "input": {
+        "status": "idle",
+        "diagnosis": null,
+        "probeMode": "quick",
+        "passedCount": 0,
+        "mode": "manual",
+        "readOnly": false,
+        "hasDraft": false,
+        "autoLogin": "off",
+        "hold": null,
+        "offerForcedLogin": false
+      },
+      "expected": {
+        "tone": "neutral",
+        "headline": "status.idle.headline",
+        "detail": "status.idle.detail",
+        "primary": "check",
+        "secondary": null,
+        "chip": "auto.manual.chip",
+        "chipTone": "neutral",
+        "banner": null
+      }
+    },
+    {
+      "id": "S02",
+      "title": "未检测、已有账户、自动恢复就绪",
+      "input": {
+        "status": "idle",
+        "diagnosis": null,
+        "probeMode": "quick",
+        "passedCount": 0,
+        "mode": "recover",
+        "readOnly": false,
+        "hasDraft": true,
+        "autoLogin": "ready",
+        "hold": null,
+        "offerForcedLogin": false
+      },
+      "expected": {
+        "tone": "neutral",
+        "headline": "status.idle.headline",
+        "detail": "status.idle.detail",
+        "primary": "check",
+        "secondary": "login",
+        "chip": "auto.ready.chip",
+        "chipTone": "success",
+        "banner": null
+      }
+    },
+    {
+      "id": "S03",
+      "title": "没有网络",
+      "input": {
+        "status": "noNetwork",
+        "diagnosis": null,
+        "probeMode": "quick",
+        "passedCount": 0,
+        "mode": "recover",
+        "readOnly": false,
+        "hasDraft": true,
+        "autoLogin": "ready",
+        "hold": null,
+        "offerForcedLogin": false
+      },
+      "expected": {
+        "tone": "warning",
+        "headline": "status.noNetwork.headline",
+        "detail": "status.noNetwork.detail",
+        "primary": null,
+        "secondary": "network",
+        "chip": "auto.ready.chip",
+        "chipTone": "success",
+        "banner": null
+      }
+    },
+    {
+      "id": "S04",
+      "title": "休眠",
+      "input": {
+        "status": "sleeping",
+        "diagnosis": null,
+        "probeMode": "quick",
+        "passedCount": 0,
+        "mode": "recover",
+        "readOnly": false,
+        "hasDraft": true,
+        "autoLogin": "ready",
+        "hold": null,
+        "offerForcedLogin": false
+      },
+      "expected": {
+        "tone": "neutral",
+        "headline": "status.sleeping.headline",
+        "detail": "status.sleeping.detail",
+        "primary": null,
+        "secondary": null,
+        "chip": "auto.ready.chip",
+        "chipTone": "success",
+        "banner": null
+      }
+    },
+    {
+      "id": "S05",
+      "title": "检测中",
+      "input": {
+        "status": "checking",
+        "diagnosis": null,
+        "probeMode": "quick",
+        "passedCount": 0,
+        "mode": "recover",
+        "readOnly": false,
+        "hasDraft": true,
+        "autoLogin": "ready",
+        "hold": null,
+        "offerForcedLogin": false
+      },
+      "expected": {
+        "tone": "busy",
+        "headline": "status.checking.headline",
+        "detail": "status.checking.detail",
+        "primary": "cancel",
+        "secondary": null,
+        "chip": "auto.ready.chip",
+        "chipTone": "success",
+        "banner": null
+      }
+    },
+    {
+      "id": "S06",
+      "title": "正在确认认证服务",
+      "input": {
+        "status": "discovering",
+        "diagnosis": null,
+        "probeMode": "quick",
+        "passedCount": 0,
+        "mode": "recover",
+        "readOnly": false,
+        "hasDraft": true,
+        "autoLogin": "ready",
+        "hold": null,
+        "offerForcedLogin": false
+      },
+      "expected": {
+        "tone": "busy",
+        "headline": "status.discovering.headline",
+        "detail": "status.discovering.detail",
+        "primary": "cancel",
+        "secondary": null,
+        "chip": "auto.ready.chip",
+        "chipTone": "success",
+        "banner": null
+      }
+    },
+    {
+      "id": "S07",
+      "title": "正在登录",
+      "input": {
+        "status": "loggingIn",
+        "diagnosis": null,
+        "probeMode": "quick",
+        "passedCount": 0,
+        "mode": "recover",
+        "readOnly": false,
+        "hasDraft": true,
+        "autoLogin": "ready",
+        "hold": null,
+        "offerForcedLogin": false
+      },
+      "expected": {
+        "tone": "busy",
+        "headline": "status.loggingIn.headline",
+        "detail": "status.loggingIn.detail",
+        "primary": "cancel",
+        "secondary": null,
+        "chip": "auto.ready.chip",
+        "chipTone": "success",
+        "banner": null
+      }
+    },
+    {
+      "id": "S08",
+      "title": "登录后确认",
+      "input": {
+        "status": "verifying",
+        "diagnosis": null,
+        "probeMode": "quick",
+        "passedCount": 0,
+        "mode": "recover",
+        "readOnly": false,
+        "hasDraft": true,
+        "autoLogin": "coolingDown",
+        "hold": null,
+        "offerForcedLogin": false
+      },
+      "expected": {
+        "tone": "busy",
+        "headline": "status.verifying.headline",
+        "detail": "status.verifying.detail",
+        "primary": "cancel",
+        "secondary": null,
+        "chip": "auto.coolingDown.chip",
+        "chipTone": "info",
+        "banner": null
+      }
+    },
+    {
+      "id": "S09",
+      "title": "快速检测在线",
+      "input": {
+        "status": "online",
+        "diagnosis": "online",
+        "probeMode": "quick",
+        "passedCount": 1,
+        "mode": "recover",
+        "readOnly": false,
+        "hasDraft": true,
+        "autoLogin": "ready",
+        "hold": null,
+        "offerForcedLogin": false
+      },
+      "expected": {
+        "tone": "success",
+        "headline": "status.online.headline",
+        "detail": "status.online.quick",
+        "primary": "check",
+        "secondary": null,
+        "chip": "auto.ready.chip",
+        "chipTone": "success",
+        "banner": null
+      }
+    },
+    {
+      "id": "S10",
+      "title": "完整检测全部通过",
+      "input": {
+        "status": "online",
+        "diagnosis": "online",
+        "probeMode": "complete",
+        "passedCount": 2,
+        "mode": "recover",
+        "readOnly": false,
+        "hasDraft": true,
+        "autoLogin": "ready",
+        "hold": null,
+        "offerForcedLogin": false
+      },
+      "expected": {
+        "tone": "success",
+        "headline": "status.online.headline",
+        "detail": "status.online.complete",
+        "primary": "check",
+        "secondary": null,
+        "chip": "auto.ready.chip",
+        "chipTone": "success",
+        "banner": null
+      }
+    },
+    {
+      "id": "S11",
+      "title": "完整检测部分通过",
+      "input": {
+        "status": "online",
+        "diagnosis": "online",
+        "probeMode": "complete",
+        "passedCount": 1,
+        "mode": "recover",
+        "readOnly": false,
+        "hasDraft": true,
+        "autoLogin": "ready",
+        "hold": null,
+        "offerForcedLogin": false
+      },
+      "expected": {
+        "tone": "success",
+        "headline": "status.online.headline",
+        "detail": "status.online.partial",
+        "primary": "check",
+        "secondary": null,
+        "chip": "auto.ready.chip",
+        "chipTone": "success",
+        "banner": null
+      }
+    },
+    {
+      "id": "S12",
+      "title": "在线且可强制登录",
+      "input": {
+        "status": "online",
+        "diagnosis": "online",
+        "probeMode": "quick",
+        "passedCount": 1,
+        "mode": "recover",
+        "readOnly": false,
+        "hasDraft": true,
+        "autoLogin": "ready",
+        "hold": null,
+        "offerForcedLogin": true
+      },
+      "expected": {
+        "tone": "success",
+        "headline": "status.online.headline",
+        "detail": "status.online.quick",
+        "primary": "check",
+        "secondary": "forceLogin",
+        "chip": "auto.ready.chip",
+        "chipTone": "success",
+        "banner": null
+      }
+    },
+    {
+      "id": "S13",
+      "title": "离线-被重定向（可能需登录）",
+      "input": {
+        "status": "offline",
+        "diagnosis": "portal",
+        "probeMode": "quick",
+        "passedCount": 0,
+        "mode": "recover",
+        "readOnly": false,
+        "hasDraft": true,
+        "autoLogin": "ready",
+        "hold": null,
+        "offerForcedLogin": false
+      },
+      "expected": {
+        "tone": "warning",
+        "headline": "status.portal.headline",
+        "detail": "diagnosis.portal.detail",
+        "primary": "login",
+        "secondary": "check",
+        "chip": "auto.ready.chip",
+        "chipTone": "success",
+        "banner": null
+      }
+    },
+    {
+      "id": "S14",
+      "title": "离线-DNS 失败-无草稿",
+      "input": {
+        "status": "offline",
+        "diagnosis": "dns",
+        "probeMode": "quick",
+        "passedCount": 0,
+        "mode": "recover",
+        "readOnly": false,
+        "hasDraft": false,
+        "autoLogin": "needsAccount",
+        "hold": null,
+        "offerForcedLogin": false
+      },
+      "expected": {
+        "tone": "warning",
+        "headline": "status.offline.headline",
+        "detail": "diagnosis.dns.detail",
+        "primary": "account",
+        "secondary": "check",
+        "chip": "auto.needsAccount.chip",
+        "chipTone": "warning",
+        "banner": null
+      }
+    },
+    {
+      "id": "S15",
+      "title": "离线-只读守护",
+      "input": {
+        "status": "offline",
+        "diagnosis": "timeout",
+        "probeMode": "quick",
+        "passedCount": 0,
+        "mode": "observe",
+        "readOnly": false,
+        "hasDraft": true,
+        "autoLogin": "off",
+        "hold": null,
+        "offerForcedLogin": false
+      },
+      "expected": {
+        "tone": "warning",
+        "headline": "status.offline.headline",
+        "detail": "diagnosis.timeout.detail",
+        "primary": "check",
+        "secondary": null,
+        "chip": "auto.observe.chip",
+        "chipTone": "neutral",
+        "banner": null
+      }
+    },
+    {
+      "id": "S16",
+      "title": "只读启动",
+      "input": {
+        "status": "offline",
+        "diagnosis": "unreachable",
+        "probeMode": "quick",
+        "passedCount": 0,
+        "mode": "recover",
+        "readOnly": true,
+        "hasDraft": true,
+        "autoLogin": "ready",
+        "hold": null,
+        "offerForcedLogin": false
+      },
+      "expected": {
+        "tone": "warning",
+        "headline": "status.offline.headline",
+        "detail": "diagnosis.unreachable.detail",
+        "primary": "check",
+        "secondary": null,
+        "chip": "auto.readOnly.chip",
+        "chipTone": "neutral",
+        "banner": {
+          "key": "banner.readOnly",
+          "tone": "info",
+          "action": null
+        }
+      }
+    },
+    {
+      "id": "S17",
+      "title": "等待复测（1/2）",
+      "input": {
+        "status": "confirming",
+        "diagnosis": "timeout",
+        "probeMode": "quick",
+        "passedCount": 0,
+        "mode": "recover",
+        "readOnly": false,
+        "hasDraft": true,
+        "autoLogin": "ready",
+        "hold": null,
+        "offerForcedLogin": false
+      },
+      "expected": {
+        "tone": "info",
+        "headline": "status.confirming.headline",
+        "detail": "status.confirming.detail",
+        "primary": "login",
+        "secondary": "check",
+        "chip": "auto.ready.chip",
+        "chipTone": "success",
+        "banner": null
+      }
+    },
+    {
+      "id": "S18",
+      "title": "登录被拒-暂停（凭据）",
+      "input": {
+        "status": "rejected",
+        "diagnosis": null,
+        "probeMode": "quick",
+        "passedCount": 0,
+        "mode": "recover",
+        "readOnly": false,
+        "hasDraft": true,
+        "autoLogin": "paused",
+        "hold": "credentials",
+        "offerForcedLogin": false
+      },
+      "expected": {
+        "tone": "danger",
+        "headline": "status.rejected.headline",
+        "detail": "status.rejected.detail",
+        "primary": "account",
+        "secondary": "login",
+        "chip": "auto.paused.chip",
+        "chipTone": "danger",
+        "banner": {
+          "key": "hold.credentials",
+          "action": "resume",
+          "tone": "danger"
+        }
+      }
+    },
+    {
+      "id": "S19",
+      "title": "后台暂停（安全）",
+      "input": {
+        "status": "paused",
+        "diagnosis": null,
+        "probeMode": "quick",
+        "passedCount": 0,
+        "mode": "recover",
+        "readOnly": false,
+        "hasDraft": true,
+        "autoLogin": "paused",
+        "hold": "security",
+        "offerForcedLogin": false
+      },
+      "expected": {
+        "tone": "warning",
+        "headline": "status.paused.headline",
+        "detail": "hold.security.detail",
+        "primary": "resume",
+        "secondary": "login",
+        "chip": "auto.paused.chip",
+        "chipTone": "danger",
+        "banner": {
+          "key": "hold.security",
+          "action": "resume",
+          "tone": "danger"
+        }
+      }
+    },
+    {
+      "id": "S20",
+      "title": "后台暂停（用户主动）",
+      "input": {
+        "status": "paused",
+        "diagnosis": null,
+        "probeMode": "quick",
+        "passedCount": 0,
+        "mode": "recover",
+        "readOnly": false,
+        "hasDraft": true,
+        "autoLogin": "paused",
+        "hold": "userPaused",
+        "offerForcedLogin": false
+      },
+      "expected": {
+        "tone": "warning",
+        "headline": "status.paused.headline",
+        "detail": "hold.userPaused.detail",
+        "primary": "resume",
+        "secondary": "login",
+        "chip": "auto.paused.chip",
+        "chipTone": "danger",
+        "banner": {
+          "key": "hold.userPaused",
+          "action": "resume",
+          "tone": "neutral"
+        }
+      }
+    },
+    {
+      "id": "S21",
+      "title": "结果不确定",
+      "input": {
+        "status": "uncertain",
+        "diagnosis": null,
+        "probeMode": "quick",
+        "passedCount": 0,
+        "mode": "recover",
+        "readOnly": false,
+        "hasDraft": true,
+        "autoLogin": "paused",
+        "hold": "uncertain",
+        "offerForcedLogin": false
+      },
+      "expected": {
+        "tone": "warning",
+        "headline": "status.uncertain.headline",
+        "detail": "status.uncertain.detail",
+        "primary": "check",
+        "secondary": null,
+        "chip": "auto.paused.chip",
+        "chipTone": "danger",
+        "banner": {
+          "key": "hold.uncertain",
+          "action": "resume",
+          "tone": "warning"
+        }
+      }
+    },
+    {
+      "id": "S22",
+      "title": "安全检查未通过",
+      "input": {
+        "status": "security",
+        "diagnosis": null,
+        "probeMode": "quick",
+        "passedCount": 0,
+        "mode": "recover",
+        "readOnly": false,
+        "hasDraft": true,
+        "autoLogin": "paused",
+        "hold": "security",
+        "offerForcedLogin": false
+      },
+      "expected": {
+        "tone": "danger",
+        "headline": "status.security.headline",
+        "detail": "status.security.detail",
+        "primary": "network",
+        "secondary": "check",
+        "chip": "auto.paused.chip",
+        "chipTone": "danger",
+        "banner": {
+          "key": "hold.security",
+          "action": "resume",
+          "tone": "danger"
+        }
+      }
+    },
+    {
+      "id": "S23",
+      "title": "认证已接受未通外网-冷却",
+      "input": {
+        "status": "accepted",
+        "diagnosis": null,
+        "probeMode": "quick",
+        "passedCount": 0,
+        "mode": "recover",
+        "readOnly": false,
+        "hasDraft": true,
+        "autoLogin": "coolingDown",
+        "hold": null,
+        "offerForcedLogin": false
+      },
+      "expected": {
+        "tone": "info",
+        "headline": "status.accepted.headline",
+        "detail": "status.accepted.detail",
+        "primary": "check",
+        "secondary": null,
+        "chip": "auto.coolingDown.chip",
+        "chipTone": "info",
+        "banner": null
+      }
+    },
+    {
+      "id": "S24",
+      "title": "冷却中",
+      "input": {
+        "status": "coolingDown",
+        "diagnosis": null,
+        "probeMode": "quick",
+        "passedCount": 0,
+        "mode": "recover",
+        "readOnly": false,
+        "hasDraft": true,
+        "autoLogin": "coolingDown",
+        "hold": null,
+        "offerForcedLogin": false
+      },
+      "expected": {
+        "tone": "info",
+        "headline": "status.coolingDown.headline",
+        "detail": "status.coolingDown.detail",
+        "primary": "check",
+        "secondary": null,
+        "chip": "auto.coolingDown.chip",
+        "chipTone": "info",
+        "banner": null
+      }
+    },
+    {
+      "id": "S25",
+      "title": "宿舍区需信任",
+      "input": {
+        "status": "needsTrust",
+        "diagnosis": null,
+        "probeMode": "quick",
+        "passedCount": 0,
+        "mode": "recover",
+        "readOnly": false,
+        "hasDraft": true,
+        "autoLogin": "needsTrust",
+        "hold": null,
+        "offerForcedLogin": false
+      },
+      "expected": {
+        "tone": "warning",
+        "headline": "status.needsTrust.headline",
+        "detail": "status.needsTrust.detail",
+        "primary": "trust",
+        "secondary": "check",
+        "chip": "auto.needsTrust.chip",
+        "chipTone": "warning",
+        "banner": {
+          "key": "banner.needsTrust",
+          "tone": "warning",
+          "action": "trust"
+        }
+      }
+    },
+    {
+      "id": "S26",
+      "title": "未确认校园认证服务",
+      "input": {
+        "status": "unconfirmed",
+        "diagnosis": null,
+        "probeMode": "quick",
+        "passedCount": 0,
+        "mode": "recover",
+        "readOnly": false,
+        "hasDraft": true,
+        "autoLogin": "ready",
+        "hold": null,
+        "offerForcedLogin": false
+      },
+      "expected": {
+        "tone": "warning",
+        "headline": "status.unconfirmed.headline",
+        "detail": "status.unconfirmed.detail",
+        "primary": "network",
+        "secondary": "check",
+        "chip": "auto.ready.chip",
+        "chipTone": "success",
+        "banner": null
+      }
+    },
+    {
+      "id": "S27",
+      "title": "部分受限（教学区被拒，宿舍仍守护）",
+      "input": {
+        "status": "offline",
+        "diagnosis": "timeout",
+        "probeMode": "quick",
+        "passedCount": 0,
+        "mode": "recover",
+        "readOnly": false,
+        "hasDraft": true,
+        "autoLogin": "limited",
+        "hold": null,
+        "offerForcedLogin": false
+      },
+      "expected": {
+        "tone": "warning",
+        "headline": "status.offline.headline",
+        "detail": "diagnosis.timeout.detail",
+        "primary": "login",
+        "secondary": "check",
+        "chip": "auto.limited.chip",
+        "chipTone": "warning",
+        "banner": {
+          "key": "banner.limited",
+          "tone": "warning",
+          "action": "guard"
+        }
+      }
+    },
+    {
+      "id": "S28",
+      "title": "认证服务暂不可达",
+      "input": {
+        "status": "unavailable",
+        "diagnosis": null,
+        "probeMode": "quick",
+        "passedCount": 0,
+        "mode": "recover",
+        "readOnly": false,
+        "hasDraft": true,
+        "autoLogin": "ready",
+        "hold": null,
+        "offerForcedLogin": false
+      },
+      "expected": {
+        "tone": "warning",
+        "headline": "status.unavailable.headline",
+        "detail": "status.unavailable.detail",
+        "primary": "login",
+        "secondary": "check",
+        "chip": "auto.ready.chip",
+        "chipTone": "success",
+        "banner": null
+      }
+    },
+    {
+      "id": "S29",
+      "title": "需要账户",
+      "input": {
+        "status": "needsAccount",
+        "diagnosis": null,
+        "probeMode": "quick",
+        "passedCount": 0,
+        "mode": "recover",
+        "readOnly": false,
+        "hasDraft": false,
+        "autoLogin": "needsAccount",
+        "hold": null,
+        "offerForcedLogin": false
+      },
+      "expected": {
+        "tone": "warning",
+        "headline": "status.needsAccount.headline",
+        "detail": "status.needsAccount.detail",
+        "primary": "account",
+        "secondary": "check",
+        "chip": "auto.needsAccount.chip",
+        "chipTone": "warning",
+        "banner": null
+      }
+    },
+    {
+      "id": "S30",
+      "title": "已取消",
+      "input": {
+        "status": "cancelled",
+        "diagnosis": null,
+        "probeMode": "quick",
+        "passedCount": 0,
+        "mode": "manual",
+        "readOnly": false,
+        "hasDraft": true,
+        "autoLogin": "off",
+        "hold": null,
+        "offerForcedLogin": false
+      },
+      "expected": {
+        "tone": "neutral",
+        "headline": "status.cancelled.headline",
+        "detail": "status.cancelled.detail",
+        "primary": "check",
+        "secondary": null,
+        "chip": "auto.manual.chip",
+        "chipTone": "neutral",
+        "banner": null
+      }
+    },
+    {
+      "id": "S31",
+      "title": "只读守护下在线（无强制登录）",
+      "input": {
+        "status": "online",
+        "diagnosis": "online",
+        "probeMode": "quick",
+        "passedCount": 1,
+        "mode": "observe",
+        "readOnly": false,
+        "hasDraft": true,
+        "autoLogin": "off",
+        "hold": null,
+        "offerForcedLogin": true
+      },
+      "expected": {
+        "tone": "success",
+        "headline": "status.online.headline",
+        "detail": "status.online.quick",
+        "primary": "check",
+        "secondary": null,
+        "chip": "auto.observe.chip",
+        "chipTone": "neutral",
+        "banner": null
+      }
+    },
+    {
+      "id": "S32",
+      "title": "已记住的网络重启后：尚未核验校园服务，只检测不提交",
+      "input": {
+        "status": "idle",
+        "diagnosis": null,
+        "probeMode": "quick",
+        "passedCount": 0,
+        "mode": "recover",
+        "readOnly": false,
+        "hasDraft": true,
+        "autoLogin": "awaitingProof",
+        "hold": null,
+        "offerForcedLogin": false
+      },
+      "expected": {
+        "tone": "neutral",
+        "headline": "status.idle.headline",
+        "detail": "status.idle.detail",
+        "primary": "check",
+        "secondary": "login",
+        "chip": "auto.awaitingProof.chip",
+        "chipTone": "warning",
+        "banner": {
+          "key": "banner.awaitingProof",
+          "tone": "info",
+          "action": null
+        }
+      }
+    },
+    {
+      "id": "S33",
+      "title": "已记住的网络但没读到可信的校园认证页面（可能被 VPN/TUN 接管）",
+      "input": {
+        "status": "unconfirmed",
+        "diagnosis": null,
+        "probeMode": "quick",
+        "passedCount": 0,
+        "mode": "recover",
+        "readOnly": false,
+        "hasDraft": true,
+        "autoLogin": "awaitingProof",
+        "hold": null,
+        "offerForcedLogin": false
+      },
+      "expected": {
+        "tone": "warning",
+        "headline": "status.unconfirmed.headline",
+        "detail": "status.unconfirmed.detail",
+        "primary": "network",
+        "secondary": "check",
+        "chip": "auto.awaitingProof.chip",
+        "chipTone": "warning",
+        "banner": {
+          "key": "banner.awaitingProof",
+          "tone": "info",
+          "action": null
+        }
+      }
+    }
+  ]
+}
