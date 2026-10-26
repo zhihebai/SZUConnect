@@ -246,7 +246,8 @@ void AppController::start() {
                 request = *system_probe_pending_;
                 system_probe_pending_.reset();
             }
-            const auto report = runtime_->system_connectivity(request.mode, request.token);
+            std::optional<ConnectivityReport> report;
+            try { report = runtime_->system_connectivity(request.mode, request.token); } catch (...) {}
             {
                 std::lock_guard<std::mutex> lock(system_probe_mutex_);
                 if (!system_probe_stopping_ && request.generation == system_probe_generation_ && !request.token.cancelled()) {
@@ -270,7 +271,7 @@ void AppController::start() {
                 jobs_.pop_front();
                 engine_busy_ = true;
             }
-            job();
+            try { job(); } catch (...) { engine_->cancel(); }
             finish_proxy_assistant_round();
             engine_busy_ = false;
             post_changed();
@@ -1494,7 +1495,8 @@ bool AppController::verify_campus_service() {
     auto_armed_ = false; next_due_.reset();
     auto_timer_retry_deadline_.reset();
     jobs_.push_back([this, request = *request, generation, epoch, failure_capture] {
-        const auto result = engine_->verify_campus(request);
+        auto result = ConnectionEngine::CampusVerificationResult::needsProof;
+        try { result = engine_->verify_campus(request); } catch (...) { engine_->cancel(); }
         if (result == ConnectionEngine::CampusVerificationResult::needsProof) record_operation_failure(failure_capture, "verificationFailed");
         else if (result == ConnectionEngine::CampusVerificationResult::unavailable) record_operation_failure(failure_capture, "identificationUnavailable");
         { std::lock_guard<std::mutex> inbox_lock(inbox_mutex_);

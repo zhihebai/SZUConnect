@@ -57,6 +57,7 @@ struct EndpointResult {
     EndpointState state = EndpointState::notCompleted;
     double elapsed = 0;
     std::optional<CampusPortalHint> campus_area_hint;
+    bool authentication_required = false;
     bool succeeded() const { return state == EndpointState::success; }
 };
 

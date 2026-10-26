@@ -704,7 +704,18 @@ std::optional<CampusPortalHint> campus_redirect_hint(std::string_view location, 
          target->path == "/srun_portal_success_mobile" || target->path == "/index_1.html")) return CampusPortalHint::teaching;
     if (target->scheme == "http" && target->host == "172.30.255.42" && target->port == 801 &&
         (target->path.empty() || target->path == "/" || target->path == "/eportal")) return CampusPortalHint::dormitory;
+    if (target->scheme == "http" && target->host == "172.30.255.42" && target->port.value_or(80) == 80 &&
+        (target->path == "/a70.htm" || target->path == "/a79.htm")) return CampusPortalHint::dormitory;
     return std::nullopt;
+}
+
+bool campus_authentication_required(std::string_view location, std::string_view probe_url) {
+    if (!campus_redirect_hint(location, probe_url)) return false;
+    std::string destination(location);
+    if (location.starts_with("//")) destination = parse_url(probe_url)->scheme + ":" + destination;
+    const auto target = parse_url(destination);
+    return target && target->path != "/a79.htm" && target->path != "/srun_portal_success" &&
+        target->path != "/srun_portal_success_mobile";
 }
 
 std::string percent_encode(std::string_view text) {

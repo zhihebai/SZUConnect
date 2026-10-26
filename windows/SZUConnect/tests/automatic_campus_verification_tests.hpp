@@ -256,8 +256,8 @@ inline void automatic_campus_verification_tests(Harness& t) {
         t.check(f.service.discoveries.empty() && f.service.submissions.empty() && f.engine->snapshot().last_report->recoverable_partial(),
             "a complete partial first observation keeps the existing recovery threshold rather than taking the healthy auto-verification path");
         f.advance(6); f.round();
-        t.check(f.service.discoveries.size() == 1 && f.service.submissions.size() == 1 && f.engine->snapshot().online,
-            "the second complete partial observation retains its fresh recovery discovery and one fake credential submission");
+        t.check(f.service.discoveries.empty() && f.service.submissions.empty() && f.engine->snapshot().online,
+            "repeated single-endpoint timeouts cannot prove campus-session expiry or force an automatic credential submission");
     }
 
     t.begin("automatic-campus-verification-eligibility-and-protection");

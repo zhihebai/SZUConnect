@@ -47,6 +47,7 @@ struct HttpResponse {
     // gate proves no credential-bearing HTTP request was started.
     bool request_started = false;
     HttpFailureStage failure_stage = HttpFailureStage::none;  // Anonymous fixed-transport phase, not response evidence.
+    bool authentication_required = false;
     bool ok() const { return error == HttpError::none; }
     WebsiteRecoverySignal website_recovery_signal() const {
         if (error == HttpError::timeout || error == HttpError::dns ||

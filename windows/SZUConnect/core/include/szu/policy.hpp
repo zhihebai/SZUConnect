@@ -161,6 +161,6 @@ struct CampusRoutingResolution {
 };
 CampusRoutingResolution resolve_campus_routing(CampusArea choice, const ConnectivityReport& report,
                                              const CampusDiscovery& discovery, bool physically_bound,
-                                             bool prefer_teaching = false);
+                                             bool prefer_teaching = false, bool prefer_dormitory = false);
 
 }  // namespace szu

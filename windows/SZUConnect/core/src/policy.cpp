@@ -254,7 +254,7 @@ const Hold* ConnectionPolicy::global_hold(std::optional<std::uint64_t> generatio
 }
 
 CampusRoutingResolution resolve_campus_routing(CampusArea choice, const ConnectivityReport& report,
-                                             const CampusDiscovery& discovery, bool physically_bound, bool prefer_teaching) {
+                                             const CampusDiscovery& discovery, bool physically_bound, bool prefer_teaching, bool prefer_dormitory) {
     if (choice != CampusArea::automatic) return {RoutingDecision::selected, choice, false};
     if (!physically_bound) return {};
     const auto apple = report.apple.state == EndpointState::redirect ? report.apple.campus_area_hint : std::nullopt;
@@ -266,6 +266,8 @@ CampusRoutingResolution resolve_campus_routing(CampusArea choice, const Connecti
             return {RoutingDecision::selected, CampusArea::teaching, false, true};
         if (prefer_teaching && discovery.teaching == Discovery::confirmed)
             return {RoutingDecision::selected, CampusArea::teaching, false};
+        if (prefer_dormitory && discovery.teaching == Discovery::confirmed && discovery.dormitory == Discovery::confirmed)
+            return {RoutingDecision::selected, CampusArea::dormitory, false};
         if (discovery.teaching == Discovery::confirmed && discovery.dormitory == Discovery::confirmed)
             return {RoutingDecision::needsSelection, CampusArea::automatic, false};
         return {};

@@ -11,6 +11,7 @@ inline ConnectivityReport hint(CampusPortalHint area, std::optional<CampusPortal
     result.mode = ProbeMode::complete;
     result.microsoft.state = EndpointState::redirect;
     result.microsoft.campus_area_hint = area;
+    result.microsoft.authentication_required = true;
     if (other) { result.apple.state = EndpointState::redirect; result.apple.campus_area_hint = other; }
     return result;
 }
@@ -26,16 +27,23 @@ struct Service final : ConnectionService {
     RejectionKind rejection = RejectionKind::password;
     std::vector<CampusArea> attempts, submissions, discoveries;
     std::vector<std::string> probe_bindings, discovery_bindings, attempt_bindings;
+    std::vector<ProbeMode> probe_modes;
+    std::vector<bool> deferred_website_scopes;
     std::function<void()> during_probe, during_discovery, during_attempt;
     bool binding_available = true, fixture_credentials = true;
     bool set_expected_physical_route(const std::optional<physical::Route>& value) override { bound = value; return binding_available; }
     ConnectivityReport probe(ProbeMode mode, const CancelToken&) override {
+        probe_modes.push_back(mode);
         probe_bindings.push_back(bound ? bound->interface_key : "system");
         auto result = response;
         if (!reports.empty()) { result = reports.front(); reports.pop_front(); }
         result.mode = mode;
         if (during_probe) during_probe();
         return result;
+    }
+    ConnectivityReport probe_with_scope(ProbeMode mode, const CancelToken& token, bool, bool defer_websites) override {
+        deferred_website_scopes.push_back(defer_websites);
+        return probe(mode, token);
     }
     CampusDiscovery discover(CampusArea area, const CancelToken&) override {
         discoveries.push_back(area); discovery_bindings.push_back(bound ? bound->interface_key : "system");
@@ -130,7 +138,6 @@ inline void wired_session_recovery_tests(Harness& t) {
         f.service.reports = {online(), hint(CampusPortalHint::teaching), hint(CampusPortalHint::teaching), online()};
         f.round(); t.check(f.engine->snapshot().online && f.service.attempts.empty(), "initially online cable does not authenticate");
         f.round(); t.check(f.service.attempts.empty() && f.engine->snapshot().status != EngineStatus::loggingIn, "one expired-session failure only confirms");
-        const double verified_at = f.wall;
         f.round();
         t.check(f.engine->snapshot().online && f.service.attempts == std::vector<CampusArea>{CampusArea::teaching} && f.service.submissions == f.service.attempts,
             "two failures with both homepages reachable and teaching hint submit teaching once then verify online");
@@ -142,7 +149,9 @@ inline void wired_session_recovery_tests(Harness& t) {
         const auto saved = f.saved();
         t.check(saved.id == f.original.id && saved.features == f.original.features && saved.proof_teaching && saved.proof_dormitory && saved.area == "teaching",
             "accepted teaching changes preference while retaining identity features and proof flags");
-        t.equal(saved.verified, verified_at, "fresh proof of both homepages may refresh their shared verification age");
+        t.check(!f.service.discoveries.empty() && f.service.discoveries.back() == CampusArea::teaching &&
+            f.engine->snapshot().last_discovery->dormitory == Discovery::notChecked && saved.verified == f.original.verified,
+            "teaching-only discovery avoids unrelated dormitory work without renewing the historical dormitory proof");
     }
     {
         Fixture f; f.service.proof.dormitory = Discovery::notChecked;
@@ -171,8 +180,8 @@ inline void wired_session_recovery_tests(Harness& t) {
     {
         Fixture f; f.service.reports = {hint(CampusPortalHint::teaching), ConnectivityReport::simple(false, false), online()};
         f.round(); f.round();
-        t.check(f.service.submissions.empty() && f.service.attempts.empty() && f.engine->snapshot().needs_selection,
-            "without a current candidate dual-service discovery requires selection and never reuses the previous round's teaching hint");
+        t.check(f.service.submissions == std::vector<CampusArea>{CampusArea::dormitory} && !f.engine->snapshot().needs_selection,
+            "without a current hint the valid bound dormitory memory selects dormitory rather than reusing the previous teaching hint");
     }
     {
         Fixture f(CampusArea::automatic, "teaching");
