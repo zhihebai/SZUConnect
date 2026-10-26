@@ -299,7 +299,7 @@ enum CampusRoutingResolution: Equatable, Sendable {
     case needsSelection
 
     static func resolve(choice: CampusArea, report: ConnectivityReport, discovery: CampusDiscovery,
-                        physicallyBound: Bool, preferTeaching: Bool = false) -> CampusRoutingResolution {
+                        physicallyBound: Bool, rememberedArea: CampusArea? = nil) -> CampusRoutingResolution {
         guard choice == .automatic else { return .selected(choice, allowUnsentFallback: false) }
         guard physicallyBound else { return .selected(.automatic, allowUnsentFallback: true) }
         let apple = report.appleResult.campusAreaHint
@@ -309,10 +309,14 @@ enum CampusRoutingResolution: Equatable, Sendable {
             if discovery.teaching == .confirmed, discovery.teachingClientBound {
                 return .selected(.teaching, allowUnsentFallback: false)
             }
-            // A previous teaching choice is a candidate, never fresh campus proof.
+            // A remembered entry is a candidate, never fresh campus proof.
             // Current physical hints (including conflicts) take priority over it.
-            if preferTeaching, discovery.teaching == .confirmed {
+            if rememberedArea == .teaching, discovery.teaching == .confirmed {
                 return .selected(.teaching, allowUnsentFallback: false)
+            }
+            if rememberedArea == .dormitory {
+                guard discovery.teaching == .confirmed, discovery.dormitory == .confirmed else { return .unconfirmed }
+                return .selected(.dormitory, allowUnsentFallback: false)
             }
             // Reachability of two homepages cannot identify the controller serving
             // this attachment. Do not send a password to the dormitory by default.
@@ -333,27 +337,27 @@ enum CampusRoutingResolution: Equatable, Sendable {
 /// Bounded selection evidence only. No URL, query, address, account or server text.
 struct CampusRoutingDiagnostic: Sendable {
     enum Source: String, Sendable {
-        case explicit, physicalHint, clientConfig, rememberedTeaching, legacy
+        case explicit, physicalHint, clientConfig, rememberedTeaching, rememberedDormitory, legacy
         case unconfirmed, conflictingHints, needsSelection
     }
     let choice: CampusArea
     let physicallyBound: Bool
-    let preferTeaching: Bool
+    let rememberedArea: CampusArea?
     let apple: CampusPortalHint?
     let microsoft: CampusPortalHint?
     let discovery: CampusDiscovery
     let resolution: CampusRoutingResolution
 
     init(choice: CampusArea, report: ConnectivityReport, discovery: CampusDiscovery,
-         discoveryChecked: Bool, physicallyBound: Bool, preferTeaching: Bool) {
+         discoveryChecked: Bool, physicallyBound: Bool, rememberedArea: CampusArea?) {
         self.choice = choice
         self.physicallyBound = physicallyBound
-        self.preferTeaching = preferTeaching
+        self.rememberedArea = rememberedArea
         apple = report.appleResult.campusAreaHint
         microsoft = report.microsoftResult.campusAreaHint
         self.discovery = discoveryChecked ? discovery : CampusDiscovery(teaching: .notChecked, dormitory: .notChecked)
         resolution = CampusRoutingResolution.resolve(choice: choice, report: report, discovery: discovery,
-            physicallyBound: physicallyBound, preferTeaching: preferTeaching)
+            physicallyBound: physicallyBound, rememberedArea: rememberedArea)
     }
 
     var source: Source {
@@ -362,7 +366,10 @@ struct CampusRoutingDiagnostic: Sendable {
             if choice != .automatic { return .explicit }
             if physicallyBound, apple != nil || microsoft != nil { return .physicalHint }
             if physicallyBound, discovery.teachingClientBound, area == .teaching { return .clientConfig }
-            if physicallyBound, preferTeaching, area == .teaching { return .rememberedTeaching }
+            if physicallyBound, rememberedArea == area {
+                if area == .teaching { return .rememberedTeaching }
+                if area == .dormitory { return .rememberedDormitory }
+            }
             return .legacy
         case .unconfirmed: return .unconfirmed
         case .conflictingHints: return .conflictingHints
@@ -377,7 +384,7 @@ struct CampusRoutingDiagnostic: Sendable {
         return ["route choice=\(choice.rawValue)", "bound=\(physicallyBound ? "yes" : "no")",
             "teaching=\(discovery.teaching.rawValue)", "dormitory=\(discovery.dormitory.rawValue)",
             "apple=\(apple?.rawValue ?? "none")", "microsoft=\(microsoft?.rawValue ?? "none")",
-            "preferred=\(preferTeaching ? "teaching" : "none")", "selection=\(selection)", "source=\(source.rawValue)"].joined(separator: " ")
+            "preferred=\(rememberedArea?.rawValue ?? "none")", "selection=\(selection)", "source=\(source.rawValue)"].joined(separator: " ")
     }
 }
 

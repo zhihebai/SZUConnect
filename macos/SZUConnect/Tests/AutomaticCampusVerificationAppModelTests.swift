@@ -137,6 +137,38 @@ struct AutomaticCampusVerificationAppModelTests {
     static func main() async throws {
         setbuf(stdout, nil)
 
+        // Selecting automatic must retain either known entry when public probes
+        // have no portal hint and both independently checked services respond.
+        for rememberedArea in [CampusArea.teaching, .dormitory] {
+            for mode in [ConnectivityProbeMode.quick, .complete] {
+                let root = try folder(); defer { try? FileManager.default.removeItem(at: root) }
+                let bytes = try seed(root, area: rememberedArea.rawValue)
+                let service = AutomaticCampusService(), clock = AutomaticCampusClock()
+                let model = fixture(root, service, clock, area: .automatic)
+                model.setProbeMode(mode)
+                let report = mode == .quick
+                    ? ConnectivityReport(appleResult: .init(state: .success, elapsed: 0.01),
+                        microsoftResult: .init(state: .notCompleted, elapsed: 0), mode: .quick)
+                    : online
+                await service.configure(replies: [both], reports: [report])
+                await model.runAutomaticCycle()
+                check(model.currentCampusRouting == .selected(rememberedArea, allowUnsentFallback: false),
+                      "Automatic selection retains the verified remembered \(rememberedArea.rawValue) entry")
+                check(model.requiredCampusVerificationState == "confirmed" && model.autoLoginKey == "ready"
+                      && !model.entrySelectionNeeded && model.readiness.tone == "success",
+                      "Known \(rememberedArea.rawValue) \(mode) verification and recovery readiness agree")
+                await service.configure(replies: [both], reports: [report])
+                model.verifyCurrentCampusService(); try await finishManual(model)
+                check(model.currentCampusRouting == .selected(rememberedArea, allowUnsentFallback: false)
+                      && model.autoLoginKey == "ready" && !model.entrySelectionNeeded,
+                      "Manual service-only verification uses the same remembered automatic entry")
+                check(await service.snapshot().submissions == 0 && !model.currentNetworkAuthorized,
+                      "Remembered candidate selection grants no trust and sends no credentials")
+                check(try Data(contentsOf: root.appendingPathComponent("network-memory.json")) == bytes,
+                      "Read-only selection and verification preserve network memory bytes")
+            }
+        }
+
         // A successful public probe is followed by independent, credential-free
         // confirmation for a remembered attachment, without changing its saved bytes.
         for area in [CampusArea.teaching, .dormitory] {
@@ -318,7 +350,7 @@ struct AutomaticCampusVerificationAppModelTests {
         check(!conflictingReport.online,
               "Two genuine conflicting endpoint hints cannot enter the online-only confirmation path")
         check(CampusRoutingResolution.resolve(choice: .automatic, report: conflictingReport,
-              discovery: both, physicallyBound: true, preferTeaching: true) == .conflictingHints,
+              discovery: both, physicallyBound: true, rememberedArea: .teaching) == .conflictingHints,
               "Even two confirmed services cannot override a current physical candidate conflict")
         do {
             let root = try folder(); defer { try? FileManager.default.removeItem(at: root) }

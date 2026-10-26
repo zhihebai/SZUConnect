@@ -1660,21 +1660,25 @@ enum AppMaintenanceState: Equatable { case running, stopping, ready }
     var hasMultipleNetworkAttachments: Bool { connectedPhysicalLabels.count > 1 || currentDescriptors.count > 1 }
     var usingWiredCampusRoute: Bool { authenticationRoute?.descriptor?.kind == "ethernet" }
     var networkRemembered: Bool { memoryLevel == .medium || memoryLevel == .strong }
-    var prefersRememberedTeaching: Bool {
-        area == .automatic && authenticationRoute != nil && networkRemembered
-            && memory?.records.contains(where: {
-                $0.id == memoryMatch.record && $0.area == "teaching" && $0.proofTeaching
-            }) == true
+    var rememberedCampusArea: CampusArea? {
+        guard area == .automatic, authenticationRoute != nil, networkRemembered,
+              currentDescriptors.count == 1, currentDescriptors[0].isReliable,
+              let record = memory?.records.first(where: { $0.id == memoryMatch.record }),
+              record.proofTeaching else { return nil }
+        if record.area == "teaching" { return .teaching }
+        if record.area == "dormitory", record.proofDormitory { return .dormitory }
+        return nil
     }
     /// Presentation uses the same candidate resolution as a recovery round. It
     /// never grants permission or replaces that round's fresh discovery.
     var currentCampusRouting: CampusRoutingResolution? {
         guard let discovery = lastDiscovery else { return nil }
         let report = campusServiceSelectionReport ?? lastInternetCheck?.base ?? ConnectivityReport(apple: false, microsoft: false)
-        // A manual round can deliberately avoid a historical automatic preference.
-        // Preserve its actual decision while the attachment and evidence still match.
+        // Preserve the actual decision only while the attachment, candidate and
+        // fresh evidence still match the displayed context.
         if routingDiagnosticEpoch == networkEpoch, let actual = lastRoutingDiagnostic,
            actual.choice == area, actual.discovery == discovery,
+           actual.rememberedArea == rememberedCampusArea,
            actual.apple == report.appleResult.campusAreaHint,
            actual.microsoft == report.microsoftResult.campusAreaHint {
             return actual.resolution
@@ -1682,7 +1686,7 @@ enum AppMaintenanceState: Equatable { case running, stopping, ready }
         return CampusRoutingResolution.resolve(choice: area,
             report: report,
             discovery: discovery, physicallyBound: requiresPhysicalBinding && authenticationRoute != nil,
-            preferTeaching: prefersRememberedTeaching)
+            rememberedArea: rememberedCampusArea)
     }
     var needsDormitoryRecoveryEligibility: Bool {
         if area != .automatic { return area == .dormitory }
@@ -1808,7 +1812,7 @@ enum AppMaintenanceState: Equatable { case running, stopping, ready }
         let selectedArea = area
         // Independent verification obtains its own fresh hints after transport binding.
         // Old displayed results never choose the protocol for this new operation.
-        let preferTeaching = prefersRememberedTeaching
+        let rememberedArea = rememberedCampusArea
         let physicallyBound = requiresPhysicalBinding && authenticationRoute != nil
         let descriptors = currentDescriptors
         let identity = currentIdentity
@@ -1871,7 +1875,7 @@ enum AppMaintenanceState: Equatable { case running, stopping, ready }
             self.campusServiceSelectionReport = selectionReport
             self.lastDiscovery = discovered
             let resolution = CampusRoutingResolution.resolve(choice: selectedArea, report: selectionReport,
-                discovery: discovered, physicallyBound: physicallyBound, preferTeaching: preferTeaching)
+                discovery: discovered, physicallyBound: physicallyBound, rememberedArea: rememberedArea)
             let scopeChoice: CampusArea
             switch resolution {
             case .selected(let candidate, _): scopeChoice = candidate
@@ -1953,9 +1957,9 @@ enum AppMaintenanceState: Equatable { case running, stopping, ready }
         authenticationSummary = SharedCopy.t("campus.verify.checking")
         refreshRecovery()
         let physicallyBound = requiresPhysicalBinding && authenticationRoute != nil
-        let preferTeaching = prefersRememberedTeaching
+        let rememberedArea = rememberedCampusArea
         let dormitoryHint = report.appleResult.campusAreaHint == .dormitory || report.microsoftResult.campusAreaHint == .dormitory
-        let discoveryArea: CampusArea = context.area == .teaching || (preferTeaching && !dormitoryHint) ? .teaching : .automatic
+        let discoveryArea: CampusArea = context.area == .teaching || (rememberedArea == .teaching && !dormitoryHint) ? .teaching : .automatic
         let discovered = await client.discoverCampus(area: discoveryArea)
         guard !Task.isCancelled, !isMaintaining, !credentialsDeletionInProgress, !sessionReadOnly,
               !sleeping, networkAvailable, policy.owns(operation), context == currentCampusServiceContext,
@@ -1963,7 +1967,7 @@ enum AppMaintenanceState: Equatable { case running, stopping, ready }
         campusServiceSelectionReport = report
         lastDiscovery = discovered
         let resolution = CampusRoutingResolution.resolve(choice: context.area, report: report,
-            discovery: discovered, physicallyBound: physicallyBound, preferTeaching: preferTeaching)
+            discovery: discovered, physicallyBound: physicallyBound, rememberedArea: rememberedArea)
         let choice: CampusArea?
         switch resolution {
         case .selected(let area, _): choice = area
@@ -2734,7 +2738,7 @@ enum AppMaintenanceState: Equatable { case running, stopping, ready }
         // Immutable operation inputs; configuration edits invalidate the operation owner.
         let automaticAreaChoice = area == .automatic
         let authenticationArea = area
-        let preferTeaching = operation.kind == .automatic && prefersRememberedTeaching
+        let rememberedArea = rememberedCampusArea
         // A quick success proves only one public endpoint. Resolve an uncertain
         // submission with a complete, read-only round without changing the preference.
         let awaitingSubmissionProof = pendingRecoverySubmission || policy.holds.holds.contains { $0.reason == .uncertain }
@@ -2888,7 +2892,7 @@ enum AppMaintenanceState: Equatable { case running, stopping, ready }
             // current hint. A fresh dormitory hint still gets its own service check.
             let hasDormitoryHint = report.appleResult.campusAreaHint == .dormitory
                 || report.microsoftResult.campusAreaHint == .dormitory
-            let discoveryArea: CampusArea = preferTeaching && !hasDormitoryHint ? .teaching : authenticationArea
+            let discoveryArea: CampusArea = rememberedArea == .teaching && !hasDormitoryHint ? .teaching : authenticationArea
             lastDiscovery = nil
             confirmedCampusServiceContext = nil
             confirmedCampusServiceDeadline = nil
@@ -2905,7 +2909,7 @@ enum AppMaintenanceState: Equatable { case running, stopping, ready }
         let allowUnsentFallback: Bool
         let routing = CampusRoutingDiagnostic(choice: authenticationArea, report: report, discovery: discovery,
             discoveryChecked: discoveryChecked, physicallyBound: requiresPhysicalBinding && authenticationRoute != nil,
-            preferTeaching: preferTeaching)
+            rememberedArea: rememberedArea)
         lastRoutingDiagnostic = routing
         routingDiagnosticEpoch = networkEpoch
         record(SharedCopy.t("diagnostic.field.clues") + routing.summary)

@@ -526,9 +526,10 @@ struct DualAttachmentRecoveryAppModelTests {
 
         // UI actions and readiness share the actual candidate's eligibility, not
         // merely the presence of a record or reachability of the other service.
-        for variant in ["teachingConfig", "dormitoryMemoryTeachingConfig", "missingTLS", "ambiguous"] {
+        for variant in ["teachingConfig", "dormitoryMemoryTeachingConfig", "dormitoryMemory", "missingTLS", "ambiguous"] {
             let root = try folder(); defer { try? FileManager.default.removeItem(at: root) }
-            try seed(root, ethernetArea: variant == "teachingConfig" ? "teaching" : "dormitory",
+            let rememberedArea = variant == "ambiguous" ? "" : variant == "teachingConfig" ? "teaching" : "dormitory"
+            try seed(root, ethernetArea: rememberedArea,
                      ethernetDormitoryProof: variant != "teachingConfig")
             let store = root.appendingPathComponent("network-memory.json")
             let original = try Data(contentsOf: store)
@@ -552,6 +553,11 @@ struct DualAttachmentRecoveryAppModelTests {
                       && !model.needsDormitoryRecoveryEligibility && model.autoLoginKey == "ready"
                       && model.readiness.title == "ready.title.ready" && model.recoverySetupHasNetwork,
                       "\(variant): fresh bound teaching evidence is ready without borrowing dormitory trust or showing a false trust warning")
+            } else if variant == "dormitoryMemory" {
+                check(model.currentCampusRouting == .selected(.dormitory, allowUnsentFallback: false)
+                      && model.autoLoginKey == "ready" && !model.entrySelectionNeeded
+                      && model.readiness.title == "ready.title.ready" && model.recoverySetupHasNetwork,
+                      "A qualified dormitory memory and fresh service proof resolve the automatic entry without granting session trust")
             } else {
                 check(model.autoLoginKey == "awaitingProof" && model.presentation.banner?.key != "banner.needsTrust",
                       "\(variant): missing or ambiguous campus evidence requests proof or selection, never unrelated session trust")
@@ -660,7 +666,7 @@ struct DualAttachmentRecoveryAppModelTests {
 
         do {
             let root = try folder(); defer { try? FileManager.default.removeItem(at: root) }
-            try seed(root, ethernetArea: "teaching", ethernetDormitoryProof: false)
+            try seed(root, ethernetArea: "", ethernetDormitoryProof: false)
             let service = DualAttachmentService(), clock = DualAttachmentClock()
             await service.configure("en12", proof: CampusDiscovery(teaching: .confirmed, dormitory: .confirmed))
             let model = fixture(root, service: service, clock: clock)
@@ -670,11 +676,12 @@ struct DualAttachmentRecoveryAppModelTests {
             let snapshot = await service.snapshot()
             check(model.currentCampusRouting == .needsSelection && model.entrySelectionNeeded
                   && model.autoLoginKey == "awaitingProof" && model.presentation.primary == "area",
-                  "A manual round's actual ambiguous candidate retains area selection despite an older teaching preference")
+                  "A manual round with no remembered entry retains the area selection for two reachable services")
             check(!model.currentNetworkAuthorized && !model.requiresNetworkConfirmation
                   && !model.needsNetworkMemoryUpdate && !model.shouldOfferRememberNetwork && snapshot.attempts.isEmpty,
-                  "Manual ambiguity does not invent trust requirements or use old teaching memory to authorize a login")
-            await service.configure("en12", online: true)
+                  "Manual ambiguity does not invent trust requirements or choose a protocol from reachability")
+            await service.configure("en12", online: true,
+                proof: CampusDiscovery(teaching: .confirmed, dormitory: .confirmed, teachingClientBound: true))
             model.checkConnection()
             try await waitUntil("complete public connectivity after area ambiguity") { !model.busy }
             let recovered = await service.snapshot()
