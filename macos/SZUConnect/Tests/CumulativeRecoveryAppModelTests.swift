@@ -284,8 +284,8 @@ struct CumulativeRecoveryAppModelTests {
             defer { try? FileManager.default.removeItem(at: root) }
             model.area = .automatic; model.setMonitoringMode(.recover)
             failTool(model); failTool(model)
-            let conflict = ConnectivityReport(appleResult: .init(state: .redirect, elapsed: 0.1, campusAreaHint: .teaching),
-                microsoftResult: .init(state: .redirect, elapsed: 0.1, campusAreaHint: .dormitory), mode: .complete)
+            let conflict = ConnectivityReport(appleResult: .init(state: .redirect, elapsed: 0.1, campusAreaHint: .teaching, authenticationRequired: true),
+                microsoftResult: .init(state: .redirect, elapsed: 0.1, campusAreaHint: .dormitory, authenticationRequired: true), mode: .complete)
             try await round(model, base, system, physical: conflict, current: online)
             try await round(model, base, system, physical: conflict, current: online)
             let snapshot = await service.snapshot()
@@ -361,7 +361,7 @@ struct CumulativeRecoveryAppModelTests {
             let checkedAt = model.lastCheckedAt
             model.area = .automatic
             let fresh = ConnectivityReport(appleResult: .init(state: .redirect, elapsed: 0.1,
-                campusAreaHint: .teaching), microsoftResult: .init(state: .notCompleted, elapsed: 0), mode: .quick)
+                campusAreaHint: .teaching, authenticationRequired: true), microsoftResult: .init(state: .notCompleted, elapsed: 0), mode: .quick)
             await base.enqueue([fresh])
             model.verifyCurrentCampusService()
             try await wait("successful private hints") { !model.busy }

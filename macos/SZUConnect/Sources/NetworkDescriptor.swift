@@ -48,6 +48,13 @@ enum CampusRedirectTarget {
         areaHint(location, relativeTo: url) != nil
     }
 
+    /// A status/success page can select an entry, but does not request another login.
+    static func authenticationRequired(_ location: String?, relativeTo url: URL) -> Bool {
+        guard areaHint(location, relativeTo: url) != nil, let location,
+              let target = URL(string: location, relativeTo: url)?.absoluteURL else { return false }
+        return !["/a79.htm", "/srun_portal_success", "/srun_portal_success_mobile"].contains(target.path)
+    }
+
     /// Only a typed selection hint survives parsing; no address, query or server data is kept.
     static func areaHint(_ location: String?, relativeTo url: URL) -> CampusPortalHint? {
         guard let location, !location.isEmpty, location.utf8.count <= 2048, !location.contains("\\"),

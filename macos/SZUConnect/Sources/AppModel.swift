@@ -2806,7 +2806,10 @@ enum AppMaintenanceState: Equatable { case running, stopping, ready }
         }
         let boundCampusRedirect = requiresPhysicalBinding && authenticationRoute != nil
             && (report.appleResult.campusAreaHint != nil || report.microsoftResult.campusAreaHint != nil)
-        let partial = boundCampusRedirect || (operation.kind == .automatic ? internet.hasCampusRecoveryEvidence : internet.hasRecoveryEvidence)
+        let boundAuthenticationRequired = requiresPhysicalBinding && authenticationRoute != nil
+            && (report.appleResult.authenticationRequired || report.microsoftResult.authenticationRequired)
+        let partial = operation.kind == .automatic && boundCampusRedirect
+            ? boundAuthenticationRequired : (operation.kind == .automatic ? internet.hasCampusRecoveryEvidence : internet.hasRecoveryEvidence)
         if operation.kind == .automatic {
             // Quick monitoring excludes optional websites. A periodic base-only
             // check must observe both endpoints, including the peer quick mode skips.

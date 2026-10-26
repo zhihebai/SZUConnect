@@ -848,6 +848,8 @@ struct PortalTransportTests {
             let redirect = await portalQuickClient.probe(mode: .quick)
             check(!redirect.online && redirect.microsoftResult.campusAreaHint == .dormitory,
                   "A fixed dormitory browser page supplies only a quick-probe candidate")
+            check(redirect.microsoftResult.authenticationRequired == (page == "a70.htm"),
+                  "The dormitory login page requests authentication; its status page supplies only an entry hint")
             try await OfflineProtocol.waitForIdle()
             check(OfflineProtocol.snapshot().starts.allSatisfy { $0 == apple || $0 == microsoft },
                   "Dormitory redirect hints never request or follow the portal destination")
@@ -873,6 +875,12 @@ struct PortalTransportTests {
             ("http://172.30.255.42/a70.htm?wlanuserip=192.0.2.7", .dormitory),
             ("http://172.30.255.42:80/a79.htm", .dormitory)]
         let probeOrigin = URL(string: "http://www.msftconnecttest.com/connecttest.txt")!
+        for path in ["/srun_portal_success", "/srun_portal_success_mobile"] {
+            check(!CampusRedirectTarget.authenticationRequired("https://net.szu.edu.cn" + path, relativeTo: probeOrigin),
+                  "A teaching success-page hint is not evidence that authentication is required")
+        }
+        check(CampusRedirectTarget.authenticationRequired("https://net.szu.edu.cn/srun_portal_pc", relativeTo: probeOrigin),
+              "A recognized teaching login page can request fresh authentication checks")
         for (location, area) in fixedPortalLocations {
             check(CampusRedirectTarget.matches(location, relativeTo: probeOrigin),
                   "Only fixed portal pages and protocol ports provide redirect selection hints")
@@ -921,11 +929,11 @@ struct PortalTransportTests {
         for state in [ConnectivityEndpointState.success, .timeout, .dns, .tls, .unexpectedResponse,
                       .network, .cancelled, .notCompleted] {
             let invalidHint = ConnectivityEndpointResult(state: state, elapsed: 0, campusRedirect: true,
-                campusAreaHint: .teaching)
-            check(!invalidHint.campusRedirect && invalidHint.campusAreaHint == nil,
+                campusAreaHint: .teaching, authenticationRequired: true)
+            check(!invalidHint.campusRedirect && invalidHint.campusAreaHint == nil && !invalidHint.authenticationRequired,
                   "Non-redirect states cannot retain a recovery or area hint")
         }
-        let typedRedirect = ConnectivityEndpointResult(state: .redirect, elapsed: 0, campusAreaHint: .teaching)
+        let typedRedirect = ConnectivityEndpointResult(state: .redirect, elapsed: 0, campusAreaHint: .teaching, authenticationRequired: true)
         check(typedRedirect.campusRedirect && typedRedirect.campusAreaHint == .teaching,
               "Typed redirect construction preserves the compatible boolean recovery signal")
         let legacyRedirect = ConnectivityEndpointResult(state: .redirect, elapsed: 0, campusRedirect: true)

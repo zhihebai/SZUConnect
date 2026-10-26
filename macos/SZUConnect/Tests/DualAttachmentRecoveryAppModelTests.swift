@@ -579,7 +579,7 @@ struct DualAttachmentRecoveryAppModelTests {
             if variant != "explicitDormitory" {
                 let currentDormitoryHint = ConnectivityReport(
                     appleResult: .init(state: .network, elapsed: 0),
-                    microsoftResult: .init(state: .redirect, elapsed: 0, campusAreaHint: .dormitory), mode: .complete)
+                    microsoftResult: .init(state: .redirect, elapsed: 0, campusAreaHint: .dormitory, authenticationRequired: true), mode: .complete)
                 // The displayed check, explicit service check and memory update each need
                 // their own current hint. A historical redirect must not supply all three.
                 await service.configure("en12", reports: Array(repeating: currentDormitoryHint, count: 3))
@@ -639,7 +639,7 @@ struct DualAttachmentRecoveryAppModelTests {
             let service = DualAttachmentService(), clock = DualAttachmentClock()
             let currentDormitoryHint = ConnectivityReport(
                 appleResult: .init(state: .network, elapsed: 0),
-                microsoftResult: .init(state: .redirect, elapsed: 0, campusAreaHint: .dormitory), mode: .complete)
+                microsoftResult: .init(state: .redirect, elapsed: 0, campusAreaHint: .dormitory, authenticationRequired: true), mode: .complete)
             // The explicit service operation obtains a second current physical hint;
             // it must not borrow the displayed check's historical redirect.
             await service.configure("en12", reports: [currentDormitoryHint, currentDormitoryHint],

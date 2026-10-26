@@ -33,6 +33,7 @@ private actor WiredSessionService: ConnectionService {
     private var simulatedSession: CampusPortalHint?
     private var simulatedExpired = false
     private var simulatedQuickExposesPortal = false
+    private var simulatedAuthenticationRequired = true
     private var reports: [ConnectivityReport] = []
     private var discovery = CampusDiscovery(teaching: .confirmed, dormitory: .confirmed)
     private var replies: [Reply] = []
@@ -60,8 +61,10 @@ private actor WiredSessionService: ConnectionService {
         return true
     }
     func resetConnections() { binding = nil }
-    func simulateSession(_ area: CampusPortalHint, expired: Bool, quickExposesPortal: Bool = false) {
+    func simulateSession(_ area: CampusPortalHint, expired: Bool, quickExposesPortal: Bool = false,
+                         authenticationRequired: Bool = true) {
         simulatedSession = area; simulatedExpired = expired; simulatedQuickExposesPortal = quickExposesPortal
+        simulatedAuthenticationRequired = authenticationRequired
     }
     func probe(mode: ConnectivityProbeMode) async -> ConnectivityReport {
         probeModes.append(mode)
@@ -71,7 +74,8 @@ private actor WiredSessionService: ConnectionService {
         if mode == .quick && !(simulatedExpired && simulatedQuickExposesPortal) {
             second = .init(state: .notCompleted, elapsed: 0)
         } else if simulatedExpired {
-            second = .init(state: .redirect, elapsed: 0, campusAreaHint: simulatedSession)
+            second = .init(state: .redirect, elapsed: 0, campusAreaHint: simulatedSession,
+                           authenticationRequired: simulatedAuthenticationRequired)
         } else { second = .init(state: .success, elapsed: 0) }
         let report = ConnectivityReport(appleResult: .init(state: .success, elapsed: 0), microsoftResult: second, mode: mode)
         await suspendIfRequested(.probe)
@@ -160,8 +164,8 @@ struct WiredSessionRecoveryAppModelTests {
 
     private static func hinted(_ hint: CampusPortalHint, other: CampusPortalHint? = nil) -> ConnectivityReport {
         ConnectivityReport(appleResult: .init(state: other == nil ? .network : .redirect, elapsed: 0.01,
-                                              campusAreaHint: other),
-            microsoftResult: .init(state: .redirect, elapsed: 0.01, campusAreaHint: hint), mode: .complete)
+                                              campusAreaHint: other, authenticationRequired: true),
+            microsoftResult: .init(state: .redirect, elapsed: 0.01, campusAreaHint: hint, authenticationRequired: true), mode: .complete)
     }
     private static func check(_ condition: Bool, _ description: String) {
         guard condition else { fatalError("FAIL: \(description)") }
@@ -419,6 +423,19 @@ struct WiredSessionRecoveryAppModelTests {
             await recover(model)
             check((await service.snapshot()).attempts.isEmpty,
                   "Periodic session checks and portal hints cannot bypass \(condition)")
+        }
+
+        for hint in [CampusPortalHint.teaching, .dormitory] {
+            let root = try folder(); defer { try? FileManager.default.removeItem(at: root) }
+            _ = try seed(root.appendingPathComponent("network-memory.json"), area: hint.rawValue)
+            let service = WiredSessionService(), clock = WiredSessionClock()
+            await service.simulateSession(hint, expired: true, quickExposesPortal: true, authenticationRequired: false)
+            let model = fixture(root, service: service, clock: clock)
+            model.setProbeMode(.quick)
+            await recover(model)
+            clock.advance(100); await recover(model)
+            check((await service.snapshot()).attempts.isEmpty,
+                  "A \(hint.rawValue) status-page hint with a passing public endpoint cannot request automatic login")
         }
 
         for boundary in ["cancel", "forget", "observe", "pause", "change"] {
