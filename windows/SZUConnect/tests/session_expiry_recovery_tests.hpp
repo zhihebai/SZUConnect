@@ -1,6 +1,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <stdexcept>
 #include <vector>
 
 inline void session_expiry_recovery_tests(Harness& t) {
@@ -11,6 +12,7 @@ inline void session_expiry_recovery_tests(Harness& t) {
         report.mode = ProbeMode::complete;
         report.microsoft.state = EndpointState::redirect;
         report.microsoft.campus_area_hint = wire::campus_redirect_hint(location, probe);
+        report.microsoft.authentication_required = wire::campus_authentication_required(location, probe);
         return report;
     };
     t.begin("dormitory-browser-portal-redirects");
@@ -22,6 +24,10 @@ inline void session_expiry_recovery_tests(Harness& t) {
             "fixed dormitory browser pages provide an enumerated recovery candidate");
         t.check(!wire::is_allowed(location), "a browser redirect is never an allowed credential or follow-up target");
     }
+    t.check(wire::campus_authentication_required("http://172.30.255.42/a70.htm", probe) &&
+        !wire::campus_authentication_required("http://172.30.255.42/a79.htm", probe) &&
+        !wire::campus_authentication_required("https://net.szu.edu.cn/srun_portal_success", probe),
+        "a login-required redirect is distinct from an authentication success page");
     for (const auto* location : {
         "https://172.30.255.42/a70.htm", "http://172.30.255.42:81/a70.htm", "http://172.30.255.42:801/a79.htm",
         "http://172.30.255.42/a70.htm/", "http://172.30.255.42/%6170.htm", "http://172.30.255.42/a70.htm#x",
@@ -68,6 +74,56 @@ inline void session_expiry_recovery_tests(Harness& t) {
         t.check(f.service.submissions == std::vector<CampusArea>{CampusArea::dormitory} && f.engine->snapshot().online,
             "a persistent captive redirect behind an allowed public endpoint admits one recovery");
         t.equal(f.engine->snapshot().probe_mode, ProbeMode::quick, "the audit does not save a different probe preference");
+    }
+    t.begin("session-audit-needs-expiry-evidence");
+    for (const auto mode : {ProbeMode::quick, ProbeMode::complete}) for (const bool success_page : {false, true}) {
+        Fixture f(CampusArea::automatic, "teaching"); f.engine->set_probe_mode(mode);
+        f.service.response = online(); f.round();
+        f.service.response = success_page ? expired("http://172.30.255.42/a79.htm", true) : ConnectivityReport::simple(true, false);
+        for (int round = 0; round < 8; ++round) { f.clock += 61; f.wall += 61; f.round(); }
+        t.check(f.service.submissions.empty() && f.service.attempts.empty(),
+            "a periodic audit cannot force login from a single endpoint failure or a success-page redirect");
+    }
+    t.begin("symmetric-remembered-entry-selection");
+    for (const auto area : {CampusArea::teaching, CampusArea::dormitory}) {
+        Fixture f(CampusArea::automatic, std::string(to_string(area)));
+        f.service.response = ConnectivityReport::simple(false, false);
+        f.round(); f.round();
+        t.check(f.service.submissions == std::vector<CampusArea>{area} && !f.engine->snapshot().needs_selection,
+            "current valid remembered teaching and dormitory entries are symmetric when fresh redirects are absent");
+    }
+    for (const std::string boundary : {"expired", "revoked", "weak", "proof"}) {
+        Fixture f;
+        if (boundary == "expired") f.wall += NetworkMemory::kExpirySeconds + 1;
+        if (boundary == "revoked") f.engine->forget_all_networks();
+        if (boundary == "weak") f.route.descriptor.raw = {{"net", "192.0.2.0/24"}};
+        if (boundary == "proof") {
+            NetworkMemory memory("00112233445566778899aabbccddeeff");
+            memory.remember(f.route.descriptor, "dormitory", true, false, f.wall, "b184abcd");
+            f.engine->restore_memory(memory.encode());
+        }
+        f.engine->receive_path(f.path());
+        f.service.response = ConnectivityReport::simple(false, false);
+        f.round(); f.round();
+        t.check(f.service.submissions.empty(), "remembered dormitory selection cannot borrow " + boundary + " authority");
+    }
+    {
+        Fixture f; f.service.proof.teaching_client_bound = true;
+        f.service.response = ConnectivityReport::simple(false, false);
+        f.round(); f.round();
+        t.check(f.service.submissions.empty() && f.engine->snapshot().last_attempt &&
+            f.engine->snapshot().last_attempt->error == PortalError::protocolConflict,
+            "a fresh exact-source teaching configuration outranks old dormitory memory and preserves its strict attempt requirement");
+    }
+    {
+        Fixture f; f.service.response = online();
+        const auto memory = f.saved(); f.round();
+        t.check(f.engine->snapshot().required_campus_confirmed && !f.engine->snapshot().needs_selection,
+            "automatic service verification and entry readiness agree for a known dormitory connection");
+        const auto request = f.engine->prepare_verify_campus();
+        t.check(request && f.engine->verify_campus(*request) == ConnectionEngine::CampusVerificationResult::confirmed &&
+            !f.engine->snapshot().needs_selection && f.saved().area == memory.area && f.saved().verified == memory.verified,
+            "independent verification reuses the same selection without changing preferred entry or proof age");
     }
     t.begin("quick-check-repeated-session-expiry");
     {
@@ -122,6 +178,28 @@ inline void session_expiry_recovery_tests(Harness& t) {
             "returning to teaching again selects its own remembered entrance and fresh portal proof");
     }
     t.begin("session-expiry-protection-boundaries");
+    {
+        Fixture f;
+        f.service.during_discovery = [] { throw std::runtime_error("fixture service failure"); };
+        f.round(); f.round();
+        t.check(!f.engine->snapshot().busy && f.service.submissions.empty() && f.engine->snapshot().holds.empty(),
+            "an exception before submission releases operation ownership without inventing a credential rejection");
+        f.service.during_discovery = {}; f.round();
+        t.check(f.service.submissions.size() == 1 && f.engine->snapshot().online && !f.engine->snapshot().busy,
+            "a later automatic round recovers after a failed service task without manual resume");
+    }
+    {
+        Fixture f;
+        f.service.during_attempt = [] { throw std::runtime_error("fixture submit interruption"); };
+        f.round(); f.round();
+        t.check(!f.engine->snapshot().busy && f.service.submissions.size() == 1 &&
+            f.engine->snapshot().pause_reason == HoldReason::uncertain && f.engine->snapshot().cooldown_remaining,
+            "an exception after the submission gate retains uncertainty and its original cooldown");
+        f.service.during_attempt = {}; f.service.response = hint(CampusPortalHint::teaching);
+        f.clock += 100; f.round();
+        t.check(f.service.submissions.size() == 1 && f.engine->snapshot().pause_reason == HoldReason::uncertain,
+            "a task exception cannot replay an unconfirmed submission after the cooldown ends");
+    }
     for (const std::string condition : {"readOnly", "observe", "pause", "cooldown", "credentials", "unknown", "proof"}) {
         Fixture f(CampusArea::automatic, "dormitory", condition == "readOnly", condition != "unknown", condition != "credentials");
         f.engine->set_probe_mode(ProbeMode::quick);

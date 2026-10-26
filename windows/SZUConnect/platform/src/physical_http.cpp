@@ -301,7 +301,8 @@ std::string lowercase(std::string value) {
 }
 // Exactly one bounded Location from the final header section. Trailer headers,
 // duplicate Locations and malformed/control-containing values never grant proof.
-std::optional<CampusPortalHint> campus_location(const std::string& headers, const std::string& request_url) {
+std::optional<CampusPortalHint> campus_location(const std::string& headers, const std::string& request_url, bool* authentication_required = nullptr) {
+    if (authentication_required) *authentication_required = false;
     std::string location;
     bool found = false;
     auto offset = headers.find("\r\n");
@@ -320,7 +321,9 @@ std::optional<CampusPortalHint> campus_location(const std::string& headers, cons
         }
         offset = end + 2;
     }
-    return found ? wire::campus_redirect_hint(location, request_url) : std::nullopt;
+    const auto hint = found ? wire::campus_redirect_hint(location, request_url) : std::nullopt;
+    if (hint && authentication_required) *authentication_required = wire::campus_authentication_required(location, request_url);
+    return hint;
 }
 
 struct Cookie {
@@ -643,7 +646,7 @@ HttpResponse PhysicalHttpSession::get(const HttpRequest& request, const CancelTo
         if (error == HttpError::none || error == HttpError::redirect || error == HttpError::cancelled)
             response.failure_stage = HttpFailureStage::none;
         if (error != HttpError::none && error != HttpError::redirect) {
-            response.body.clear(); response.campus_area_hint.reset(); response.campus_redirect = false;
+            response.body.clear(); response.campus_area_hint.reset(); response.campus_redirect = false; response.authentication_required = false;
         }
         return response;
     };
@@ -728,7 +731,7 @@ HttpResponse PhysicalHttpSession::get(const HttpRequest& request, const CancelTo
     response.status = static_cast<int>(status);
     response.body = std::move(transfer.body);
     if (status >= 300 && status < 400) {
-        response.campus_area_hint = campus_location(transfer.headers, request.url);
+        response.campus_area_hint = campus_location(transfer.headers, request.url, &response.authentication_required);
         response.campus_redirect = response.campus_area_hint.has_value();
     }
     if (state_->cookies && request.allow_cookies) {
@@ -1022,7 +1025,9 @@ bool physical_http_native_policy_test() {
         "http://www.msftconnecttest.com/connecttest.txt") != CampusPortalHint::dormitory) return false;
     for (const auto* location : {"http://172.30.255.42/a70.htm?wlanuserip=192.0.2.7", "http://172.30.255.42:80/a79.htm"}) {
         const auto header = "HTTP/1.1 302 Found\r\nLocation: " + std::string(location) + "\r\n\r\n";
-        if (campus_location(header, "http://www.msftconnecttest.com/connecttest.txt") != CampusPortalHint::dormitory) return false;
+        bool required = false;
+        if (campus_location(header, "http://www.msftconnecttest.com/connecttest.txt", &required) != CampusPortalHint::dormitory ||
+            required != (std::string_view(location).find("a70.htm") != std::string_view::npos)) return false;
         if (campus_location("HTTP/1.1 302 Found\r\nLocation: " + std::string(location) + "\r\nLocation: https://evil.invalid/\r\n\r\n",
             "http://www.msftconnecttest.com/connecttest.txt")) return false;
     }

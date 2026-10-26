@@ -709,6 +709,15 @@ std::optional<CampusPortalHint> campus_redirect_hint(std::string_view location, 
     return std::nullopt;
 }
 
+bool campus_authentication_required(std::string_view location, std::string_view probe_url) {
+    if (!campus_redirect_hint(location, probe_url)) return false;
+    std::string destination(location);
+    if (location.starts_with("//")) destination = parse_url(probe_url)->scheme + ":" + destination;
+    const auto target = parse_url(destination);
+    return target && target->path != "/a79.htm" && target->path != "/srun_portal_success" &&
+        target->path != "/srun_portal_success_mobile";
+}
+
 std::string percent_encode(std::string_view text) {
     static const char hex[] = "0123456789ABCDEF";
     std::string out;

@@ -452,11 +452,13 @@ inline void r11_engine_sync_tests(Harness& t) {
     {
         Fixture f(CampusArea::automatic, "teaching"); f.wired_only(); f.service.reports[f.wired.interface_key] = connectivity(false);
         f.engine->connect();
-        t.check(f.engine->snapshot().needs_selection && f.service.submissions.empty(),
-            "an actual manual dual-service round needs a visible selection despite a historical teaching preference");
+        t.check(!f.engine->snapshot().needs_selection && f.service.submissions == std::vector<std::string>{f.wired.interface_key} &&
+            f.service.targets == std::vector<CampusArea>{CampusArea::teaching},
+            "manual recovery uses the same current valid teaching preference as automatic service verification");
+        const bool trusted_after_login = f.engine->snapshot().trusted;
         f.service.reports[f.wired.interface_key] = connectivity(true); f.engine->check();
-        t.check(!f.engine->snapshot().needs_selection && !f.engine->snapshot().trusted && f.service.submissions.empty(),
-            "complete basic success removes a stale selection prompt without authorizing authentication");
+        t.check(!f.engine->snapshot().needs_selection && f.engine->snapshot().trusted == trusted_after_login && f.service.submissions.size() == 1,
+            "complete basic success preserves entry readiness without adding authentication");
     }
     {
         Fixture f(CampusArea::dormitory, "teaching"); f.wired_only(); f.write_ok = false;

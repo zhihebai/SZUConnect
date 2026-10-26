@@ -209,7 +209,10 @@ ConnectivityReport WinHttpService::probe(ProbeMode mode, const CancelToken& toke
         else r.error = HttpError::cancelled;
         const bool ok = r.ok() && (apple ? wire::is_connectivity_success(r.body, r.status) : wire::is_microsoft_success(r.body, r.status));
         EndpointResult result{endpoint_state(r, ok), r.elapsed};
-        if (result.state == EndpointState::redirect) result.campus_area_hint = r.campus_area_hint;
+        if (result.state == EndpointState::redirect) {
+            result.campus_area_hint = r.campus_area_hint;
+            result.authentication_required = r.campus_area_hint && r.authentication_required;
+        }
         std::lock_guard<std::mutex> lock(mutex);
         (apple ? report.apple : report.microsoft) = result;
         if (mode == ProbeMode::quick && (result.succeeded() || (result.state == EndpointState::redirect && result.campus_area_hint)))
@@ -227,6 +230,7 @@ ConnectivityReport WinHttpService::probe(ProbeMode mode, const CancelToken& toke
     if (!current(*operation)) {
         report.apple.state = EndpointState::cancelled; report.microsoft.state = EndpointState::cancelled;
         report.apple.campus_area_hint.reset(); report.microsoft.campus_area_hint.reset();
+        report.apple.authentication_required = report.microsoft.authentication_required = false;
     }
     return report;
 }

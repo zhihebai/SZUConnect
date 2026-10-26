@@ -11,6 +11,7 @@ inline ConnectivityReport hint(CampusPortalHint area, std::optional<CampusPortal
     result.mode = ProbeMode::complete;
     result.microsoft.state = EndpointState::redirect;
     result.microsoft.campus_area_hint = area;
+    result.microsoft.authentication_required = true;
     if (other) { result.apple.state = EndpointState::redirect; result.apple.campus_area_hint = other; }
     return result;
 }
@@ -178,8 +179,8 @@ inline void wired_session_recovery_tests(Harness& t) {
     {
         Fixture f; f.service.reports = {hint(CampusPortalHint::teaching), ConnectivityReport::simple(false, false), online()};
         f.round(); f.round();
-        t.check(f.service.submissions.empty() && f.service.attempts.empty() && f.engine->snapshot().needs_selection,
-            "without a current candidate dual-service discovery requires selection and never reuses the previous round's teaching hint");
+        t.check(f.service.submissions == std::vector<CampusArea>{CampusArea::dormitory} && !f.engine->snapshot().needs_selection,
+            "without a current hint the valid bound dormitory memory selects dormitory rather than reusing the previous teaching hint");
     }
     {
         Fixture f(CampusArea::automatic, "teaching");

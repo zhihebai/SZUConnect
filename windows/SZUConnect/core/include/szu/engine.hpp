@@ -204,6 +204,7 @@ public:
         CampusArea area_ = CampusArea::automatic;
         ConnectivityReport selection_report_;
         bool prefer_teaching_ = false;
+        bool prefer_dormitory_ = false;
         std::optional<physical::Route> route_;
         std::vector<std::string> merging_record_ids_;
     };
@@ -220,6 +221,7 @@ public:
         CampusArea area_ = CampusArea::automatic;
         ConnectivityReport selection_report_;
         bool prefer_teaching_ = false;
+        bool prefer_dormitory_ = false;
         std::optional<physical::Route> route_;
         EngineStatus previous_status_ = EngineStatus::idle;
     };
@@ -292,7 +294,9 @@ private:
                                const LoginAttempt& attempt);
     void refresh_memory_locked();
     bool memory_ambiguous_locked() const { return tunnel_ || multiple_physical_ || descriptors_.size() > 1; }
+    std::optional<CampusArea> remembered_entry_locked() const;
     bool prefers_teaching_locked() const;
+    bool prefers_dormitory_locked() const;
     std::optional<CampusRoutingResolution> current_routing_locked() const;
     bool needs_dormitory_eligibility_locked() const;
     bool needs_memory_update_locked() const;
@@ -301,7 +305,7 @@ private:
     void record_routing_locked(CampusArea choice, const ConnectivityReport& report,
                                const CampusDiscovery& discovery, const CampusRoutingResolution& routing);
     std::optional<CampusArea> verified_scope_locked(CampusArea choice, const ConnectivityReport& report,
-                                                   const CampusDiscovery& discovery, bool bound, bool prefer_teaching) const;
+                                                   const CampusDiscovery& discovery, bool bound, bool prefer_teaching, bool prefer_dormitory = false) const;
     std::optional<AuthenticationScope> authentication_scope_locked() const;
     std::optional<double> cooldown_remaining_locked() const;
     bool can_prioritize_recovery_locked() const;

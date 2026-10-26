@@ -639,6 +639,7 @@ void verify_session_expiry_recovery(Checks& t) {
                 response.campus_area_hint = wire::campus_redirect_hint(target == CampusArea::dormitory
                     ? "http://172.30.255.42/a70.htm?wlanuserip=192.0.2.7"
                     : "https://net.szu.edu.cn/srun_portal_pc?ac_id=12", request.url);
+                response.authentication_required = true;
                 return response;
             }
             if (url->path == "/eportal/portal/login" || url->path == "/cgi-bin/srun_portal") expired = false;

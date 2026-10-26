@@ -437,6 +437,8 @@ inline void tun_parity_tests(Harness& t) {
     {
         TunParityFixture f; f.advance(46);
         f.base.response = ConnectivityReport::simple(true, false); f.base.response.microsoft.state = EndpointState::redirect;
+        f.base.response.microsoft.campus_area_hint = CampusPortalHint::teaching;
+        f.base.response.microsoft.authentication_required = true;
         f.engine->automatic_round();
         t.equal(f.engine->next_check_delay(), 5, "outside priority window a true partial base failure keeps five-second confirmation");
         f.engine->automatic_round();

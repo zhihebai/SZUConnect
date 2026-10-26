@@ -4,6 +4,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <stdexcept>
 #include "campus_verification_runtime_tests.hpp"
 #include "proxy_assistant_runtime_tests.hpp"
 
@@ -13,6 +14,7 @@ public:
     Fake() : campusverificationruntime::Fake("recover") {}
     szu::win::NetworkSnapshot capture_network() override {
         ++captures;
+        if (throw_capture.exchange(false)) throw std::runtime_error("fixture capture failure");
         auto result = campusverificationruntime::Fake::capture_network();
         result.path.identity = tunnel ? "fixture-virtual-route" : "fixture-system-route";
         result.path.tunnel = tunnel;
@@ -27,12 +29,21 @@ public:
         ++probes;
         auto result = szu::ConnectivityReport::simple(online, online); result.mode = mode;
         if (!online) result.apple.state = result.microsoft.state = szu::EndpointState::timeout;
+        if (session_expired) {
+            result.microsoft.state = szu::EndpointState::redirect;
+            result.microsoft.campus_area_hint = szu::CampusPortalHint::teaching;
+            result.microsoft.authentication_required = true;
+        }
         return result;
+    }
+    szu::CampusDiscovery discover(szu::CampusArea area, const szu::CancelToken& token) override {
+        if (throw_discovery.exchange(false)) { ++discoveries; ++returned; throw std::runtime_error("fixture discovery failure"); }
+        return campusverificationruntime::Fake::discover(area, token);
     }
     szu::LoginAttempt attempt(const szu::Credentials& credentials, szu::CampusArea area, const szu::CancelToken&) override {
         ++evidence().fake_auth_submissions;
         fake_credentials = credentials.account == "fixture-user" && credentials.password == "fixture-password";
-        selected_area = area; online = true;
+        selected_area = area; online = true; session_expired = false;
         szu::LoginAttempt result; result.outcome = szu::Outcome::success;
         result.credential_submission_started = true; return result;
     }
@@ -41,6 +52,8 @@ public:
     }
     std::atomic<int> captures{0}, bindings{0};
     std::atomic<bool> tunnel{false}, candidate_available{true}, online{true}, fake_credentials{false};
+    std::atomic<bool> session_expired{false}, throw_discovery{false};
+    std::atomic<bool> throw_capture{false};
     szu::CampusArea selected_area = szu::CampusArea::automatic;
 };
 inline void finish(szu::app::AppController& app, const std::function<bool()>& completed) {
@@ -56,6 +69,64 @@ template<class Check> void run_network_recovery_schedule_runtime_tests(Check& ch
     using namespace szu;
     using namespace szu::app;
     using networkrecoveryscheduleruntime::Fake;
+    {
+        auto services = std::make_unique<Fake>(); auto* fake = services.get();
+        AppController app(nullptr, RuntimeMode::normal, std::move(services)); app.start();
+        app.on_timer(kTimerAuto);
+        networkrecoveryscheduleruntime::finish(app, [&] { return fake->probes == 1 && fake->returned == 1; });
+        const int captures = fake->captures;
+        fake->throw_capture = true; app.on_timer(kTimerAuto);
+        networkrecoveryscheduleruntime::finish(app, [&] { return fake->captures > captures; });
+        check(!app.snapshot().busy && app.next_check() && fake->evidence().fake_auth_submissions == 0,
+            "a physical snapshot exception cannot leave the controller busy or permanently suppress monitoring");
+        fake->throw_discovery = true;
+        const auto deadline = app.next_check();
+        const int returned = fake->returned;
+        check(app.verify_campus_service(), "independent verification remains available after a failed network snapshot");
+        networkrecoveryscheduleruntime::finish(app, [&] { return fake->returned > returned; });
+        check(app.next_check() && deadline && *app.next_check() >= *deadline && !app.snapshot().verifying_campus &&
+            !app.snapshot().busy && fake->evidence().fake_auth_submissions == 0,
+            "a verification exception releases its reservation and restores the original monitoring deadline without a submission");
+        app.on_timer(kTimerAuto);
+        networkrecoveryscheduleruntime::finish(app, [&] { return fake->probes >= 2; });
+        check(app.snapshot().online && app.next_check(), "automatic monitoring continues after verification failure without manual resume");
+        app.shutdown();
+    }
+    {
+        auto services = std::make_unique<Fake>(); auto* fake = services.get();
+        AppController app(nullptr, RuntimeMode::normal, std::move(services)); app.start();
+        app.on_timer(kTimerAuto);
+        networkrecoveryscheduleruntime::finish(app, [&] { return fake->probes == 1 && fake->returned == 1; });
+        const auto epoch = app.snapshot().epoch;
+        fake->session_expired = true;
+        app.on_timer(kTimerAuto);
+        networkrecoveryscheduleruntime::finish(app, [&] { return fake->probes == 2; });
+        check(app.next_check() && !app.snapshot().busy && fake->evidence().fake_auth_submissions == 0,
+            "same-link session expiry with one reachable public probe finishes and renews its confirmation timer");
+        app.on_timer(kTimerAuto);
+        networkrecoveryscheduleruntime::finish(app, [&] { return fake->evidence().fake_auth_submissions == 1; });
+        check(app.snapshot().online && app.snapshot().epoch == epoch && app.next_check() && !app.snapshot().busy &&
+            fake->fake_credentials && fake->selected_area == CampusArea::teaching && fake->evidence().fake_wifi_calls == 0,
+            "a renewed timer completes one campus-session recovery without reconnecting Wi-Fi or receiving a network notification");
+        app.shutdown();
+    }
+    {
+        auto services = std::make_unique<Fake>(); auto* fake = services.get(); fake->online = false;
+        AppController app(nullptr, RuntimeMode::normal, std::move(services)); app.start();
+        const auto epoch = app.snapshot().epoch;
+        app.on_timer(kTimerAuto);
+        networkrecoveryscheduleruntime::finish(app, [&] { return fake->probes == 1; });
+        fake->throw_discovery = true;
+        app.on_timer(kTimerAuto);
+        networkrecoveryscheduleruntime::finish(app, [&] { return fake->returned == 1; });
+        check(!app.snapshot().busy && app.next_check() && fake->evidence().fake_auth_submissions == 0,
+            "a discovery exception releases busy state and renews monitoring without a submission");
+        app.on_timer(kTimerAuto);
+        networkrecoveryscheduleruntime::finish(app, [&] { return fake->evidence().fake_auth_submissions == 1; });
+        check(app.snapshot().online && !app.snapshot().busy && app.next_check() && app.snapshot().epoch == epoch,
+            "the next timer after a failed task can recover the same link without manual resume");
+        app.shutdown();
+    }
     {
         auto services = std::make_unique<Fake>(); auto* fake = services.get();
         AppController app(nullptr, RuntimeMode::normal, std::move(services)); app.start();
