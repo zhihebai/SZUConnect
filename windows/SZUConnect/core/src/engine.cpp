@@ -115,6 +115,17 @@ namespace {
 std::optional<CampusPortalHint> physical_hint(const EndpointResult& endpoint) {
     return endpoint.state == EndpointState::redirect ? endpoint.campus_area_hint : std::nullopt;
 }
+CampusArea discovery_scope(CampusArea choice, const ConnectivityReport& report, bool bound, bool prefer_teaching) {
+    if (choice == CampusArea::teaching) return CampusArea::teaching;
+    if (choice != CampusArea::automatic) return CampusArea::automatic;
+    const bool teaching = bound && (physical_hint(report.apple) == CampusPortalHint::teaching ||
+        physical_hint(report.microsoft) == CampusPortalHint::teaching);
+    const bool dormitory = bound && (physical_hint(report.apple) == CampusPortalHint::dormitory ||
+        physical_hint(report.microsoft) == CampusPortalHint::dormitory);
+    // A current teaching-only candidate needs HTTPS identity, not an unrelated
+    // dormitory timeout. Explicit dormitory and conflicting hints still read both.
+    return !dormitory && (teaching || prefer_teaching) ? CampusArea::teaching : CampusArea::automatic;
+}
 bool refresh_selection_hints(CampusArea area, const ConnectivityReport& report) {
     return area == CampusArea::automatic && (physical_hint(report.apple) || physical_hint(report.microsoft));
 }
@@ -883,9 +894,7 @@ void ConnectionEngine::perform(const ConnectionPolicy::Operation& op, const Canc
         pending_change_ = true;
         lock.unlock();
         flush();
-        const bool dormitory_hint = physical_hint(report.apple) == CampusPortalHint::dormitory ||
-            physical_hint(report.microsoft) == CampusPortalHint::dormitory;
-        discovery = service_.discover(prefer_teaching && !dormitory_hint ? CampusArea::teaching : area, token);
+        discovery = service_.discover(discovery_scope(area, report, bound, prefer_teaching), token);
         lock.lock();
         if (!policy_.owns(op) || token.cancelled() || expected_route != authentication_route_ || memory_gen != memory_generation_) return;
         last_discovery_ = discovery;
@@ -1151,10 +1160,7 @@ void ConnectionEngine::confirm_remembered_campus_service(const ConnectionPolicy:
         status_ = EngineStatus::discovering;
         prefer_teaching = prefers_teaching_locked();
         prefer_dormitory = prefers_dormitory_locked();
-        const bool dormitory_hint = physical_hint(report.apple) == CampusPortalHint::dormitory ||
-            physical_hint(report.microsoft) == CampusPortalHint::dormitory;
-        discovery_area = context.area == CampusArea::teaching || (prefer_teaching && !dormitory_hint)
-            ? CampusArea::teaching : CampusArea::automatic;
+        discovery_area = discovery_scope(context.area, report, context.route.has_value(), prefer_teaching);
     }
     flush();
     {
@@ -1571,8 +1577,8 @@ ConnectionEngine::CampusVerificationResult ConnectionEngine::verify_campus(const
         if (!owns_campus_verification_locked(request)) return CampusVerificationResult::cancelled;
     }
     CampusDiscovery discovery;
-    if (bound) discovery = service_.discover(request.area_ == CampusArea::teaching ? CampusArea::teaching : CampusArea::automatic,
-                                           request.token_);
+    if (bound) discovery = service_.discover(discovery_scope(request.area_, selection_report,
+        request.route_.has_value(), request.prefer_teaching_), request.token_);
     CampusVerificationResult result = CampusVerificationResult::unavailable;
     {
         std::lock_guard<std::mutex> lock(mutex_);

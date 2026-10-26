@@ -624,10 +624,45 @@ void verify_discovery_failure_phases(Checks& t) {
 }
 }
 
+void verify_preflight_backoff(Checks& t) {
+    for (const std::string phase : {"/srun_portal_pc", "/cgi-bin/get_challenge"})
+    for (const bool cancel_wait : {false, true}) {
+        Backend backend; WinHttpService service(backend.hooks()); service.set_expected_physical_route(route("A"));
+        CancelToken token; std::atomic<int> failures{0};
+        backend.respond = [&](const HttpRequest& request, const CancelToken&, const auto&) {
+            if (wire::parse_url(request.url)->path == phase && failures.fetch_add(1) == 0) {
+                HttpResponse response; response.error = HttpError::timeout; return response;
+            }
+            return normal(request);
+        };
+        LoginAttempt attempt;
+        const auto started = std::chrono::steady_clock::now();
+        std::thread worker([&] { attempt = service.attempt({"fixture-account", "not-a-real-password"}, CampusArea::teaching, token); });
+        if (cancel_wait) {
+            const auto deadline = started + std::chrono::seconds(2);
+            while (!failures && std::chrono::steady_clock::now() < deadline) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            token.cancel();
+        }
+        worker.join();
+        if (cancel_wait) {
+            t.check(attempt.outcome == Outcome::cancelled && !attempt.credential_submission_started &&
+                backend.count(phase) == 1 && backend.count("/cgi-bin/srun_portal") == 0,
+                "cancelling a preflight retry wait wakes its task without retrying or sending credentials");
+        } else {
+            t.check(attempt.outcome == Outcome::success && backend.count(phase) == 2 &&
+                backend.count("/cgi-bin/srun_portal") == 1 &&
+                std::chrono::steady_clock::now() - started >= std::chrono::milliseconds(750),
+                "a cancellable preflight wait retains the original retry interval and one credential submission");
+        }
+    }
+}
+
 void verify_session_expiry_recovery(Checks& t) {
     for (const auto target : {CampusArea::teaching, CampusArea::dormitory})
     for (const auto mode : {ProbeMode::quick, ProbeMode::complete})
-    for (const bool tunnel : {false, true}) {
+    for (const bool tunnel : {false, true})
+    for (const bool previous_entry_differs : {false, true}) {
         Backend backend; WinHttpService physical_service(backend.hooks());
         std::atomic<bool> expired{false};
         std::atomic<int> website_calls{0};
@@ -664,7 +699,9 @@ void verify_session_expiry_recovery(Checks& t) {
         engine.restore_recovery(std::nullopt);
         engine.configure(MonitoringMode::recover, CampusArea::automatic, mode, Credentials{"fixture-account", "not-a-real-password"});
         NetworkMemory memory("00112233445566778899aabbccddeeff");
-        memory.remember(attachment.descriptor, std::string(to_string(target)), true, true, wall - 100, "abcde107");
+        const auto remembered_entry = previous_entry_differs
+            ? (target == CampusArea::teaching ? CampusArea::dormitory : CampusArea::teaching) : target;
+        memory.remember(attachment.descriptor, std::string(to_string(remembered_entry)), true, true, wall - 100, "abcde107");
         engine.restore_memory(memory.encode());
         PathSnapshot path; path.identity = "session-expiry-attachment"; path.tunnel = tunnel;
         path.usable = path.link_active = path.requires_physical_binding = true;
@@ -673,6 +710,7 @@ void verify_session_expiry_recovery(Checks& t) {
         const auto epoch = engine.snapshot().epoch;
         t.check(engine.snapshot().online && backend.count("/eportal/portal/login") == 0 && backend.count("/cgi-bin/srun_portal") == 0,
             "healthy remembered Wi-Fi does not submit credentials with or without a tunnel");
+        const int dormitory_reads = backend.count("/eportal");
         expired = true; now += 61; wall += 61;
         engine.automatic_round();
         t.check(backend.count("/eportal/portal/login") == 0 && backend.count("/cgi-bin/srun_portal") == 0,
@@ -686,6 +724,8 @@ void verify_session_expiry_recovery(Checks& t) {
             engine.snapshot().probe_mode == mode && (mode != ProbeMode::quick || website_calls == 0),
             "browser redirects are not followed, quick settings are preserved and base audits do not query custom websites");
         t.check(engine.snapshot().cooldown_remaining.has_value(), "service recovery keeps the post-submission cooldown");
+        t.check(target != CampusArea::teaching || backend.count("/eportal") == dormitory_reads,
+            "a fresh teaching redirect avoids unrelated dormitory requests even when the saved entrance was dormitory");
     }
 }
 
@@ -697,6 +737,7 @@ int main() {
     verify_discovery_failure_phases(t);
     verify_source_bound_wired_handover(t);
     verify_session_expiry_recovery(t);
+    verify_preflight_backoff(t);
     const Credentials credentials{"fixture-account", "not-a-real-password"};
     {
         Backend backend; WinHttpService service(backend.hooks()); CancelToken token;

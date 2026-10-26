@@ -302,8 +302,7 @@ LoginAttempt WinHttpService::teaching(const Credentials& credentials, Scope& ope
         HttpResponse r = this->get(*fixed, request, operation, token);
         if (retry && !token.cancelled() && wire::is_transient(portal_error(r))) {
             // Only pre-submission credential-free pages/challenges are retried.
-            for (int step = 0; step < 16 && !token.cancelled(); ++step) std::this_thread::sleep_for(std::chrono::milliseconds(50));
-            if (!token.cancelled()) r = this->get(*fixed, request, operation, token);
+            if (!token.wait_for(0.8)) r = this->get(*fixed, request, operation, token);
         }
         return r;
     };

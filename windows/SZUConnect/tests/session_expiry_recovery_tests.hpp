@@ -92,6 +92,22 @@ inline void session_expiry_recovery_tests(Harness& t) {
         t.check(f.service.submissions == std::vector<CampusArea>{area} && !f.engine->snapshot().needs_selection,
             "current valid remembered teaching and dormitory entries are symmetric when fresh redirects are absent");
     }
+    t.begin("bounded-entry-discovery-work");
+    for (const std::string scenario : {"teachingHint", "dormitoryHint", "explicitDormitory", "conflict"}) {
+        const bool teaching = scenario == "teachingHint";
+        Fixture f(scenario == "explicitDormitory" ? CampusArea::dormitory : CampusArea::automatic,
+            teaching ? "dormitory" : "teaching");
+        if (scenario == "explicitDormitory") f.service.response = ConnectivityReport::simple(false, false);
+        else f.service.response = hint(teaching ? CampusPortalHint::teaching : CampusPortalHint::dormitory,
+            scenario == "conflict" ? std::optional<CampusPortalHint>(CampusPortalHint::teaching) : std::nullopt);
+        f.round(); f.round();
+        t.check(!f.service.discoveries.empty() && f.service.discoveries.front() ==
+            (teaching ? CampusArea::teaching : CampusArea::automatic),
+            "discovery waits only for applicable services while dormitory scope and conflicts retain both checks");
+        t.check(scenario == "conflict" ? f.service.submissions.empty() :
+            f.service.submissions == std::vector<CampusArea>{teaching ? CampusArea::teaching : CampusArea::dormitory},
+            "request reduction preserves fresh-entry priority, explicit dormitory choice and conflict rejection");
+    }
     for (const std::string boundary : {"expired", "revoked", "weak", "proof"}) {
         Fixture f;
         if (boundary == "expired") f.wall += NetworkMemory::kExpirySeconds + 1;

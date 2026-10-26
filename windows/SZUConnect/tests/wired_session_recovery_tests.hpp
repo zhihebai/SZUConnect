@@ -138,7 +138,6 @@ inline void wired_session_recovery_tests(Harness& t) {
         f.service.reports = {online(), hint(CampusPortalHint::teaching), hint(CampusPortalHint::teaching), online()};
         f.round(); t.check(f.engine->snapshot().online && f.service.attempts.empty(), "initially online cable does not authenticate");
         f.round(); t.check(f.service.attempts.empty() && f.engine->snapshot().status != EngineStatus::loggingIn, "one expired-session failure only confirms");
-        const double verified_at = f.wall;
         f.round();
         t.check(f.engine->snapshot().online && f.service.attempts == std::vector<CampusArea>{CampusArea::teaching} && f.service.submissions == f.service.attempts,
             "two failures with both homepages reachable and teaching hint submit teaching once then verify online");
@@ -150,7 +149,9 @@ inline void wired_session_recovery_tests(Harness& t) {
         const auto saved = f.saved();
         t.check(saved.id == f.original.id && saved.features == f.original.features && saved.proof_teaching && saved.proof_dormitory && saved.area == "teaching",
             "accepted teaching changes preference while retaining identity features and proof flags");
-        t.equal(saved.verified, verified_at, "fresh proof of both homepages may refresh their shared verification age");
+        t.check(!f.service.discoveries.empty() && f.service.discoveries.back() == CampusArea::teaching &&
+            f.engine->snapshot().last_discovery->dormitory == Discovery::notChecked && saved.verified == f.original.verified,
+            "teaching-only discovery avoids unrelated dormitory work without renewing the historical dormitory proof");
     }
     {
         Fixture f; f.service.proof.dormitory = Discovery::notChecked;
