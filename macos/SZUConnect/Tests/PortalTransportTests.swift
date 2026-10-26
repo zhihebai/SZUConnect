@@ -526,7 +526,7 @@ struct PortalTransportTests {
             let meter = LeaseCaptureMeter(), session = TypedFailureFixtureSession(), fixture = typedClient(meter, session)
             await session.configure("/eportal", failures: [failure, failure, failure])
             _ = await fixture.setExpectedPhysicalRoute(meter.route)
-            let discovery = await fixture.discoverCampus(area: .automatic)
+            let discovery = await fixture.discoverCampus(area: .dormitory)
             let requests = await session.snapshot()
             check(discovery.teachingConfirmed && !discovery.dormitoryConfirmed && discovery.issue == issue,
                   "A typed dormitory \(failure.diagnostic.reason.rawValue) retains its own issue and only the separately acquired HTTPS proof")
@@ -587,6 +587,14 @@ struct PortalTransportTests {
         }
         do {
             let meter = LeaseCaptureMeter(), session = BoundClientFixtureSession(), fixture = boundClient(meter, session)
+            _ = await fixture.setExpectedPhysicalRoute(meter.route)
+            let discovery = await fixture.discoverCampus(area: .dormitory)
+            let requests = await session.snapshot()
+            check(discovery.teachingConfirmed && discovery.dormitoryConfirmed && requests.map(\.path) == ["/srun_portal_pc", "/eportal"],
+                  "An explicit dormitory check still obtains both current proofs despite a bound teaching CONFIG")
+        }
+        do {
+            let meter = LeaseCaptureMeter(), session = BoundClientFixtureSession(), fixture = boundClient(meter, session)
             await session.configure(page: Data("<title>Shenzhen University srun login</title><input name='ac_id' value='12'>".utf8))
             _ = await fixture.setExpectedPhysicalRoute(meter.route)
             let attempt = await fixture.attemptLogin(credentials: credentials, area: .teaching, requireBoundClientConfiguration: false)
@@ -614,6 +622,9 @@ struct PortalTransportTests {
             if variant == "missingIdentity" || variant == "tlsFailure" {
                 check(!discovery.teachingConfirmed && !discovery.dormitoryConfirmed && requests.count == 1,
                       "Missing campus identity or TLS failure never reaches plaintext dormitory discovery")
+            } else if variant == "matching" {
+                check(discovery.teachingConfirmed && discovery.dormitory == .notChecked && requests.count == 1,
+                      "An automatic source-bound teaching candidate skips the unrelated dormitory request")
             } else {
                 check(discovery.teachingConfirmed && discovery.dormitoryConfirmed,
                       "Generic dual-service availability is kept separate from client-bound applicability")
@@ -623,7 +634,7 @@ struct PortalTransportTests {
             let meter = LeaseCaptureMeter(), session = BoundClientFixtureSession(), fixture = boundClient(meter, session)
             _ = await fixture.setExpectedPhysicalRoute(meter.route)
             await session.invalidateOnDormitory { meter.invalidate() }
-            let discovery = await fixture.discoverCampus(area: .automatic)
+            let discovery = await fixture.discoverCampus(area: .dormitory)
             check(!discovery.teachingConfirmed && !discovery.dormitoryConfirmed && !discovery.teachingClientBound,
                   "Lease invalidation after a bound HTTPS page discards its client CONFIG and every other proof")
         }

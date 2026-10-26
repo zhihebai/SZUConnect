@@ -1661,11 +1661,16 @@ enum AppMaintenanceState: Equatable { case running, stopping, ready }
     }
     var hasMultipleNetworkAttachments: Bool { connectedPhysicalLabels.count > 1 || currentDescriptors.count > 1 }
     var usingWiredCampusRoute: Bool { authenticationRoute?.descriptor?.kind == "ethernet" }
-    var networkRemembered: Bool { memoryLevel == .medium || memoryLevel == .strong }
+    var networkRemembered: Bool {
+        let level = memoryLevel
+        return level == .medium || level == .strong
+    }
     var rememberedCampusArea: CampusArea? {
-        guard area == .automatic, authenticationRoute != nil, networkRemembered,
-              currentDescriptors.count == 1, currentDescriptors[0].isReliable,
-              let record = memory?.records.first(where: { $0.id == memoryMatch.record }),
+        guard area == .automatic, authenticationRoute != nil,
+              currentDescriptors.count == 1, currentDescriptors[0].isReliable else { return nil }
+        let match = memoryMatch
+        guard match.level == .medium || match.level == .strong,
+              let record = memory?.records.first(where: { $0.id == match.record }),
               record.proofTeaching else { return nil }
         if record.area == "teaching" { return .teaching }
         if record.area == "dormitory", record.proofDormitory { return .dormitory }
@@ -1676,11 +1681,12 @@ enum AppMaintenanceState: Equatable { case running, stopping, ready }
     var currentCampusRouting: CampusRoutingResolution? {
         guard let discovery = lastDiscovery else { return nil }
         let report = campusServiceSelectionReport ?? lastInternetCheck?.base ?? ConnectivityReport(apple: false, microsoft: false)
+        let rememberedArea = rememberedCampusArea
         // Preserve the actual decision only while the attachment, candidate and
         // fresh evidence still match the displayed context.
         if routingDiagnosticEpoch == networkEpoch, let actual = lastRoutingDiagnostic,
            actual.choice == area, actual.discovery == discovery,
-           actual.rememberedArea == rememberedCampusArea,
+           actual.rememberedArea == rememberedArea,
            actual.apple == report.appleResult.campusAreaHint,
            actual.microsoft == report.microsoftResult.campusAreaHint {
             return actual.resolution
@@ -1688,7 +1694,7 @@ enum AppMaintenanceState: Equatable { case running, stopping, ready }
         return CampusRoutingResolution.resolve(choice: area,
             report: report,
             discovery: discovery, physicallyBound: requiresPhysicalBinding && authenticationRoute != nil,
-            rememberedArea: rememberedCampusArea)
+            rememberedArea: rememberedArea)
     }
     var needsDormitoryRecoveryEligibility: Bool {
         if area != .automatic { return area == .dormitory }

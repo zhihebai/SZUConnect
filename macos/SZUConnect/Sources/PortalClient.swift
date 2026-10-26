@@ -1018,7 +1018,9 @@ extension PortalClient {
         }
         guard (try? checkGeneration(generation)) != nil else { return result }
         result.teaching = .confirmed
-        if area == .teaching || Task.isCancelled { return result }
+        // A fresh source-bound CONFIG already identifies the automatic teaching
+        // candidate. Explicit dormitory checks still obtain both service proofs.
+        if area == .teaching || (area == .automatic && result.teachingClientBound) || Task.isCancelled { return result }
         do {
             let (data, response) = try await idempotentGet(base: "http://172.30.255.42:801", path: "/eportal", purpose: .discovery, generation: generation)
             if let url = response.url,
