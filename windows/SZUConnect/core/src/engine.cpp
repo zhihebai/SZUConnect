@@ -736,7 +736,11 @@ void ConnectionEngine::accept_report_locked(const ConnectivityReport& report) {
     // A new candidate observation must not inherit a previous service-only
     // confirmation. Authentication still obtains its own fresh discovery below.
     if (physical_hint(report.apple) || physical_hint(report.microsoft)) confirmed_campus_service_.reset();
-    if (report.transport_recovered()) {
+    // Custom website failures do not block a later campus-session recovery.
+    // The bound channel still needs two complete, successful base checks.
+    const bool transport_recovered = requires_physical_binding_ && authentication_route_
+        ? report.complete_base_passed() : report.transport_recovered();
+    if (transport_recovered) {
         consecutive_transport_passes_ = std::min(2, consecutive_transport_passes_ + 1);
         if (consecutive_transport_passes_ >= 2) partial_attempt_used_ = false;
     } else consecutive_transport_passes_ = 0;

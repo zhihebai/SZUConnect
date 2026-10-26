@@ -82,4 +82,47 @@ inline void recovery_latency_tests(Harness& t) {
             f.engine->snapshot().status == EngineStatus::needsTrust && f.saved().verified == original.verified,
             "a fresh teaching CONFIG or remembered preference cannot renew eligibility that expired during discovery");
     }
+
+    t.begin("bound-recovery-independent-of-custom-website-failure");
+    Service base;
+    base.response = online();
+    InternetCheckService websites(base, [](const std::string&, bool, const CancelToken&) {
+        WebsiteCheckResult result; result.state = "timeout"; return result;
+    });
+    websites.configure({{"fixture-extra", "https://extra.example.test/", true}}, false);
+    const auto extra_failure = websites.probe(ProbeMode::complete, CancelToken{});
+    t.check(extra_failure.complete_base_passed() && extra_failure.website_only_issues() && !extra_failure.transport_recovered(),
+        "the production website checker preserves a custom timeout independently of two successful base probes");
+    for (const auto mode : {ProbeMode::quick, ProbeMode::complete}) {
+        Fixture f;
+        f.engine->set_probe_mode(mode);
+        f.service.cancel_quick_peer = true;
+        f.service.during_attempt = [&] { f.service.response = extra_failure; };
+        for (int episode = 0; episode < 3; ++episode) {
+            f.clock += 100; f.wall += 100;
+            f.service.response = hint(CampusPortalHint::dormitory);
+            f.service.response.apple.state = EndpointState::success;
+            for (int round = 0; round < 3 && f.service.submissions.size() == static_cast<std::size_t>(episode); ++round) f.round();
+            t.check(f.service.submissions.size() == static_cast<std::size_t>(episode + 1) && f.engine->snapshot().online,
+                "repeated confirmed session loss can recover despite a persistent custom website timeout");
+            const auto submitted = f.service.submissions.size();
+            f.round(); f.round();
+            t.check(f.service.submissions.size() == submitted,
+                "custom website failure never triggers an extra credential submission");
+        }
+    }
+    for (const bool cancelled : {false, true}) {
+        Fixture f;
+        auto incomplete = extra_failure;
+        if (cancelled) incomplete.complete_result = CompleteCheckResult::cancelled;
+        else incomplete.apple.state = EndpointState::timeout;
+        f.service.during_attempt = [&] { f.service.response = incomplete; };
+        f.round(); f.round();
+        f.round(); f.round(); f.clock += 100; f.wall += 100;
+        f.service.response = hint(CampusPortalHint::dormitory);
+        f.service.response.apple.state = EndpointState::success;
+        f.round(); f.round();
+        t.check(f.service.submissions.size() == 1,
+            "cancelled or still incomplete base checks cannot rearm the sustained-partial recovery budget");
+    }
 }
