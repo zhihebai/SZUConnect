@@ -441,7 +441,7 @@ extension PortalWire {
 
 /// Local safety state only. No credentials, network identity, URL, or server text is persisted.
 /// Network-scoped candidate holds and network trust deliberately expire at process boundaries.
-struct RecoveryJournal: Codable {
+struct RecoveryJournal: Codable, Equatable {
     var schema = 1
     var generation: UInt64
     var holds: [AuthenticationHold]

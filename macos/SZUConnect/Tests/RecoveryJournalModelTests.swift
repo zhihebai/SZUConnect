@@ -114,6 +114,47 @@ struct RecoveryJournalModelTests {
         defer { try? FileManager.default.removeItem(at: root) }
 
         do {
+            let clock = JournalClock()
+            let value = RecoveryJournal(generation: 1, holds: [], notBefore: clock.date.addingTimeInterval(42), pendingSubmission: false)
+            check(value == value, "Unchanged recovery state compares equal without serialization")
+            var changed = value; changed.generation += 1
+            check(value != changed, "A changed credential generation requires a new durable checkpoint")
+            changed = value; changed.notBefore = clock.date.addingTimeInterval(43)
+            check(value != changed, "A changed submission deadline requires a new durable checkpoint")
+            check(value != RecoveryJournal(generation: 1, holds: [], notBefore: value.notBefore, pendingSubmission: true),
+                  "An unresolved submission marker cannot be skipped as unchanged state")
+        }
+
+        do {
+            let url = try store(root, "unchanged-pending-retry")
+            let clock = JournalClock()
+            let (model, service) = model(store: url, clock: clock)
+            await service.configure(reply: LoginAttempt(outcome: .uncertain))
+            model.connect(); try await finishManual(model)
+            let durable = try read(url, clock)
+            check(await service.count() == 1 && durable.holds.contains { $0.reason == .uncertain },
+                  "The fake initial submission leaves a durable uncertain marker")
+            check(durable == RecoveryJournal(generation: durable.generation, holds: durable.holds,
+                notBefore: durable.notBefore, pendingSubmission: true),
+                  "A same-clock explicit retry can have identical durable marker bytes")
+            try FileManager.default.removeItem(at: url)
+            try FileManager.default.createDirectory(at: url, withIntermediateDirectories: false)
+            model.connect(); try await finishManual(model)
+            check(await service.count() == 1,
+                  "Every explicit retry must durably checkpoint its marker even when its state is unchanged")
+            check(model.automaticRecoveryPaused && model.holds.contains { $0.reason == .security },
+                  "A failed unchanged checkpoint retains a visible security pause")
+            try FileManager.default.removeItem(at: url)
+            model.resumeAutomaticRecovery()
+            check(try read(url, clock).holds.isEmpty,
+                  "Restoring storage and explicitly resuming rewrites a usable checkpoint after a failed write")
+            await service.configure(reports: [offline, online], reply: .success("fixture retry accepted"))
+            model.connect(); try await finishManual(model)
+            check(await service.count() == 2 && model.isOnline,
+                  "A later explicit retry succeeds once after its checkpoint is writable again")
+        }
+
+        do {
             let url = try store(root, "user-pause")
             let clock = JournalClock()
             let (first, _) = model(store: url, clock: clock)

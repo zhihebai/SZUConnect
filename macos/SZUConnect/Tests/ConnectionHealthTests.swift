@@ -210,6 +210,18 @@ struct ConnectionHealthTests {
         check(afterRestart.snapshot(now: Date(timeIntervalSinceReferenceDate: .nan)).samples.isEmpty,
               "Fast snapshot rejects an invalid clock without leaking unbounded history")
 
+        var retained = afterRestart.snapshot(now: restartNow)
+        let beforeIDs = afterRestart.samples.map(\.id)
+        retained.append(sample(date: restartNow.addingTimeInterval(1)), now: restartNow.addingTimeInterval(1))
+        check(afterRestart.samples.map(\.id) == beforeIDs && retained.samples.count == afterRestart.samples.count + 1,
+              "A reused current snapshot retains value semantics when later appended")
+        for offset in [-61.0, -60, -1, 0, 86_399, 86_400, 86_400.01] {
+            let shifted = restartNow.addingTimeInterval(offset)
+            var reference = ConnectionHealth(); reference.restore(afterRestart.samples, now: shifted)
+            check(afterRestart.snapshot(now: shifted).samples == reference.samples,
+                  "Snapshot bounds and fallback match validated restore at clock boundary \(offset)")
+        }
+
         // Incremental writes must remain byte-for-byte equivalent to the untrusted restore
         // path, including duplicate replacement, equal-date ordering and clock movement.
         let canonicalEncoder = JSONEncoder()

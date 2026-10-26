@@ -246,7 +246,7 @@ enum AppMaintenanceState: Equatable { case running, stopping, ready }
     private var logURL: URL?
     private var healthURL: URL?
     private var recoveryJournalURL: URL?
-    private var lastRecoveryJournalData: Data?
+    private var lastRecoveryJournal: RecoveryJournal?
     private var recoveryJournalBlocked = false
     private var pendingRecoverySubmission = false
     @Published private var automaticCredentials: Credentials?
@@ -754,7 +754,7 @@ enum AppMaintenanceState: Equatable { case running, stopping, ready }
             if let journal = try RecoveryJournal.read(url, now: now()) {
                 savedGeneration = journal.generation
                 policy.restoreRecovery(journal)
-                lastRecoveryJournalData = try journal.encoded()
+                lastRecoveryJournal = journal
                 holds = policy.holds.holds
                 automaticRecoveryPaused = pausedForAutomatic
             }
@@ -2346,7 +2346,7 @@ enum AppMaintenanceState: Equatable { case running, stopping, ready }
         if recoveryJournalBlocked, let url = recoveryJournalURL {
             do {
                 if FileManager.default.fileExists(atPath: url.path) { _ = try EventLogFile.quarantine(url) }
-                recoveryJournalBlocked = false; lastRecoveryJournalData = nil
+                recoveryJournalBlocked = false; lastRecoveryJournal = nil
             } catch { errorMessage = SharedCopy.t("error.recoveryJournalBackupFailed"); return }
         }
         pendingRecoverySubmission = false
@@ -3013,7 +3013,7 @@ enum AppMaintenanceState: Equatable { case running, stopping, ready }
         let previousSubmissionPending = pendingRecoverySubmission
         policy.authenticationAttemptStarted(now: now())
         pendingRecoverySubmission = true
-        guard persistRecoveryJournal() else { refreshRecovery(); return }
+        guard persistRecoveryJournal(requireWrite: true) else { refreshRecovery(); return }
         // Consume one recovery round, including an optional unsent-candidate fallback below.
         // An explicit manual retry remains available, but a persistent site fault never loops logins.
         partialRecovery.noteAttempt()
@@ -3172,7 +3172,7 @@ enum AppMaintenanceState: Equatable { case running, stopping, ready }
         }
     }
     @discardableResult
-    private func persistRecoveryJournal() -> Bool {
+    private func persistRecoveryJournal(requireWrite: Bool = false) -> Bool {
         guard !isMaintaining else { return true }
         guard !sessionReadOnly else { return true }
         guard !isolated || recoveryJournalURL != nil else { return true }
@@ -3183,11 +3183,15 @@ enum AppMaintenanceState: Equatable { case running, stopping, ready }
         }
         let journal = RecoveryJournal(generation: savedGeneration, holds: policy.holds.holds,
             notBefore: policy.authenticationNotBefore, pendingSubmission: pendingRecoverySubmission)
+        // A credential submission always verifies a durable marker; UI and
+        // monitoring refreshes can skip an unchanged successful checkpoint.
+        guard requireWrite || journal != lastRecoveryJournal else { return true }
         do {
-            let data = try journal.encoded()
-            if data != lastRecoveryJournalData { try journal.write(url); lastRecoveryJournalData = data }
+            try journal.write(url)
+            lastRecoveryJournal = journal
             return true
         } catch {
+            lastRecoveryJournal = nil
             policy.suspendAuthentication(.security)
             errorMessage = SharedCopy.t("error.recoveryJournalWriteFailed")
             return false

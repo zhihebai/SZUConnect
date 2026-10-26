@@ -263,11 +263,13 @@ struct ConnectionHealth: Codable, Sendable {
         let newest = now.addingTimeInterval(Self.futureTolerance)
         // Every write and decode enters through restore. Samples are already sanitized,
         // deduplicated, sorted and bounded; reading only needs to apply the current time window.
+        if let first = samples.first, let last = samples.last,
+           first.date >= oldest, last.date <= newest { return self }
         current.samples = samples.filter { $0.date >= oldest && $0.date <= newest }
         return current
     }
 
-    var successfulCount: Int { samples.filter(\.online).count }
+    var successfulCount: Int { samples.reduce(0) { $0 + ($1.online ? 1 : 0) } }
 
     /// Share of recorded samples that passed; nil instead of a fabricated value when empty.
     var successRate: Double? {
@@ -275,7 +277,7 @@ struct ConnectionHealth: Codable, Sendable {
     }
 
     var medianLatencyMilliseconds: Double? {
-        let values = samples.filter(\.online).compactMap(\.latencyMilliseconds).sorted()
+        let values = samples.compactMap { $0.online ? $0.latencyMilliseconds : nil }.sorted()
         guard !values.isEmpty else { return nil }
         let middle = values.count / 2
         guard values.count.isMultiple(of: 2) else { return values[middle] }
