@@ -443,7 +443,9 @@ struct WiredSessionRecoveryAppModelTests {
             _ = try seed(root.appendingPathComponent("network-memory.json"), area: rememberedArea.rawValue)
             let service = WiredSessionService(), clock = WiredSessionClock()
             let model = fixture(root, service: service, clock: clock)
-            await service.configure(reports: [offline, offline])
+            await service.configure(reports: [offline, offline, online],
+                discovery: CampusDiscovery(teaching: .confirmed, dormitory: .confirmed, teachingClientBound: true),
+                replies: [accepted])
             await model.runAutomaticCycle()
             await service.pauseNext(.discovery)
             let task = Task { await model.runAutomaticCycle() }
