@@ -1,5 +1,7 @@
 #pragma once
 
+#include "../generated/shared_copy.hpp"
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <memory>
@@ -116,7 +118,31 @@ inline std::string stable_export(const szu::app::AppController& app) {
     auto value = szu::json::parse(app.diagnostic_export_text());
     if (!value) return "invalid-export";
     value->set("exportedAt", szu::json::Value::string("ignored-clock"));
+    if (auto* recovery = value->find("recovery")) {
+        const auto seconds = recovery->number_at("cooldownRemainingSeconds");
+        if (seconds && *seconds > 0 && *seconds <= 86400)
+            recovery->set("cooldownRemainingSeconds", szu::json::Value::number(1));
+    }
     return szu::json::serialize(*value);
+}
+inline std::string stable_summary(const szu::app::AppController& app) {
+    auto text = app.diagnostic_summary_text();
+    const std::string marker = "<remaining-seconds>";
+    const auto pattern = szu::copy::format("records.diagnostics.cooldown", {{"seconds", marker}});
+    const auto split = pattern.find(marker);
+    if (split == std::string::npos) return text;
+    const auto prefix = pattern.substr(0, split), suffix = pattern.substr(split + marker.size());
+    const auto begin = text.find("\n" + prefix);
+    if (begin == std::string::npos) return text;
+    const auto number = begin + 1 + prefix.size();
+    const auto newline = text.find('\n', number);
+    const auto end = newline == std::string::npos ? text.size() : newline;
+    if (end < number + suffix.size() || text.substr(end - suffix.size(), suffix.size()) != suffix) return text;
+    const auto digits = text.substr(number, end - number - suffix.size());
+    if (!digits.empty() && digits.size() <= 5 &&
+        std::all_of(digits.begin(), digits.end(), [](char value) { return value >= '0' && value <= '9'; }))
+        text.replace(number, digits.size(), marker);
+    return text;
 }
 }  // namespace proxyassistantruntime
 
@@ -302,13 +328,15 @@ template<class Check> void run_proxy_assistant_runtime_tests(Check& check) {
         const auto files = fake->files;
         const auto due = app.next_check();
         const auto last = app.last_checked();
-        const auto summary = app.diagnostic_summary_text();
+        const auto summary = proxyassistantruntime::stable_summary(app);
         const auto exported = proxyassistantruntime::stable_export(app);
         const auto writes = fake->application_writes;
         const auto credential_writes = fake->credential_writes;
         check(before.has_saved && !memories.empty() && trusted && before.trusted && !before.holds.empty() &&
               before.cooldown_remaining.value_or(0) > 0 && due.has_value(),
               "isolation fixture begins with saved credentials, trusted memory, active protection and a scheduled check");
+        // Ensure countdown formatting changes while the protected deadline does not.
+        std::this_thread::sleep_for(std::chrono::milliseconds(1050));
         app.open_proxy_assistant(); app.prepare_proxy_config(nullptr);
         app.run_compat(true);
         wifiruntime::wait_for([&] { return app.compat().done; });
@@ -338,7 +366,7 @@ template<class Check> void run_proxy_assistant_runtime_tests(Check& check) {
               "proxy setup does not change network memory, application files or the existing monitoring schedule");
         check(fake->probes == 0 && fake->discoveries == 0 && fake->submits == 0 &&
               fake->evidence().network_calls == 0 && fake->evidence().vault_accesses == 0 &&
-              app.diagnostic_summary_text() == summary && proxyassistantruntime::stable_export(app) == exported,
+              proxyassistantruntime::stable_summary(app) == summary && proxyassistantruntime::stable_export(app) == exported,
               "save and restore neither request network/authentication nor alter diagnostic contents");
         app.shutdown();
     }
