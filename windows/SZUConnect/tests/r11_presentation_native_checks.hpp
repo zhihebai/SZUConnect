@@ -129,20 +129,27 @@ void verify_r11_memory_actions(HWND window, Canvas& canvas) {
         check(fake->files == files && fake->discoveries == 0 && fake->evidence().fake_auth_submissions == 0,
             "read-only action attempts leave all injected files unchanged and perform no discovery or login");
     }
-    {
+    for (const bool remembered : {true, false}) {
         auto services = std::make_unique<r11presentationruntime::Fake>("manual", CampusArea::automatic, true);
         auto* fake = services.get(); fake->probe_online = false;
+        if (!remembered) fake->files[L"network-memory.json"] = NetworkMemory("00112233445566778899aabbccddeeff").encode();
         AppController app(nullptr, RuntimeMode::normal, std::move(services)); app.start(); app.connect();
         r11presentationruntime::drain(app, [&] { return fake->returned == 1 && !app.snapshot().busy; });
         FixtureHost host; host.window = window; UiState ui;
         ViewContext context{app, ui, window, [] {}, [](const std::string&) {}, [] {}, [](const std::string&) {}};
         build_guard(host, canvas, context, 500, 1600);
         const auto state = app.snapshot(); const auto* explanation = host.scene.find("campus.entries.selection");
-        check(state.needs_selection && state.required_campus_confirmed && !explanation &&
-            !host.scene.find("guard.area") && status::present(status::input_from(state)).primary == "check" &&
-            status::present(status::input_from(state)).secondary == "area" &&
-            !status::system_path_can_lead(state) && fake->evidence().fake_auth_submissions == 0,
-            "verified services do not prompt for a fixed region in the guard while detection remains primary and entry choice optional");
+        if (remembered) {
+            check(!state.needs_selection && state.required_campus_confirmed && !explanation &&
+                !host.scene.find("guard.area") && fake->evidence().fake_auth_submissions == 1,
+                "current dormitory memory selects the verified entry without asking for a fixed region before manual authentication");
+        } else {
+            check(state.needs_selection && !state.required_campus_confirmed && explanation &&
+                host.scene.find("guard.area") && status::present(status::input_from(state)).primary == "check" &&
+                status::present(status::input_from(state)).secondary == "area" &&
+                !status::system_path_can_lead(state) && fake->evidence().fake_auth_submissions == 0,
+                "an unknown connection with two reachable homepages still needs an entry and cannot claim verification or submit credentials");
+        }
         app.shutdown();
     }
     {

@@ -501,7 +501,7 @@ void verify_automatic_entry_feedback(HWND window, Canvas& canvas) {
     ViewContext context{app, ui, window, [] {}, [](const std::string&) {}, [] {}, [](const std::string&) {}};
     build_guard(host, canvas, context, 500, 1600);
     const auto* feedback = host.scene.find("guard.memory.feedback");
-    check(state.area == CampusArea::automatic && state.needs_selection && state.required_campus_confirmed && state.last_discovery &&
+    check(state.area == CampusArea::automatic && !state.needs_selection && state.required_campus_confirmed && state.last_discovery &&
         state.last_discovery->teaching == Discovery::confirmed && state.last_discovery->dormitory == Discovery::confirmed &&
         feedback && feedback->text == T("campus.verify.confirmed") && !host.scene.find("campus.entries.selection") && !host.scene.find("guard.area"),
         "freshly confirmed dual services retain successful verification feedback without prompting an automatic-mode user to choose a protocol");

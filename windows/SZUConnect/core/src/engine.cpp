@@ -1258,7 +1258,7 @@ std::optional<CampusArea> ConnectionEngine::verified_scope_locked(CampusArea cho
                                                                  const CampusDiscovery& discovery, bool bound, bool prefer_teaching, bool prefer_dormitory) const {
     const auto routing = resolve_campus_routing(choice, report, discovery, bound, prefer_teaching, prefer_dormitory);
     if (routing.decision != RoutingDecision::selected) return std::nullopt;
-    const auto target = routing.decision == RoutingDecision::needsSelection ? choice : routing.choice;
+    const auto target = routing.choice;
     if (discovery.teaching != Discovery::confirmed) return std::nullopt;
     if (target == CampusArea::teaching || (target == CampusArea::automatic && discovery.teaching_client_bound)) return CampusArea::teaching;
     if (discovery.dormitory == Discovery::confirmed) return CampusArea::dormitory;
