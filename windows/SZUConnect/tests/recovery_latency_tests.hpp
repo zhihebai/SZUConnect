@@ -125,4 +125,94 @@ inline void recovery_latency_tests(Harness& t) {
         t.check(f.service.submissions.size() == 1,
             "cancelled or still incomplete base checks cannot rearm the sustained-partial recovery budget");
     }
+
+    t.begin("unsent-preflight-does-not-permanently-block-expired-session");
+    for (const auto failure : {Outcome::unavailable, Outcome::challengeRefused}) {
+        Fixture f(CampusArea::teaching, "teaching");
+        f.service.response = hint(CampusPortalHint::teaching);
+        f.service.response.apple.state = EndpointState::success;
+        f.service.outcome = failure;
+        for (int round = 0; round < 4 && f.service.attempts.empty(); ++round) f.round();
+        t.check(f.service.attempts.size() == 1 && f.service.submissions.empty() && f.engine->snapshot().holds.empty(),
+            "the first failed preparation sends no login request and creates no credential hold: attempts=" +
+            std::to_string(f.service.attempts.size()) + ", submissions=" + std::to_string(f.service.submissions.size()) +
+            ", holds=" + std::to_string(f.engine->snapshot().holds.size()) + ", status=" + std::string(to_string(f.engine->snapshot().status)));
+        f.service.outcome = Outcome::success;
+        f.clock += 301; f.wall += 301;
+        for (int round = 0; round < 4 && f.service.submissions.empty(); ++round) f.round();
+        t.check(f.service.submissions == std::vector<CampusArea>{CampusArea::teaching} && f.engine->snapshot().online,
+            "a recovered preparation service can finish a confirmed expired session without a link change or manual resume");
+    }
+    t.begin("unsent-preflight-retry-admission-and-deadlines");
+    {
+        Fixture f(CampusArea::teaching, "teaching");
+        f.service.response = hint(CampusPortalHint::teaching);
+        f.service.response.apple.state = EndpointState::success;
+        f.service.outcome = Outcome::unavailable;
+        for (int round = 0; round < 5 && f.service.attempts.empty(); ++round) {
+            f.engine->automatic_round();
+            if (f.service.attempts.empty()) { const auto delay = std::max(1, f.engine->next_check_delay()); f.clock += delay; f.wall += delay; }
+        }
+        for (const int delay : {5, 10, 20, 30, 60, 120, 300, 300}) {
+            const auto prepared = f.service.attempts.size();
+            t.check(prepared > 0 && f.engine->next_check_delay() == delay && f.service.submissions.empty(),
+                "unsent preparation failures keep a bounded exponential retry deadline");
+            f.engine->automatic_round();
+            t.check(f.service.attempts.size() == prepared && f.engine->next_check_delay() == delay,
+                "an early automatic callback neither retries preparation nor moves its deadline");
+            f.clock += delay - 0.25; f.wall += delay - 0.25; f.engine->automatic_round();
+            t.check(f.service.attempts.size() == prepared && f.engine->next_check_delay() == 1,
+                "subsecond remainder rounds up without admitting preparation before its deadline");
+            f.clock += 0.25; f.wall += 0.25; f.engine->automatic_round();
+            t.check(f.service.attempts.size() == prepared + 1 && f.service.submissions.empty(),
+                "only the due callback can begin another preparation after an unsent failure");
+        }
+        f.service.outcome = Outcome::success;
+        const auto delay = f.engine->next_check_delay(); f.clock += delay; f.wall += delay;
+        f.engine->automatic_round();
+        t.check(f.service.submissions.size() == 1 && f.engine->snapshot().online && f.engine->snapshot().cooldown_remaining,
+            "recovered preparation sends credentials once and retains the post-submission cooldown");
+        f.service.response = hint(CampusPortalHint::teaching); f.service.response.apple.state = EndpointState::success;
+        f.engine->automatic_round(); f.clock += 1; f.wall += 1; f.engine->automatic_round();
+        t.check(f.service.submissions.size() == 1 && f.engine->snapshot().cooldown_remaining &&
+            *f.engine->snapshot().cooldown_remaining >= 88,
+            "the preparation retry gate never shortens protection after a real submission");
+    }
+    for (const std::string boundary : {"pause", "forget", "observe", "manual", "proof", "expiry", "path", "tls"}) {
+        Fixture f(CampusArea::teaching, "teaching");
+        f.service.response = hint(CampusPortalHint::teaching); f.service.response.apple.state = EndpointState::success;
+        f.service.outcome = Outcome::unavailable;
+        for (int round = 0; round < 4 && f.service.attempts.empty(); ++round) f.round();
+        const auto prepared = f.service.attempts.size();
+        if (boundary == "pause") f.engine->pause_auto_login();
+        if (boundary == "forget") f.engine->forget_all_networks();
+        if (boundary == "observe") f.engine->set_mode(MonitoringMode::observe);
+        if (boundary == "manual") f.engine->set_mode(MonitoringMode::manual);
+        if (boundary == "proof") f.service.proof.teaching = Discovery::unconfirmed;
+        if (boundary == "expiry") f.wall += NetworkMemory::kExpirySeconds + 1;
+        if (boundary == "path") { auto changed = f.path(); changed.physical_candidates.clear(); f.engine->receive_path(changed); }
+        f.service.outcome = boundary == "tls" ? Outcome::security : Outcome::success;
+        f.clock += 301; f.wall += 301;
+        for (int round = 0; round < 4; ++round) f.round();
+        if (boundary == "tls") {
+            const auto stopped = f.service.attempts.size();
+            f.service.outcome = Outcome::success; f.clock += 301; f.wall += 301; f.round(); f.round();
+            t.check(stopped == prepared + 1 && f.service.attempts.size() == stopped && f.engine->snapshot().pause_reason == HoldReason::security,
+                "a later TLS failure retains its global security hold despite the earlier preparation retry");
+        } else t.check(f.service.attempts.size() == prepared,
+            "credential-free retry cannot borrow old authorization across " + boundary);
+        t.check(f.service.submissions.empty(), "preparation retry submits no credentials across " + boundary);
+    }
+    {
+        Fixture f(CampusArea::teaching, "teaching");
+        auto path = f.path(); path.constrained = true; f.engine->receive_path(path);
+        f.service.response = hint(CampusPortalHint::teaching); f.service.response.apple.state = EndpointState::success;
+        f.service.outcome = Outcome::unavailable;
+        for (int round = 0; round < 5 && f.service.attempts.empty(); ++round) {
+            f.engine->automatic_round();
+            if (f.service.attempts.empty()) { const auto delay = std::max(1, f.engine->next_check_delay()); f.clock += delay; f.wall += delay; }
+        }
+        t.check(f.service.attempts.size() == 1 && f.service.submissions.empty() && f.engine->next_check_delay() == 120,
+            "metered connections keep a conservative preparation retry interval");
+    }
 }

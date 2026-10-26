@@ -745,6 +745,58 @@ void verify_session_expiry_recovery(Checks& t) {
             "a fresh teaching redirect avoids unrelated dormitory requests even when the saved entrance was dormitory");
     }
 }
+void verify_unsent_preparation_recovery(Checks& t) {
+    for (const auto mode : {ProbeMode::quick, ProbeMode::complete}) for (const bool transport_failure : {false, true}) {
+        Backend backend; WinHttpService service(backend.hooks());
+        std::atomic<bool> preparation_ready{false}, session_online{false};
+        backend.respond = [&](const HttpRequest& request, const auto&, const auto&) {
+            const auto url = wire::parse_url(request.url);
+            if (url->host == "www.msftconnecttest.com" && !session_online) {
+                HttpResponse result; result.status = 302; result.error = HttpError::redirect;
+                result.campus_area_hint = CampusPortalHint::teaching; result.authentication_required = true; return result;
+            }
+            if (url->path == "/cgi-bin/get_challenge" && !preparation_ready) {
+                if (!transport_failure) return success(R"({"error":"not_online_error"})");
+                HttpResponse result; result.error = HttpError::timeout; result.failure_stage = HttpFailureStage::transport; return result;
+            }
+            if (url->path == "/cgi-bin/srun_portal") session_online = true;
+            return normal(request);
+        };
+        auto attachment = route("A");
+        attachment.descriptor.kind = "wired";
+        attachment.descriptor.raw = {{"gw", "02:00:00:00:00:07"}, {"gwip", "192.0.2.254"}, {"net", "192.0.2.0/24"}};
+        double now = 1000, wall = 1800000000;
+        ConnectionEngine::Hooks hooks;
+        hooks.now = [&] { return now; }; hooks.wall_now = [&] { return wall; }; hooks.sleep = [](double) {};
+        hooks.persist_recovery = [](const std::string&) { return true; }; hooks.persist_memory = [](const std::string&) { return true; };
+        hooks.random_hex = [] { return "00112233445566778899aabbccddeeff"; };
+        ConnectionEngine engine(service, hooks); engine.restore_recovery(std::nullopt);
+        engine.configure(MonitoringMode::recover, CampusArea::teaching, mode, Credentials{"fixture-account", "not-a-real-password"});
+        NetworkMemory memory("00112233445566778899aabbccddeeff");
+        memory.remember(attachment.descriptor, "teaching", true, false, wall - 100, "abcde107"); engine.restore_memory(memory.encode());
+        PathSnapshot path; path.identity = "unsent-preparation-fixture"; path.tunnel = true;
+        path.usable = path.link_active = path.requires_physical_binding = true;
+        path.physical_candidates = {attachment}; path.descriptors = {attachment.descriptor}; engine.receive_path(path);
+        const auto epoch = engine.snapshot().epoch;
+        for (int round = 0; round < 5 && backend.count("/cgi-bin/get_challenge") == 0; ++round) {
+            engine.automatic_round();
+            if (backend.count("/cgi-bin/get_challenge") == 0) { const auto delay = std::max(1, engine.next_check_delay()); now += delay; wall += delay; }
+        }
+        t.check(engine.snapshot().last_attempt && !engine.snapshot().last_attempt->credential_submission_started &&
+            backend.count("/cgi-bin/get_challenge") > 0 && backend.count("/cgi-bin/srun_portal") == 0 && engine.next_check_delay() == 5,
+            "real portal preparation failure sends no login request and schedules a bounded retry");
+        const auto challenge_calls = backend.count("/cgi-bin/get_challenge");
+        engine.automatic_round();
+        t.check(backend.count("/cgi-bin/get_challenge") == challenge_calls && engine.next_check_delay() == 5,
+            "an early native pipeline callback cannot retry the preparation or extend its deadline");
+        preparation_ready = true; now += 5; wall += 5;
+        engine.automatic_round();
+        t.check(engine.snapshot().online && engine.snapshot().epoch == epoch && session_online &&
+            backend.count("/cgi-bin/srun_portal") == 1 && backend.count("/eportal/portal/login") == 0 &&
+            engine.snapshot().cooldown_remaining,
+            "restored native preparation recovers the unchanged TUN-bound session with exactly one fake login");
+    }
+}
 
 int main() {
     Checks t;
@@ -754,6 +806,7 @@ int main() {
     verify_discovery_failure_phases(t);
     verify_source_bound_wired_handover(t);
     verify_session_expiry_recovery(t);
+    verify_unsent_preparation_recovery(t);
     verify_preflight_backoff(t);
     const Credentials credentials{"fixture-account", "not-a-real-password"};
     {

@@ -269,6 +269,13 @@ private:
         CampusServiceContext context;
         double refresh_after = 0;
     };
+    struct PreparationRetry {
+        CampusServiceContext context;
+        std::uint64_t credential_generation = 0;
+        CampusArea target = CampusArea::automatic;
+        unsigned failures = 0;
+        double after = 0;
+    };
     bool run(OperationKind kind, bool may_authenticate, bool force);
     void perform(const ConnectionPolicy::Operation& op, const CancelToken& token, bool may_authenticate, bool force);
     void confirm_remembered_campus_service(const ConnectionPolicy::Operation& op, const CancelToken& token,
@@ -308,6 +315,7 @@ private:
     std::optional<AuthenticationScope> authentication_scope_locked() const;
     std::optional<double> cooldown_remaining_locked() const;
     bool can_prioritize_recovery_locked() const;
+    bool preparation_retry_current_locked(CampusArea target) const;
     std::string remember_blocker_locked() const;
     RememberResult remember_rejection_locked() const;
     bool owns_remember_locked(const RememberRequest& request) const;
@@ -331,7 +339,8 @@ private:
     bool online_ = false;
     int consecutive_partial_ = 0;
     int consecutive_transport_passes_ = 0;
-    bool partial_attempt_used_ = false;  // one recovery round per sustained partial episode
+    bool partial_attempt_used_ = false;  // one login submission per sustained partial episode
+    std::optional<PreparationRetry> preparation_retry_;
     MonitoringMode mode_ = MonitoringMode::manual;
     CampusArea area_ = CampusArea::automatic;
     ProbeMode probe_mode_ = ProbeMode::quick;

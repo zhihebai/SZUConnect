@@ -301,7 +301,7 @@ LoginAttempt WinHttpService::teaching(const Credentials& credentials, Scope& ope
         request.allow_cookies = true;
         HttpResponse r = this->get(*fixed, request, operation, token);
         if (retry && !token.cancelled() && wire::is_transient(portal_error(r))) {
-            // Only pre-submission credential-free pages/challenges are retried.
+            // Retry pages and challenge requests only, never the login request.
             if (!token.wait_for(0.8)) r = this->get(*fixed, request, operation, token);
         }
         return r;

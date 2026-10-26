@@ -464,6 +464,7 @@ void ConnectionEngine::reset_partial_episode_locked() {
     consecutive_partial_ = 0;
     consecutive_transport_passes_ = 0;
     partial_attempt_used_ = false;
+    preparation_retry_.reset();
 }
 
 void ConnectionEngine::new_epoch_locked() {
@@ -742,7 +743,10 @@ void ConnectionEngine::accept_report_locked(const ConnectivityReport& report) {
         ? report.complete_base_passed() : report.transport_recovered();
     if (transport_recovered) {
         consecutive_transport_passes_ = std::min(2, consecutive_transport_passes_ + 1);
-        if (consecutive_transport_passes_ >= 2) partial_attempt_used_ = false;
+        if (consecutive_transport_passes_ >= 2) {
+            partial_attempt_used_ = false;
+            preparation_retry_.reset();
+        }
     } else consecutive_transport_passes_ = 0;
     pending_change_ = true;
 }
@@ -940,17 +944,21 @@ void ConnectionEngine::perform(const ConnectionPolicy::Operation& op, const Canc
     // A forget / revoke while this round was in flight must not be overtaken by its stale plan.
     if (memory_gen != memory_generation_) { status_ = EngineStatus::cancelled; return; }
     CampusArea target = decision.target;
+    if (kind == OperationKind::automatic && bound && preparation_retry_current_locked(target) && now() < preparation_retry_->after) {
+        status_ = EngineStatus::unavailable;
+        return;
+    }
     const double reservation_started = now();
     const auto previous_cooldown = policy_.cooldown_state();
     const auto previous_deadline_wall = recovery_deadline_wall_;
     const bool previous_submission_pending = recovery_submission_pending_;
+    const bool previous_partial_attempt = partial_attempt_used_;
     policy_.attempt_started(reservation_started);
     recovery_deadline_wall_ = hooks_.wall_now() + 90;
     recovery_submission_pending_ = true;
     if (!persist_recovery_locked()) { status_ = EngineStatus::security; return; }
-    // Every login round spends the sustained-partial budget, including explicit/offline
-    // rounds and preflight failures. The existing no-submission fallback stays in this
-    // round; it can call attempt twice but can submit credentials at most once.
+    // Reserve the sustained-partial budget before invoking the transport. Restore
+    // only a definitely-unsent preparation failure; uncertain results keep it spent.
     partial_attempt_used_ = true;
     consecutive_transport_passes_ = 0;
     status_ = EngineStatus::loggingIn;
@@ -990,9 +998,18 @@ void ConnectionEngine::perform(const ConnectionPolicy::Operation& op, const Canc
         policy_.restore_cooldown_state(previous_cooldown);
         recovery_deadline_wall_ = previous_deadline_wall;
         recovery_submission_pending_ = previous_submission_pending;
+        if (kind == OperationKind::automatic && bound && !token.cancelled()) {
+            constexpr double delays[]{5, 10, 20, 30, 60, 120, 300};
+            const unsigned failures = preparation_retry_current_locked(target)
+                ? std::min(preparation_retry_->failures + 1, 7u) : 1;
+            const double delay = constrained_ ? std::max(120.0, delays[failures - 1]) : delays[failures - 1];
+            preparation_retry_ = PreparationRetry{campus_service_context_locked(), generation_, target, failures, now() + delay};
+            partial_attempt_used_ = previous_partial_attempt;
+        }
     } else if (attempt.outcome != Outcome::cancelled) {
         recovery_submission_pending_ = false;
     }
+    if (attempt.credential_submission_started) preparation_retry_.reset();
     if (attempt.outcome != Outcome::unavailable && attempt.outcome != Outcome::challengeRefused) rapid_recovery_until_.reset();
     if (attempt.outcome == Outcome::success) {
         recovery_deadline_wall_ = hooks_.wall_now() + 90;
@@ -1384,7 +1401,17 @@ bool ConnectionEngine::can_prioritize_recovery_locked() const {
         !recovery_submission_pending_ && !cooldown_remaining_locked().has_value();
 }
 
+bool ConnectionEngine::preparation_retry_current_locked(CampusArea target) const {
+    return preparation_retry_ && preparation_retry_->context == campus_service_context_locked() &&
+        preparation_retry_->credential_generation == generation_ && preparation_retry_->target == target;
+}
+
 int ConnectionEngine::next_check_delay_locked() const {
+    if (status_ == EngineStatus::unavailable && mode_ == MonitoringMode::recover && !read_only_ && !paused_locked() &&
+        !cooldown_remaining_locked() && preparation_retry_ && preparation_retry_current_locked(preparation_retry_->target) &&
+        now() < preparation_retry_->after) {
+        return static_cast<int>(std::clamp(std::ceil(preparation_retry_->after - now()), 1.0, 300.0));
+    }
     if (mode_ == MonitoringMode::recover && !read_only_ && probe_mode_ == ProbeMode::quick &&
         session_audit_after_ && now() >= *session_audit_after_ && partial_attempt_used_ && consecutive_transport_passes_ == 1 &&
         policy_.available && !sleeping_ && !paused_locked()) return 2;
