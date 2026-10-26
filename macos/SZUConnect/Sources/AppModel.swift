@@ -2881,13 +2881,7 @@ enum AppMaintenanceState: Equatable { case running, stopping, ready }
         }
         let generation = credentialGeneration(for: credentials)
         let manualRound = operation.kind == .manual
-        if !manualRound, requiresPhysicalBinding,
-           authenticationRoute == nil || (!networkRemembered && !policy.currentNetworkAuthorized) {
-            engineStatus = authenticationRoute == nil ? "unconfirmed" : "needsTrust"
-            status = SharedCopy.t("memory.remember")
-            authenticationSummary = SharedCopy.t("memory.notRemembered")
-            return
-        }
+        guard manualRound || admitAutomaticPhysicalRecovery() else { return }
         if !manualRound {
             if pausedForAutomatic {
                 status = SharedCopy.t("status.paused.headline"); detail = strongestHoldMessage
@@ -2938,7 +2932,7 @@ enum AppMaintenanceState: Equatable { case running, stopping, ready }
         let allowUnsentFallback: Bool
         let routing = CampusRoutingDiagnostic(choice: authenticationArea, report: report, discovery: discovery,
             discoveryChecked: discoveryChecked, physicallyBound: requiresPhysicalBinding && authenticationRoute != nil,
-            rememberedArea: rememberedArea)
+            rememberedArea: rememberedCampusArea)
         lastRoutingDiagnostic = routing
         routingDiagnosticEpoch = networkEpoch
         record(SharedCopy.t("diagnostic.field.clues") + routing.summary)
@@ -3010,6 +3004,9 @@ enum AppMaintenanceState: Equatable { case running, stopping, ready }
         guard !Task.isCancelled, policy.owns(operation) else { return }
         // A forget / revoke while this round was in flight must not be overtaken by its stale plan.
         guard memoryGen == memoryGeneration else { return }
+        // Expiry can occur without a generation change while discovery is awaiting
+        // its replies. Recheck physical permission immediately before submission.
+        guard manualRound || admitAutomaticPhysicalRecovery() else { return }
         status = SharedCopy.t("status.loggingIn.headline"); detail = SharedCopy.t("status.loggingIn.detail")
         engineStatus = "loggingIn"
         let previousSubmissionCooldown = policy.cooldownState
@@ -3196,6 +3193,17 @@ enum AppMaintenanceState: Equatable { case running, stopping, ready }
             return false
         }
     }
+    private func admitAutomaticPhysicalRecovery() -> Bool {
+        guard requiresPhysicalBinding else { return true }
+        guard authenticationRoute != nil, networkRemembered || policy.currentNetworkAuthorized else {
+            engineStatus = authenticationRoute == nil ? "unconfirmed" : "needsTrust"
+            status = SharedCopy.t("memory.remember")
+            authenticationSummary = SharedCopy.t("memory.notRemembered")
+            return false
+        }
+        return true
+    }
+
     private func refreshRecovery() {
         guard !isMaintaining else { return }
         persistRecoveryJournal()

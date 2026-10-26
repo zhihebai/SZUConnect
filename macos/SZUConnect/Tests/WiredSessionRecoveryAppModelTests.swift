@@ -438,6 +438,22 @@ struct WiredSessionRecoveryAppModelTests {
                   "A \(hint.rawValue) status-page hint with a passing public endpoint cannot request automatic login")
         }
 
+        for rememberedArea in [CampusArea.teaching, .dormitory] {
+            let root = try folder(); defer { try? FileManager.default.removeItem(at: root) }
+            _ = try seed(root.appendingPathComponent("network-memory.json"), area: rememberedArea.rawValue)
+            let service = WiredSessionService(), clock = WiredSessionClock()
+            let model = fixture(root, service: service, clock: clock)
+            await service.configure(reports: [offline, offline])
+            await model.runAutomaticCycle()
+            await service.pauseNext(.discovery)
+            let task = Task { await model.runAutomaticCycle() }
+            try await waitUntil("memory expiry during discovery") { await service.isWaiting(.discovery) }
+            clock.advance(NetworkMemory.expiry + 1)
+            await service.release(.discovery); await task.value
+            check((await service.snapshot()).attempts.isEmpty && !model.networkRemembered,
+                  "A \(rememberedArea.rawValue) memory expiring during fresh discovery cannot authorize a late submission")
+        }
+
         for boundary in ["cancel", "forget", "observe", "pause", "change"] {
             let root = try folder(); defer { try? FileManager.default.removeItem(at: root) }
             _ = try seed(root.appendingPathComponent("network-memory.json"))
