@@ -225,6 +225,7 @@ struct PartialConnectivityRecovery: Sendable {
     }
     var shouldAttempt: Bool { consecutivePartial >= 2 && !attempted }
     var needsConfirmation: Bool { consecutivePartial == 1 && !attempted }
+    var needsTransportConfirmation: Bool { attempted && transportSuccesses == 1 }
     mutating func noteAttempt() { attempted = true; transportSuccesses = 0 }
     mutating func resetConfirmation() { consecutivePartial = 0; transportSuccesses = 0 }
     mutating func reset() { self = Self() }

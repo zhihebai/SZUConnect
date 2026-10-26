@@ -263,6 +263,7 @@ enum AppMaintenanceState: Equatable { case running, stopping, ready }
     // A real path transition gets a bounded recovery burst, never a new login permission.
     private var rapidRecoveryDeadline: Date?
     private var recoveryFullCheckPending = false
+    private var sessionAuditDeadline: TimeInterval?
     private var authorizationGraceDeadline: Date?
     private var authorizationGraceTask: Task<Void, Never>?
     // Authentication holds are scoped by saved-credential generation and network epoch.
@@ -1620,6 +1621,7 @@ enum AppMaintenanceState: Equatable { case running, stopping, ready }
         manualActionRevision &+= 1
         invalidateManualSnapshot(resumeMonitoring: true)
         if mode == .quick { recoveryFullCheckPending = false }
+        sessionAuditDeadline = nil
         partialRecovery.resetConfirmation()
         probeMode = mode
         defaults?.set(mode.rawValue, forKey: "probeMode")
@@ -2424,6 +2426,7 @@ enum AppMaintenanceState: Equatable { case running, stopping, ready }
             cancelOperations()
         }
         if mode != .recover { clearPriorityRecovery() }
+        sessionAuditDeadline = nil
         partialRecovery.resetConfirmation()
         monitoringMode = mode
         autoReconnect = mode == .recover
@@ -2743,7 +2746,12 @@ enum AppMaintenanceState: Equatable { case running, stopping, ready }
         // submission with a complete, read-only round without changing the preference.
         let awaitingSubmissionProof = pendingRecoverySubmission || policy.holds.holds.contains { $0.reason == .uncertain }
         let prioritizedRound = operation.kind == .automatic && !awaitingSubmissionProof && canPrioritizeRecovery
-        let selectedProbeMode: ConnectivityProbeMode = awaitingSubmissionProof ? .complete : (prioritizedRound ? .quick : probeMode)
+        let quickRecovery = operation.kind == .automatic && mayAuthenticate && probeMode == .quick
+            && requiresPhysicalBinding && authenticationRoute != nil && automaticCredentials != nil
+            && (networkRemembered || policy.currentNetworkAuthorized) && !pausedForAutomatic
+        let sessionAudit = quickRecovery && sessionAuditDeadline.map { monotonicNow() >= $0 } == true
+        let selectedProbeMode: ConnectivityProbeMode = awaitingSubmissionProof || sessionAudit
+            ? .complete : (prioritizedRound ? .quick : probeMode)
         let selectedWebsites = customWebsiteTargets
         let selectedWebsiteStrategy = customWebsiteStrategy
         let diagnosticRound = diagnosticRoundContext(operation: operation)
@@ -2778,7 +2786,7 @@ enum AppMaintenanceState: Equatable { case running, stopping, ready }
         guard await prepareTransport(for: operation) else { diagnosticBindingFailed = true; return }
         if !isOnline || operation.kind == .manual { status = SharedCopy.t("status.checking.headline"); engineStatus = "checking" }
         probeOwner = operation
-        let boundSubmissionProof = awaitingSubmissionProof && requiresPhysicalBinding && authenticationRoute != nil
+        let boundSubmissionProof = (awaitingSubmissionProof || sessionAudit) && requiresPhysicalBinding && authenticationRoute != nil
         let internet = await runInternetCheck(mode: selectedProbeMode, targets: selectedWebsites, strategy: selectedWebsiteStrategy,
             prioritizeCampusRecovery: operation.kind == .automatic && mayAuthenticate && requiresPhysicalBinding && authenticationRoute != nil,
             deferWebsites: boundSubmissionProof, diagnosticContext: diagnosticRound.sample,
@@ -2796,9 +2804,21 @@ enum AppMaintenanceState: Equatable { case running, stopping, ready }
         if operation.kind == .automatic && internet.websitesDeferred && internet.completeBasePassed && probeMode == .complete {
             recoveryFullCheckPending = true
         }
-        let partial = operation.kind == .automatic ? internet.hasCampusRecoveryEvidence : internet.hasRecoveryEvidence
+        let boundCampusRedirect = requiresPhysicalBinding && authenticationRoute != nil
+            && (report.appleResult.campusAreaHint != nil || report.microsoftResult.campusAreaHint != nil)
+        let partial = boundCampusRedirect || (operation.kind == .automatic ? internet.hasCampusRecoveryEvidence : internet.hasRecoveryEvidence)
         if operation.kind == .automatic {
-            partialRecovery.observe(partial: partial, transportRecovered: internet.transportRecovered)
+            // Quick monitoring excludes optional websites. A periodic base-only
+            // check must observe both endpoints, including the peer quick mode skips.
+            partialRecovery.observe(partial: partial,
+                transportRecovered: internet.transportRecovered || (sessionAudit && internet.completeBasePassed))
+        }
+        if quickRecovery {
+            if boundCampusRedirect || !report.online || (sessionAudit && !internet.completeBasePassed) {
+                sessionAuditDeadline = monotonicNow()
+            } else if sessionAuditDeadline == nil || internet.completeBasePassed {
+                sessionAuditDeadline = monotonicNow() + (partialRecovery.needsTransportConfirmation ? 0 : 60)
+            }
         }
         let forced = force && operation.kind == .manual && mayAuthenticate
         let partialAutomatic = operation.kind == .automatic && partial && partialRecovery.shouldAttempt && mayAuthenticate
@@ -3055,7 +3075,7 @@ enum AppMaintenanceState: Equatable { case running, stopping, ready }
                 acceptReport(verification, internet: verificationReport)
                 if verification.online {
                     partialRecovery.observe(partial: verificationReport.hasCampusRecoveryEvidence,
-                                            transportRecovered: verificationReport.transportRecovered)
+                        transportRecovered: verificationReport.transportRecovered || (quickRecovery && verificationReport.completeBasePassed))
                     policy.observeProbe(online: true)
                     failedRound = false
                     setOnline()
@@ -3188,6 +3208,9 @@ enum AppMaintenanceState: Equatable { case running, stopping, ready }
         else { recoverySummary = SharedCopy.t(busy ? "status.checking.headline" : "status.idle.headline") }
     }
     var recommendedCheckDelay: Int {
+        if monitoringMode == .recover, !sessionReadOnly, probeMode == .quick,
+           let deadline = sessionAuditDeadline, monotonicNow() >= deadline,
+           partialRecovery.needsTransportConfirmation, policy.canRunAutomatic, !sleeping, !pausedForAutomatic { return 2 }
         if let deadline = rapidRecoveryDeadline, now() < deadline, engineStatus == "idle" || engineStatus == "noNetwork",
            policy.canRunAutomatic, !sleeping { return 0 }
         if recoveryFullCheckPending, probeMode == .complete, monitoringMode == .recover, !sessionReadOnly, policy.canRunAutomatic, !sleeping,
@@ -3211,6 +3234,7 @@ enum AppMaintenanceState: Equatable { case running, stopping, ready }
     private func clearPriorityRecovery() {
         rapidRecoveryDeadline = nil
         recoveryFullCheckPending = false
+        sessionAuditDeadline = nil
     }
 
     var currentHealth: ConnectionHealth { health.snapshot(now: now()) }

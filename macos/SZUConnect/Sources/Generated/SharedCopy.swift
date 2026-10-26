@@ -600,7 +600,7 @@ enum SharedCopy {
         "info.networkComparison.body": "两列都访问 Apple 和 Microsoft，检查这些网站能否连通。\n\n当前上网方式：按 macOS 的网络设置连接，可能经过代理或 VPN / TUN。\n\n校园直连：通过 Wi-Fi 或网线检测，不使用系统 HTTP / HTTPS 代理。VPN / TUN 仍可能影响连接。\n\n校园登录服务另行核验；联网检测通过不代表校园登录有效。",
         "info.networkComparison.title": "两列检测有什么区别？",
         "info.open": "说明",
-        "info.probe.body": "快速检测：检查 Apple 和 Microsoft，有一项通过或提示校园登录时即结束。\n\n完整检测：检查 Apple、Microsoft 和已勾选的常用网址。\n\n后台检测沿用此设置；登录结果不明时，会临时使用完整检测。",
+        "info.probe.body": "快速检测：检查 Apple 和 Microsoft，有一项通过或提示校园登录时即结束。\n\n完整检测：检查 Apple、Microsoft 和已勾选的常用网址。\n\n自动重连会定期复查两项基础检测，避免漏掉校园登录失效。常用网址仍按所选方式检测。\n\n登录结果不明时，也会临时复查基础联网。",
         "info.probe.title": "选择检测方式",
         "info.proxyModes.body": "系统代理：支持这项设置的应用按 macOS 代理设置联网。\n\nVPN / TUN：可能通过虚拟连接接管流量，也可能影响校园登录。\n\n“优先物理连接”只表示系统优先的 Wi-Fi 或网线，不代表 TUN 的最终出口。\n\n规则模式按规则选择直连或代理；全局模式统一使用选定出口。直连模式不等于关闭 TUN。\n\n同时开启系统代理与 TUN 不保证更快。\n\nTUN 开关及实际分流，请以代理软件为准。",
         "info.proxyModes.title": "系统代理、TUN 与分流模式",

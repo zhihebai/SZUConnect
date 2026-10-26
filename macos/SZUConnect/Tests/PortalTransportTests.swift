@@ -842,6 +842,17 @@ struct PortalTransportTests {
         check(OfflineProtocol.snapshot().starts.allSatisfy { $0 == apple || $0 == microsoft },
               "Quick portal recognition never follows or requests the Location destination")
 
+        for page in ["a70.htm", "a79.htm"] {
+            OfflineProtocol.reset([apple: .hang, microsoft: .body(Data(), status: 302,
+                headers: ["Location": "http://172.30.255.42/" + page + "?wlanuserip=192.0.2.7"])])
+            let redirect = await portalQuickClient.probe(mode: .quick)
+            check(!redirect.online && redirect.microsoftResult.campusAreaHint == .dormitory,
+                  "A fixed dormitory browser page supplies only a quick-probe candidate")
+            try await OfflineProtocol.waitForIdle()
+            check(OfflineProtocol.snapshot().starts.allSatisfy { $0 == apple || $0 == microsoft },
+                  "Dormitory redirect hints never request or follow the portal destination")
+        }
+
         let teachingPortalOrigins = ["http://net.szu.edu.cn", "http://net.szu.edu.cn:80",
                                      "https://net.szu.edu.cn", "https://net.szu.edu.cn:443"]
         let teachingPortalPaths = ["", "/", "/srun_portal_pc", "/srun_portal_phone", "/srun_portal_success", "/index_1.html"]
@@ -858,7 +869,9 @@ struct PortalTransportTests {
             ("https://net.szu.edu.cn/srun_portal_success_mobile?ac_id=6&theme=pro", .teaching),
             ("http://net.szu.edu.cn:80/srun_portal_success_mobile", .teaching),
             ("http://172.30.255.42:801", .dormitory), ("http://172.30.255.42:801/", .dormitory),
-            ("http://172.30.255.42:801/eportal?offline=1", .dormitory)]
+            ("http://172.30.255.42:801/eportal?offline=1", .dormitory),
+            ("http://172.30.255.42/a70.htm?wlanuserip=192.0.2.7", .dormitory),
+            ("http://172.30.255.42:80/a79.htm", .dormitory)]
         let probeOrigin = URL(string: "http://www.msftconnecttest.com/connecttest.txt")!
         for (location, area) in fixedPortalLocations {
             check(CampusRedirectTarget.matches(location, relativeTo: probeOrigin),
@@ -892,6 +905,11 @@ struct PortalTransportTests {
             "https://net.szu.edu.cn/a/../srun_portal_pc", "https://net.szu.edu.cn/%2e%2e/srun_portal_pc",
             "https://net.szu.edu.cn/\\srun_portal_pc", "https://net.szu.edu.cn/srun_portal_pc\n",
             "http://172.30.255.42:801/%65portal", "http://172.30.255.42:801/a/../eportal",
+            "https://172.30.255.42/a70.htm", "http://172.30.255.42:801/a70.htm",
+            "http://172.30.255.42/a70.htm/", "http://172.30.255.42/a70.htm#fixture",
+            "http://172.30.255.42/%6170.htm", "http://172.30.255.42/a/../a70.htm",
+            "http://172.30.255.42/a70.htm?x=%0a", "http://172.30.255.42/a70.htm?x=%255c",
+            "http://172.30.255.42/a70.htm?x=%GG", "http://172.30.255.42/login", "http://172.30.255.42/logout",
             "https://net.szu.edu.cn/srun_portal_pc?" + String(repeating: "x", count: 2048)]
         check(!CampusRedirectTarget.matches(nil, relativeTo: probeOrigin), "Missing Location cannot shorten a quick probe")
         for location in rejectedPortalLocations {
