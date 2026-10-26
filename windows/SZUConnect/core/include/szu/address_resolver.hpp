@@ -14,7 +14,7 @@ public:
         std::function<bool(const Route&)> current;
         std::function<std::vector<std::string>(std::string_view, const Route&, int)> associated;
         std::function<ResolvedAddresses(std::string_view, const Route&, int)> encrypted;
-        std::function<ResolvedAddresses(std::string_view, const Route&, int)> associated_with_ttl;
+        std::function<ResolvedAddresses(std::string_view, const Route&, int)> associated_with_ttl{};
     };
     std::vector<std::string> resolve(std::string_view host, const Route& route, int timeout_ms, const Hooks& hooks);
 private:

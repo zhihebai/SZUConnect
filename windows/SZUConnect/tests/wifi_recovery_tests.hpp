@@ -88,7 +88,8 @@ inline void run_wifi_recovery_tests(szutest::Harness& t) {
     }
     {
         wifitest::Radio radio;
-        t.check(recover(radio,{{"id","bad\n","label"}},true,CancelToken{})==Result::cancelled && radio.states==0,"invalid candidate never accesses radio");
+        const std::vector<Network> invalid_name{{"id","bad\n","label"}};
+        t.check(recover(radio,invalid_name,true,CancelToken{})==Result::cancelled && radio.states==0,"invalid candidate never accesses radio");
         t.check(recover(radio,std::vector<Network>(9,one),true,CancelToken{})==Result::cancelled && radio.states==0,"over-limit requests never scan");
     }
     {
