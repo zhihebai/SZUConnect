@@ -164,6 +164,7 @@ void ConnectionEngine::configure(MonitoringMode mode, CampusArea area, ProbeMode
         mode_ = mode;
         area_ = area;
         probe_mode_ = probe;
+        session_audit_after_.reset();
         saved_ = std::move(saved);
         if (saved_ && !saved_->complete()) saved_.reset();
         draft_ = saved_.value_or(Credentials{});
@@ -270,6 +271,7 @@ void ConnectionEngine::set_mode(MonitoringMode mode) {
             (mode != MonitoringMode::recover && automatic_campus_verification_operation_)) cancel_locked(false);
         if (mode != MonitoringMode::recover) invalidate_campus_service_locked();
         mode_ = mode;
+        session_audit_after_.reset();
         consecutive_partial_ = 0;
         consecutive_transport_passes_ = 0;
         policy_.automatic_enabled = mode != MonitoringMode::manual;
@@ -285,6 +287,7 @@ void ConnectionEngine::set_area(CampusArea area) {
         if (policy_.busy()) cancel_locked(false);
         invalidate_campus_service_locked();
         area_ = area;
+        session_audit_after_.reset();
         consecutive_partial_ = 0;
         consecutive_transport_passes_ = 0;
         last_discovery_.reset();
@@ -301,6 +304,7 @@ void ConnectionEngine::set_probe_mode(ProbeMode mode) {
         if (probe_mode_ != mode) {
             consecutive_partial_ = 0;
             consecutive_transport_passes_ = 0;
+            session_audit_after_.reset();
         }
         probe_mode_ = mode;
         if (mode == ProbeMode::quick) full_check_pending_ = false;
@@ -452,6 +456,7 @@ void ConnectionEngine::reset_partial_episode_locked() {
 
 void ConnectionEngine::new_epoch_locked() {
     rapid_recovery_until_.reset();
+    session_audit_after_.reset();
     full_check_pending_ = false;
     preserve_pending_submission_locked();
     reset_partial_episode_locked();
@@ -649,7 +654,7 @@ void ConnectionEngine::cancel_locked(bool mark_cancelled) {
     consecutive_transport_passes_ = 0;
     if (status_ == EngineStatus::checking || status_ == EngineStatus::discovering)
         status_ = online_ ? EngineStatus::online : EngineStatus::idle;
-    if (mark_cancelled) { status_ = EngineStatus::cancelled; rapid_recovery_until_.reset(); full_check_pending_ = false; }
+    if (mark_cancelled) { status_ = EngineStatus::cancelled; rapid_recovery_until_.reset(); session_audit_after_.reset(); full_check_pending_ = false; }
     pending_change_ = true;
 }
 
@@ -733,7 +738,7 @@ void ConnectionEngine::perform(const ConnectionPolicy::Operation& op, const Canc
     ProbeMode probe_mode;
     std::uint64_t memory_gen;
     std::optional<physical::Route> expected_route;
-    bool bound = false, prioritized = false, awaiting_submission_proof = false, prefer_teaching = false;
+    bool bound = false, prioritized = false, awaiting_submission_proof = false, prefer_teaching = false, session_audit = false;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         memory_gen = memory_generation_;
@@ -748,7 +753,11 @@ void ConnectionEngine::perform(const ConnectionPolicy::Operation& op, const Canc
         if (requires_physical_binding_ && !bound) { status_ = EngineStatus::unconfirmed; return; }
         if (kind == OperationKind::automatic && full_check_pending_ && probe_mode_ == ProbeMode::complete) may_authenticate = false;
         prioritized = kind == OperationKind::automatic && !awaiting_submission_proof && can_prioritize_recovery_locked();
-        probe_mode = awaiting_submission_proof ? ProbeMode::complete : prioritized ? ProbeMode::quick : probe_mode_;
+        session_audit = kind == OperationKind::automatic && may_authenticate && bound && saved_ &&
+            probe_mode_ == ProbeMode::quick && !paused_locked() &&
+            (memory_level_ == MatchLevel::medium || memory_level_ == MatchLevel::strong || policy_.authorized()) &&
+            session_audit_after_ && now() >= *session_audit_after_;
+        probe_mode = awaiting_submission_proof || session_audit ? ProbeMode::complete : prioritized ? ProbeMode::quick : probe_mode_;
         prefer_teaching = kind == OperationKind::automatic && prefers_teaching_locked();
         if (kind == OperationKind::automatic) credentials = saved_;
         else if (Credentials d{trim(draft_.account), draft_.password}; d.complete()) credentials = d;
@@ -761,7 +770,7 @@ void ConnectionEngine::perform(const ConnectionPolicy::Operation& op, const Canc
     }
     if (token.cancelled()) return;
     const ConnectivityReport report = service_.probe_with_scope(probe_mode, token,
-        kind == OperationKind::automatic && may_authenticate && bound, awaiting_submission_proof && bound);
+        kind == OperationKind::automatic && may_authenticate && bound, (awaiting_submission_proof || session_audit) && bound);
     std::unique_lock<std::mutex> lock(mutex_);
     if (!policy_.owns(op) || token.cancelled() || expected_route != authentication_route_) return;
     if (probe_mode == ProbeMode::complete) full_check_pending_ = false;
@@ -777,7 +786,18 @@ void ConnectionEngine::perform(const ConnectionPolicy::Operation& op, const Canc
     lock.lock();
     if (!policy_.owns(op)) return;
 
-    const bool partial = kind == OperationKind::automatic && bound ? report.campus_recoverable_partial() : report.recoverable_partial();
+    const bool campus_redirect = bound && (physical_hint(report.apple) || physical_hint(report.microsoft));
+    // A public endpoint may remain reachable after the campus session expires.
+    // Periodic base-only audits also observe the peer that quick checks cancel.
+    if (kind == OperationKind::automatic && may_authenticate && bound) {
+        if (campus_redirect || !report.online() || (session_audit && !report.complete_base_passed()))
+            session_audit_after_ = now();
+        else if (!session_audit_after_ || report.complete_base_passed())
+            session_audit_after_ = partial_attempt_used_ && consecutive_transport_passes_ == 1
+                ? now() : now() + kSessionAuditSeconds;
+    }
+    const bool partial = campus_redirect ||
+        (kind == OperationKind::automatic && bound ? report.campus_recoverable_partial() : report.recoverable_partial());
     consecutive_partial_ = kind == OperationKind::automatic && partial ? std::min(2, consecutive_partial_ + 1) : 0;
     const bool automatic_partial = kind == OperationKind::automatic && partial &&
         consecutive_partial_ >= 2 && !partial_attempt_used_;
@@ -1309,6 +1329,9 @@ bool ConnectionEngine::can_prioritize_recovery_locked() const {
 }
 
 int ConnectionEngine::next_check_delay_locked() const {
+    if (mode_ == MonitoringMode::recover && !read_only_ && probe_mode_ == ProbeMode::quick &&
+        session_audit_after_ && now() >= *session_audit_after_ && partial_attempt_used_ && consecutive_transport_passes_ == 1 &&
+        policy_.available && !sleeping_ && !paused_locked()) return 2;
     if (rapid_recovery_until_ && now() < *rapid_recovery_until_ && status_ == EngineStatus::idle &&
         policy_.available && !sleeping_ && mode_ != MonitoringMode::manual) return 0;
     if (full_check_pending_ && policy_.available && !sleeping_ && probe_mode_ == ProbeMode::complete && !paused_locked() && !recovery_submission_pending_) return 2;

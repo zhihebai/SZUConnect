@@ -251,6 +251,7 @@ public:
 
 private:
     static constexpr double kCampusServiceRefreshSeconds = 15 * 60;
+    static constexpr double kSessionAuditSeconds = 60;
     struct CampusServiceContext {
         std::uint64_t epoch = 0, memory_generation = 0;
         CampusArea area = CampusArea::automatic;
@@ -346,6 +347,7 @@ private:
     bool requires_physical_binding_ = false;
     std::optional<physical::Route> authentication_route_;
     std::optional<double> rapid_recovery_until_;
+    std::optional<double> session_audit_after_;
     bool full_check_pending_ = false;
     bool offer_forced_login_ = false;
     std::optional<LoginAttempt> last_attempt_;

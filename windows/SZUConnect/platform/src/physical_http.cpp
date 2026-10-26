@@ -1020,6 +1020,12 @@ bool physical_http_native_policy_test() {
     if (campus_location("HTTP/1.1 302 Found\r\nLocation: https://net.szu.edu.cn/srun_portal_pc\r\nLocation: https://evil.invalid/\r\n\r\n", request.url)) return false;
     if (campus_location("HTTP/1.1 302 Found\r\nLocation: http://172.30.255.42:801/eportal?client=fake\r\n\r\n",
         "http://www.msftconnecttest.com/connecttest.txt") != CampusPortalHint::dormitory) return false;
+    for (const auto* location : {"http://172.30.255.42/a70.htm?wlanuserip=192.0.2.7", "http://172.30.255.42:80/a79.htm"}) {
+        const auto header = "HTTP/1.1 302 Found\r\nLocation: " + std::string(location) + "\r\n\r\n";
+        if (campus_location(header, "http://www.msftconnecttest.com/connecttest.txt") != CampusPortalHint::dormitory) return false;
+        if (campus_location("HTTP/1.1 302 Found\r\nLocation: " + std::string(location) + "\r\nLocation: https://evil.invalid/\r\n\r\n",
+            "http://www.msftconnecttest.com/connecttest.txt")) return false;
+    }
     for (const auto* url : {"https://net.szu.edu.cn/srun_portal_pc", "https://example.invalid/", "https://www.apple.com/", "http://www.msftconnecttest.com/connecttest.txt?extra=1"})
         if (campus_location(good, url)) return false;
     for (const auto* header : {"HTTP/1.1 302 Found\r\nLocation: https://net.szu.edu.cn:444/srun_portal_pc\r\n\r\n",

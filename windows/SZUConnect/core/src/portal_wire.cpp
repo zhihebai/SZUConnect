@@ -704,6 +704,8 @@ std::optional<CampusPortalHint> campus_redirect_hint(std::string_view location, 
          target->path == "/srun_portal_success_mobile" || target->path == "/index_1.html")) return CampusPortalHint::teaching;
     if (target->scheme == "http" && target->host == "172.30.255.42" && target->port == 801 &&
         (target->path.empty() || target->path == "/" || target->path == "/eportal")) return CampusPortalHint::dormitory;
+    if (target->scheme == "http" && target->host == "172.30.255.42" && target->port.value_or(80) == 80 &&
+        (target->path == "/a70.htm" || target->path == "/a79.htm")) return CampusPortalHint::dormitory;
     return std::nullopt;
 }
 

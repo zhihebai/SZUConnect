@@ -603,7 +603,7 @@ constexpr std::array<Entry, 1298> kEntries = {{
     Entry{"info.networkComparison.body", "当前上网方式：按 Windows 设置访问 Apple 和 Microsoft，可能经过系统代理或 TUN。\n\n校园直连：通过 Wi-Fi 或网线访问相同地址，不使用系统代理；TUN 仍可能影响结果。\n\n两列检查基础联网，校园登录服务另行核验。常用网址失败会单独显示，不等于校园网掉线。"},
     Entry{"info.networkComparison.title", "两列检测有什么区别？"},
     Entry{"info.open", "说明"},
-    Entry{"info.probe.body", "基础检测使用 Apple、Microsoft 的小型测试页。\n\n快速检测：有一项通过或提示校园登录时即结束。\n\n完整检测：检查两项基础联网和已勾选的常用网址。\n\n后台检测沿用此设置；登录结果不明时，会临时使用完整检测。"},
+    Entry{"info.probe.body", "基础检测使用 Apple、Microsoft 的小型测试页。\n\n快速检测：有一项通过或提示校园登录时即结束。\n\n完整检测：检查两项基础联网和已勾选的常用网址。\n\n自动重连会定期复查两项基础检测，避免漏掉校园登录失效。常用网址仍按所选方式检测。\n\n登录结果不明时，也会临时复查两项基础检测。"},
     Entry{"info.probe.title", "选择检测方式"},
     Entry{"info.proxyModes.body", "系统代理：支持这项设置的应用按 Windows 代理设置联网。\n\nTUN：通过虚拟网卡接管更多连接，也可能影响校园登录。\n\n规则模式按规则选择直连或代理。\n\n全局模式统一使用选定的出口。\n\n直连模式经本地网络访问，TUN 仍可开启。\n\n“校园登录”是应用认证使用的连接。\n\n“系统优先”是 Windows 优先使用的 Wi-Fi 或网线连接。\n\nTUN 开关请以代理软件为准。"},
     Entry{"info.proxyModes.title", "系统代理、TUN 与分流模式"},

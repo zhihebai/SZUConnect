@@ -624,6 +624,70 @@ void verify_discovery_failure_phases(Checks& t) {
 }
 }
 
+void verify_session_expiry_recovery(Checks& t) {
+    for (const auto target : {CampusArea::teaching, CampusArea::dormitory})
+    for (const auto mode : {ProbeMode::quick, ProbeMode::complete})
+    for (const bool tunnel : {false, true}) {
+        Backend backend; WinHttpService physical_service(backend.hooks());
+        std::atomic<bool> expired{false};
+        std::atomic<int> website_calls{0};
+        backend.respond = [&](const HttpRequest& request, const CancelToken& token, const auto&) {
+            const auto url = wire::parse_url(request.url);
+            if (url->host == "www.msftconnecttest.com" && expired) {
+                token.wait_for(0.01);
+                HttpResponse response; response.status = 302; response.error = HttpError::redirect;
+                response.campus_area_hint = wire::campus_redirect_hint(target == CampusArea::dormitory
+                    ? "http://172.30.255.42/a70.htm?wlanuserip=192.0.2.7"
+                    : "https://net.szu.edu.cn/srun_portal_pc?ac_id=12", request.url);
+                return response;
+            }
+            if (url->path == "/eportal/portal/login" || url->path == "/cgi-bin/srun_portal") expired = false;
+            return normal(request);
+        };
+        InternetCheckService service(physical_service, [&](const auto&, bool, const auto&) {
+            ++website_calls; return WebsiteCheckResult{"accessible", 200, 0};
+        });
+        service.configure({{"fixture-site", "https://website.fixture.invalid/", true}}, true);
+        auto attachment = route("A");
+        attachment.descriptor.kind = "wifi";
+        attachment.descriptor.raw = {{"ssid", "fixture-campus"}, {"gw", "02:00:00:00:00:07"},
+            {"gwip", "192.0.2.254"}, {"net", "192.0.2.0/24"}};
+        double now = 1000, wall = 1800000000;
+        ConnectionEngine::Hooks hooks;
+        hooks.now = [&] { return now; }; hooks.wall_now = [&] { return wall; };
+        hooks.sleep = [](double) {};
+        hooks.persist_recovery = [](const std::string&) { return true; };
+        hooks.persist_memory = [](const std::string&) { return true; };
+        hooks.random_hex = [] { return "00112233445566778899aabbccddeeff"; };
+        ConnectionEngine engine(service, hooks);
+        engine.restore_recovery(std::nullopt);
+        engine.configure(MonitoringMode::recover, CampusArea::automatic, mode, Credentials{"fixture-account", "not-a-real-password"});
+        NetworkMemory memory("00112233445566778899aabbccddeeff");
+        memory.remember(attachment.descriptor, std::string(to_string(target)), true, true, wall - 100, "abcde107");
+        engine.restore_memory(memory.encode());
+        PathSnapshot path; path.identity = "session-expiry-attachment"; path.tunnel = tunnel;
+        path.usable = path.link_active = path.requires_physical_binding = true;
+        path.physical_candidates = {attachment}; path.descriptors = {attachment.descriptor};
+        engine.receive_path(path); engine.automatic_round();
+        const auto epoch = engine.snapshot().epoch;
+        t.check(engine.snapshot().online && backend.count("/eportal/portal/login") == 0 && backend.count("/cgi-bin/srun_portal") == 0,
+            "healthy remembered Wi-Fi does not submit credentials with or without a tunnel");
+        expired = true; now += 61; wall += 61;
+        engine.automatic_round();
+        t.check(backend.count("/eportal/portal/login") == 0 && backend.count("/cgi-bin/srun_portal") == 0,
+            "one expired-session observation still needs confirmation");
+        now += 6; wall += 6; engine.automatic_round();
+        t.check(engine.snapshot().online && engine.snapshot().epoch == epoch && !expired &&
+            backend.count(target == CampusArea::dormitory ? "/eportal/portal/login" : "/cgi-bin/srun_portal") == 1 &&
+            backend.count(target == CampusArea::dormitory ? "/cgi-bin/srun_portal" : "/eportal/portal/login") == 0,
+            "production transport, website decorator and engine recover an unchanged-link session with one correctly routed fake submission");
+        t.check(backend.count("/a70.htm") == 0 && backend.count("/a79.htm") == 0 &&
+            engine.snapshot().probe_mode == mode && (mode != ProbeMode::quick || website_calls == 0),
+            "browser redirects are not followed, quick settings are preserved and base audits do not query custom websites");
+        t.check(engine.snapshot().cooldown_remaining.has_value(), "service recovery keeps the post-submission cooldown");
+    }
+}
+
 int main() {
     Checks t;
     verify_website_transport(t);
@@ -631,6 +695,7 @@ int main() {
     verify_config_boundary_requests(t);
     verify_discovery_failure_phases(t);
     verify_source_bound_wired_handover(t);
+    verify_session_expiry_recovery(t);
     const Credentials credentials{"fixture-account", "not-a-real-password"};
     {
         Backend backend; WinHttpService service(backend.hooks()); CancelToken token;

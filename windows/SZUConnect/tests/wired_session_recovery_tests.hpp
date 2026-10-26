@@ -26,16 +26,23 @@ struct Service final : ConnectionService {
     RejectionKind rejection = RejectionKind::password;
     std::vector<CampusArea> attempts, submissions, discoveries;
     std::vector<std::string> probe_bindings, discovery_bindings, attempt_bindings;
+    std::vector<ProbeMode> probe_modes;
+    std::vector<bool> deferred_website_scopes;
     std::function<void()> during_probe, during_discovery, during_attempt;
     bool binding_available = true, fixture_credentials = true;
     bool set_expected_physical_route(const std::optional<physical::Route>& value) override { bound = value; return binding_available; }
     ConnectivityReport probe(ProbeMode mode, const CancelToken&) override {
+        probe_modes.push_back(mode);
         probe_bindings.push_back(bound ? bound->interface_key : "system");
         auto result = response;
         if (!reports.empty()) { result = reports.front(); reports.pop_front(); }
         result.mode = mode;
         if (during_probe) during_probe();
         return result;
+    }
+    ConnectivityReport probe_with_scope(ProbeMode mode, const CancelToken& token, bool, bool defer_websites) override {
+        deferred_website_scopes.push_back(defer_websites);
+        return probe(mode, token);
     }
     CampusDiscovery discover(CampusArea area, const CancelToken&) override {
         discoveries.push_back(area); discovery_bindings.push_back(bound ? bound->interface_key : "system");
