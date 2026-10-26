@@ -258,9 +258,9 @@ void build_inline_guard(Builder& b, ViewContext& ctx, const EngineSnapshot& snap
         b.gap(8);
         b.text(T("memory.wait." + snap.proof_wait), TextStyle::caption, "warning", Role::status);
     }
-    if (!snap.online && snap.cooldown_remaining && *snap.cooldown_remaining > 0) {
+    if ((!snap.online || snap.status == EngineStatus::coolingDown) && snap.cooldown_remaining && *snap.cooldown_remaining > 0) {
         b.gap(tokens::kSpaceS);
-        b.text(F("guard.cooldown", {{"seconds", std::to_string(static_cast<int>(*snap.cooldown_remaining + 0.99))}}), TextStyle::caption, "info");
+        b.text(F("guard.cooldown", {{"seconds", std::to_string(static_cast<int>(*snap.cooldown_remaining + 0.99))}}), TextStyle::caption, "info", Role::status, "guard.cooldown");
     }
     for (const Hold& hold : snap.holds) {
         const char* reason = hold.reason == HoldReason::userPaused ? "userPaused" : hold.reason == HoldReason::security ? "security" :

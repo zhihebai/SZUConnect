@@ -261,7 +261,7 @@ CampusDiscovery WinHttpService::discover(CampusArea area, const CancelToken& tok
     discovery.teaching_client_bound = page_config.configuration.value && operation->binding->route &&
         page_config.configuration.value->ip == operation->binding->route->source_ipv4;
     if (!current(*operation)) return {};
-    if (area == CampusArea::teaching) return discovery;
+    if (area == CampusArea::teaching || (area == CampusArea::automatic && discovery.teaching_client_bound)) return discovery;
     HttpRequest dorm;
     dorm.url = "http://172.30.255.42:801/eportal";
     dorm.timeout_ms = kProbeTimeoutMs;

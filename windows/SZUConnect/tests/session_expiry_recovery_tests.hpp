@@ -102,7 +102,7 @@ inline void session_expiry_recovery_tests(Harness& t) {
             scenario == "conflict" ? std::optional<CampusPortalHint>(CampusPortalHint::teaching) : std::nullopt);
         f.round(); f.round();
         t.check(!f.service.discoveries.empty() && f.service.discoveries.front() ==
-            (teaching ? CampusArea::teaching : CampusArea::automatic),
+            (teaching ? CampusArea::teaching : CampusArea::dormitory),
             "discovery waits only for applicable services while dormitory scope and conflicts retain both checks");
         t.check(scenario == "conflict" ? f.service.submissions.empty() :
             f.service.submissions == std::vector<CampusArea>{teaching ? CampusArea::teaching : CampusArea::dormitory},

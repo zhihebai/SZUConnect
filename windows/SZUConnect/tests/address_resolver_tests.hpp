@@ -44,6 +44,55 @@ struct Fixture {
 
 inline void address_resolver_tests(Harness& t) {
     using namespace szu::physical;
+    t.begin("associated-address-retention");
+    for (const auto host : {"net.szu.edu.cn","www.apple.com","www.msftconnecttest.com"}) {
+        addresstest::Fixture f; f.associated_ok = true;
+        auto hooks = f.hooks();
+        hooks.associated_with_ttl = [&](std::string_view name,const Route& route,int budget) {
+            return ResolvedAddresses{hooks.associated(name,route,budget),120};
+        };
+        const auto get = [&] {return f.resolver.resolve(host,f.route,6000,hooks);};
+        t.check(get() == f.addresses && f.encrypted_calls == 0,
+            "a native associated answer retains its actual TTL without contacting a public resolver");
+        f.associated_ok = false; f.encrypted_ok = false;
+        t.check(get() == f.addresses && f.encrypted_calls == 0,
+            "same-attachment DNS disruption can use the fresh address obtained before TUN was enabled");
+        f.time += 121;
+        bool available = true; try {(void)get();} catch (const Error&) {available = false;}
+        t.check(available == (host != std::string_view("www.msftconnecttest.com")),
+            "retained associated addresses keep the existing HTTPS-only stale-candidate rule");
+        if (host != std::string_view("www.msftconnecttest.com")) {
+            f.associated_ok = true;
+            hooks.associated_with_ttl = [&](std::string_view name,const Route& route,int budget) {
+                return ResolvedAddresses{hooks.associated(name,route,budget),0};
+            };
+            (void)get(); f.associated_ok = false;
+            bool rejected = false; try {(void)get();} catch (const Error&) {rejected = true;}
+            t.check(rejected,"a valid new associated answer with zero TTL removes the previous HTTPS cache entry");
+        }
+    }
+    {
+        AddressResolver resolver; addresstest::Fixture f;
+        std::binary_semaphore entered(0),release(0);
+        auto old = f.hooks(); old.now = [] {return 100.0;};
+        old.associated_with_ttl = [&](std::string_view,const Route&,int) {
+            entered.release(); release.acquire(); return ResolvedAddresses{{"192.0.2.45"},120};
+        };
+        std::vector<std::string> old_result;
+        std::thread worker([&] {old_result = resolver.resolve("net.szu.edu.cn",f.route,6000,old);});
+        entered.acquire();
+        auto fresh = old;
+        fresh.associated_with_ttl = [](std::string_view,const Route&,int) {return ResolvedAddresses{{"192.0.2.46"},0};};
+        t.check(resolver.resolve("net.szu.edu.cn",f.route,6000,fresh) == std::vector<std::string>{"192.0.2.46"},
+            "a newer zero-TTL result remains usable only by its own request");
+        release.release(); worker.join();
+        fresh.associated_with_ttl = [](std::string_view,const Route&,int) -> ResolvedAddresses {throw Error(Failure::timeout);};
+        fresh.encrypted = fresh.associated_with_ttl;
+        bool rejected = false;
+        try {(void)resolver.resolve("net.szu.edu.cn",f.route,6000,fresh);} catch (const Error&) {rejected = true;}
+        t.check(rejected && old_result == std::vector<std::string>{"192.0.2.45"},
+            "a late positive response cannot resurrect an address invalidated by a newer zero-TTL result");
+    }
     t.begin("bounded-encrypted-address-resolution");
     {
         addresstest::Fixture f;

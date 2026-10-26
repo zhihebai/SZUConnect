@@ -45,7 +45,8 @@ public:
     virtual ConnectivityReport probe_verification_hints(const CancelToken& token) {
         return probe(ProbeMode::quick, token);
     }
-    // Read-only campus discovery (no credentials). teaching: teaching only; dormitory/automatic: both.
+    // Read-only discovery. Dormitory requires both services; automatic may stop
+    // after a fresh exact-source teaching CONFIG. Neither operation carries credentials.
     virtual CampusDiscovery discover(CampusArea area, const CancelToken& token) = 0;
     // Exactly one concrete area (teaching or dormitory), at most one credential submission.
     virtual LoginAttempt attempt(const Credentials& credentials, CampusArea area, const CancelToken& token) = 0;
@@ -253,7 +254,7 @@ public:
 
 private:
     static constexpr double kCampusServiceRefreshSeconds = 15 * 60;
-    static constexpr double kSessionAuditSeconds = 60;
+    static constexpr double kSessionAuditSeconds = 15;
     struct CampusServiceContext {
         std::uint64_t epoch = 0, memory_generation = 0;
         CampusArea area = CampusArea::automatic;
@@ -295,8 +296,6 @@ private:
     void refresh_memory_locked();
     bool memory_ambiguous_locked() const { return tunnel_ || multiple_physical_ || descriptors_.size() > 1; }
     std::optional<CampusArea> remembered_entry_locked() const;
-    bool prefers_teaching_locked() const;
-    bool prefers_dormitory_locked() const;
     std::optional<CampusRoutingResolution> current_routing_locked() const;
     bool needs_dormitory_eligibility_locked() const;
     bool needs_memory_update_locked() const;

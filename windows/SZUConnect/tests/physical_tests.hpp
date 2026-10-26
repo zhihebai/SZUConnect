@@ -307,7 +307,11 @@ inline void physical_tests(Harness& t) {
         };
         if (scenario == 11) stopped = true;
         bool answered = false; std::optional<physical::Failure> failure;
-        try { answered = physical::dns_exchange("net.szu.edu.cn", 0x1234, servers, deadline, h) == std::vector<std::string>{"192.0.2.80"}; }
+        try {
+            const auto result = physical::dns_exchange_with_ttl("net.szu.edu.cn", 0x1234, servers, deadline, h);
+            answered = result.addresses == std::vector<std::string>{"192.0.2.80"};
+            t.check(result.ttl_seconds == 10,"associated transport preserves the validated wire TTL for bounded retention");
+        }
         catch (const physical::Error& e) { failure = e.reason; }
         t.equal(answered, success, "exchange success matches injected fault");
         if (!success) t.check(failure == expected, "exchange failure preserves cancellation/budget/terminal semantics");

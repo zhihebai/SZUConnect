@@ -220,17 +220,21 @@ inline void run_wifi_recovery_tests(szutest::Harness& t) {
     schedule.update({display_only},true,false,true,false,false);
     t.check(request && !request->token.cancelled() && schedule.active(),"display-only rename cannot cancel an association or change retry scheduling");
     schedule.finish(Result::notFound,0);
-    t.check(!schedule.ready(14.999) && schedule.ready(15) && schedule.status()=="waiting",
+    t.check(!schedule.ready(1.999) && schedule.ready(2) && schedule.status()=="waiting",
         "readiness honors the retry boundary without clearing the previous result");
-    t.check(!schedule.begin(14) && schedule.begin(15).has_value(),"first missing target backs off 15 seconds");
-    schedule.finish(Result::notFound,15);
-    t.check(!schedule.begin(44) && schedule.begin(45).has_value(),"second missing target backs off 30 seconds");
-    schedule.finish(Result::notFound,45);
-    t.check(!schedule.begin(104) && schedule.begin(105).has_value(),"third missing target backs off 60 seconds");
-    schedule.finish(Result::notFound,105);
-    t.check(!schedule.begin(224) && schedule.begin(225).has_value(),"fourth missing target backs off 120 seconds");
-    schedule.finish(Result::notFound,225);
-    t.check(!schedule.begin(524) && schedule.begin(525).has_value(),"subsequent retries bounded at five minutes");
+    double elapsed = 0;
+    for (const double delay : {2, 5, 10, 20, 30, 60, 120, 300, 300}) {
+        t.check(!schedule.begin(elapsed + delay - 0.001) && schedule.begin(elapsed + delay).has_value(),
+            "transient radio retries begin promptly and remain bounded during long absences");
+        elapsed += delay;
+        schedule.finish(Result::notFound,elapsed);
+    }
+    for (const auto result : {Result::permissionRequired, Result::unavailable, Result::systemConnectionRequired}) {
+        Schedule protected_schedule; protected_schedule.update({one},true,false,true,false,false);
+        protected_schedule.begin(0); protected_schedule.finish(result,0);
+        t.check(!protected_schedule.ready(14.999) && protected_schedule.ready(15),
+            "permission, unavailable and system-configuration failures retain their conservative retry interval");
+    }
     schedule.update({},true,true,true,false,false);
     auto powering=schedule.begin(600);
     t.check(powering && powering->power_on && powering->networks.empty(),"separate radio-on permission is independent of candidate selection");

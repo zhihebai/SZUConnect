@@ -1,4 +1,5 @@
 #include "szu/policy.hpp"
+#include <cmath>
 
 namespace szu {
 
@@ -68,7 +69,7 @@ void ConnectionPolicy::observe_probe(bool online) {
 }
 
 int ConnectionPolicy::next_check_delay(bool constrained, double now, bool paused) const {
-    if (not_before_ && *not_before_ > now) return 15;
+    if (not_before_ && *not_before_ > now) return static_cast<int>(std::clamp(std::ceil(*not_before_ - now), 1.0, 15.0));
     if (paused) return constrained ? 120 : 60;
     if (consecutive_probe_failures_ == 1) return 5;
     if (failures_ > 0) return retry_delay();

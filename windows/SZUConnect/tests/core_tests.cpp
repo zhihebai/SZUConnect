@@ -1616,6 +1616,7 @@ void copy_tests(Harness& t) {
 #include "tun_parity_tests.hpp"
 #include "wired_session_recovery_tests.hpp"
 #include "session_expiry_recovery_tests.hpp"
+#include "recovery_latency_tests.hpp"
 #include "r11_parser_policy_tests.hpp"
 #include "config_boundary_tests.hpp"
 #include "r11_engine_sync_tests.hpp"
@@ -1660,6 +1661,7 @@ int main(int argc, char** argv) {
     tun_parity_tests(t);
     wired_session_recovery_tests(t);
     session_expiry_recovery_tests(t);
+    recovery_latency_tests(t);
     r11_parser_policy_tests(t);
     config_boundary_tests(t);
     r11_engine_sync_tests(t);

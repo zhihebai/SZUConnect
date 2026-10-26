@@ -589,7 +589,7 @@ constexpr std::array<Entry, 1298> kEntries = {{
     Entry{"hold.userPaused.title", "自动重连已手动暂停"},
     Entry{"info.account.body", "填写校园网登录页使用的账号和密码，保存后存入本机 Windows 凭据管理器。\n\n手动登录使用当前填写的账号，自动重连使用已保存的账号。"},
     Entry{"info.account.title", "校园账号"},
-    Entry{"info.addressResolution.body", "校园直连：本应用直接访问，不使用系统代理。\n\n这只用于深大随连，其他应用的连接方式不变。\n\n当前上网方式：沿用 Windows 的系统设置。\n两列都可能受 TUN 影响。\n\n这里只检查校园登录页和公共测试网址。\n\n单项超时，可先用浏览器试开常用网页。\n\n校园直连查不到地址时，会换一种方式重试。"},
+    Entry{"info.addressResolution.body", "校园直连：本应用直接访问，不使用系统代理。\n\n这只用于深大随连，其他应用的连接方式不变。\n\n当前上网方式：沿用 Windows 的系统设置。\n两列都可能受 TUN 影响。\n\n这里只检查校园登录页和公共测试网址。\n\n单项超时，可先用浏览器试开常用网页。\n\n校园直连查不到地址时，会换一种方式重试。\n\n已查到的地址会在本次运行中暂存，\n查询暂时失败时可继续尝试，不修改系统网络设置。"},
     Entry{"info.addressResolution.title", "连接检查说明"},
     Entry{"info.area.body", "推荐“自动选择”，由应用检查适用的校园登录方式；也可按学校接入说明手动选择。“教学／办公区”和“宿舍区”是登录方式，不一定对应当前位置。\n\n宿舍区登录通过 HTTP 发送账号和密码，不加密；自动登录前请确认当前校园网络可信。"},
     Entry{"info.area.title", "选择登录区域"},

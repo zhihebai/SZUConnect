@@ -124,5 +124,7 @@ struct ExchangeHooks {
 // retransmissions at 250/750 ms. No public/system DNS or TCP fallback.
 std::vector<std::string> dns_exchange(std::string_view host, std::uint16_t transaction,
                                     std::size_t servers, double deadline, const ExchangeHooks& hooks);
+ResolvedAddresses dns_exchange_with_ttl(std::string_view host, std::uint16_t transaction,
+                                        std::size_t servers, double deadline, const ExchangeHooks& hooks);
 
 }  // namespace szu::physical

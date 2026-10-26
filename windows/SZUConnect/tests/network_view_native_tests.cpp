@@ -508,6 +508,16 @@ void verify_automatic_entry_feedback(HWND window, Canvas& canvas) {
     check(fake->files == files && fake->evidence().fake_auth_submissions == 0 && fake->evidence().fake_wifi_calls == 0 &&
         app.settings().area == CampusArea::automatic,
         "simplified service feedback changes no saved entry preference, network memory or authentication behavior");
+    auto cooldown = state;
+    cooldown.mode = MonitoringMode::recover; cooldown.online = true;
+    cooldown.status = EngineStatus::coolingDown; cooldown.cooldown_remaining = 6;
+    host.scene = Scene{};
+    host.scene.layers[0].viewport = D2D1::RectF(0,0,500,1600);
+    Builder builder(host.scene,canvas,0,tokens::kSpaceL,500-2*tokens::kSpaceL,tokens::kSpaceL);
+    build_inline_guard(builder,context,cooldown);
+    const auto* countdown = host.scene.find("guard.cooldown");
+    check(countdown && countdown->text == F("guard.cooldown",{{"seconds","6"}}),
+        "the native guard shows the protected wait even when one public probe still succeeds");
     app.shutdown();
 }
 

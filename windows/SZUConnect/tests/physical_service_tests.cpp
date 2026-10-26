@@ -332,6 +332,20 @@ void verify_source_bound_wired_handover(Checks& t) {
 
 void verify_client_configuration(Checks& t) {
     const Credentials credentials{"fixture-account", "not-a-real-password"};
+    for (const auto area : {CampusArea::automatic, CampusArea::dormitory}) {
+        Backend backend; WinHttpService service(backend.hooks()); service.set_expected_physical_route(route("A"));
+        backend.respond = [](const auto& request,const auto&,const auto&) {
+            const auto path = wire::parse_url(request.url)->path;
+            if (path == "/srun_portal_pc") return success(configured_home("12","192.0.2.7"));
+            return normal(request);
+        };
+        const auto proof = service.discover(area,CancelToken{});
+        t.check(proof.teaching == Discovery::confirmed && proof.teaching_client_bound &&
+            proof.dormitory == (area == CampusArea::automatic ? Discovery::notChecked : Discovery::confirmed) &&
+            backend.count("/eportal") == (area == CampusArea::automatic ? 0 : 1) &&
+            backend.count("/cgi-bin/get_challenge") == 0 && backend.count("/cgi-bin/srun_portal") == 0,
+            "automatic strong teaching discovery skips dormitory while explicit dormitory retains both credential-free checks");
+    }
     for (const bool selected_source : {false, true}) {
         Backend backend; WinHttpService service(backend.hooks());
         auto selected = route("A"); selected.addresses.push_back("192.0.2.99");
@@ -342,9 +356,12 @@ void verify_client_configuration(Checks& t) {
             return normal(request);
         };
         const auto discovery = service.discover(CampusArea::automatic, CancelToken{});
-        t.check(discovery.teaching == Discovery::confirmed && discovery.dormitory == Discovery::confirmed &&
+        t.check(discovery.teaching == Discovery::confirmed && discovery.dormitory ==
+                (selected_source ? Discovery::notChecked : Discovery::confirmed) &&
                 discovery.teaching_client_bound == selected_source,
                 "CONFIG candidate matches the exact selected source, never a second address on that interface");
+        t.check(backend.count("/eportal") == (selected_source ? 0 : 1),
+                "only an exact-source CONFIG avoids the unrelated dormitory discovery request");
         const auto result = service.attempt_with_requirements(credentials, CampusArea::teaching, CancelToken{}, true);
         t.check(selected_source ? result.outcome == Outcome::success :
                 result.outcome == Outcome::security && !result.credential_submission_started,

@@ -64,7 +64,7 @@ bool bound_socket(SOCKET socket, const physical::Route& route, const std::string
 }
 }  // namespace
 
-static std::vector<std::string> resolve_physical_udp_a(const std::string& host, const physical::Route& route,
+static physical::ResolvedAddresses resolve_physical_udp_a(const std::string& host, const physical::Route& route,
                                                      int timeout_ms, const CancelToken& token) {
     cancelled(token);
     if (!physical::allowed_host(host) || timeout_ms <= 0 || timeout_ms > 30000 || !route.interface_index ||
@@ -132,7 +132,7 @@ static std::vector<std::string> resolve_physical_udp_a(const std::string& host, 
         }
         return events;
     };
-    auto result = physical::dns_exchange(host, transaction, sockets.values.size(), deadline, hooks);
+    auto result = physical::dns_exchange_with_ttl(host, transaction, sockets.values.size(), deadline, hooks);
     current(route, token);
     if (now_seconds() >= deadline) throw physical::Error(physical::Failure::timeout);
     return result;
@@ -145,7 +145,7 @@ std::vector<std::string> resolve_physical_a(const std::string& host, const physi
     hooks.now = now_seconds;
     hooks.cancelled = [&] { return token.cancelled(); };
     hooks.current = [&](const physical::Route& candidate) { return physical_route_current(candidate); };
-    hooks.associated = [&](std::string_view name, const physical::Route& candidate, int budget) {
+    hooks.associated_with_ttl = [&](std::string_view name, const physical::Route& candidate, int budget) {
         return resolve_physical_udp_a(std::string(name), candidate, budget, token);
     };
     hooks.encrypted = [&](std::string_view name, const physical::Route& candidate, int budget) {
