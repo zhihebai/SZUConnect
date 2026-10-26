@@ -1290,10 +1290,12 @@ void internet_check_tests(Harness& t) {
     };
     t.check(service.configure({enabled, disabled, preset}, true) && retains_report() && calls == 1 && raw.probe_calls == captured_base_calls,
         "Adding an unselected preset retains the completed result, actual mode and request durations without starting requests");
-    t.check(service.configure({{"other-preset", "https://other-preset.example/", false}, enabled}, true) && retains_report() && calls == 1 &&
+    const std::vector<WebsiteTarget> edited_unselected_targets{{"other-preset", "https://other-preset.example/", false}, enabled};
+    t.check(service.configure(edited_unselected_targets, true) && retains_report() && calls == 1 &&
         raw.probe_calls == captured_base_calls,
         "Removing, editing and moving only disabled rows cannot replace the selected results or start requests");
-    t.check(service.configure({{"a", "HTTPS://ALPHA.EXAMPLE:0443", true}}, true) && retains_report() && calls == 1 &&
+    const std::vector<WebsiteTarget> equivalent_selected_targets{{"a", "HTTPS://ALPHA.EXAMPLE:0443", true}};
+    t.check(service.configure(equivalent_selected_targets, true) && retains_report() && calls == 1 &&
         raw.probe_calls == captured_base_calls, "Equivalent normalized selected targets preserve their existing report");
     raw.default_probe = "offline";
     const auto private_hints = service.probe_verification_hints(CancelToken{});
@@ -1380,7 +1382,8 @@ void internet_check_tests(Harness& t) {
         t.check(!active.configure({enabled, enabled}, false) && !active_parent.cancelled(),
             "Invalid configuration cannot change the active strategy or cancel the accepted probe");
         if (change == "enabled" || change == "strategy") {
-            const bool reconfigured = change == "enabled" ? active.configure({enabled, {preset.id, preset.url, true}}, true) :
+            const std::vector<WebsiteTarget> changed_targets{enabled, {preset.id, preset.url, true}};
+            const bool reconfigured = change == "enabled" ? active.configure(changed_targets, true) :
                 active.configure({enabled, preset}, false);
             t.check(reconfigured && active_parent.cancelled() && !active.activity(),
                 "Changing the selected targets or proxy strategy cancels the owned probe instead of mixing configurations");
