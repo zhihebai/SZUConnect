@@ -1,11 +1,15 @@
 #if os(macOS)
 import Foundation
+import CoreWLAN
 
 private final class FakeRadio: WiFiRecoveryRadio, @unchecked Sendable {
     var permitted = true
     var connection: WiFiPhysicalState = .disconnected
     var powered: Bool? = true
     var results: [WiFiScanCandidate] = []
+    var cachedResults: [WiFiScanCandidate] = []
+    var cacheReads = 0
+    var onCache: (() -> Void)?
     var scanned: [String] = []
     var powers = 0
     var joins = 0
@@ -15,6 +19,9 @@ private final class FakeRadio: WiFiRecoveryRadio, @unchecked Sendable {
     var onPower: (() -> Void)?
     var onPowerState: (() -> Void)?
     var failScan = false
+    var powerError: NSError?
+    var scanError: NSError?
+    var associationError: NSError?
     var scanFailures: Set<String> = []
     var associationFailures: Set<String> = []
     var associated: [String] = []
@@ -22,18 +29,28 @@ private final class FakeRadio: WiFiRecoveryRadio, @unchecked Sendable {
     func permissionGranted() -> Bool { permitted }
     func physicalState() -> WiFiPhysicalState { connection }
     func powerState() -> Bool? { onPowerState?(); return powered }
-    func setPowerOn() throws { powers += 1; powered = true; onPower?() }
+    func setPowerOn() throws {
+        powers += 1
+        if let powerError { throw powerError }
+        powered = true; onPower?()
+    }
     func scan(ssid: String) throws -> [WiFiScanCandidate] {
         scansOnMain = Thread.isMainThread
         scanned.append(ssid)
         onScan?()
+        if let scanError { throw scanError }
         if let changeAfterScan { connection = changeAfterScan }
         if failScan || scanFailures.contains(ssid) { throw NSError(domain: "SSID-and-secret-must-not-escape", code: 1) }
         return results
     }
     func associateOpen(_ candidate: WiFiScanCandidate) throws {
         joins += 1; associated.append(candidate.ssid); onAssociate?()
+        if let associationError { throw associationError }
         if associationFailures.contains(candidate.ssid) { throw NSError(domain: "association-error-must-not-escape", code: 2) }
+    }
+    func cachedNetworks(ssids: Set<String>) -> [WiFiScanCandidate] {
+        cacheReads += 1; onCache?()
+        return cachedResults
     }
 }
 
@@ -265,6 +282,97 @@ struct WiFiRecoveryTests {
               "each allowed SSID receives at most one association attempt in a recovery round")
         let throwing = FakeRadio(); throwing.failScan = true
         check(await run(throwing) == .failed, "OS error is mapped to generic outcome without its contents")
+        for stage in [WiFiRecoveryFailure.Stage.power, .scan, .association] {
+            let radio = FakeRadio(); radio.results = [open]
+            let error = NSError(domain: CWErrorDomain, code: -3905,
+                userInfo: [NSLocalizedDescriptionKey: "private-ssid-and-password", "BSSID": "private-radio"])
+            switch stage {
+            case .power: radio.powered = false; radio.powerError = error
+            case .scan: radio.scanError = error
+            case .association: radio.associationError = error
+            }
+            let attempt = await CoreWLANRecoveryService(radio: radio).recoverAttempt(
+                .init(networks: [first], allowPowerOn: true), authorization: .init())
+            check(attempt.result == .failed && attempt.failures == [.init(stage: stage, error: error)],
+                  "Native failure retains its exact operation stage and bounded code: \(stage)")
+            check(attempt.failures.first?.summary == "\(stage.rawValue)/coreWLAN/-3905",
+                  "Native failure never exports descriptions, SSIDs or userInfo: \(stage)")
+            check(attempt.scans == (stage == .power ? 0 : 1)
+                  && attempt.associations == (stage == .association ? 1 : 0),
+                  "Native counters distinguish radio, scan and association work: \(stage)")
+        }
+        let foreignFailure = WiFiRecoveryFailure(stage: .scan,
+            error: NSError(domain: "secret-network-name", code: Int.max,
+                userInfo: [NSLocalizedDescriptionKey: "do-not-export"]))
+        check(foreignFailure.summary == "scan/other/unknown",
+              "Unrecognized native domains and unbounded codes cannot enter diagnostics")
+        do {
+            let radio = FakeRadio(); radio.scanError = NSError(domain: NSPOSIXErrorDomain, code: Int(EBUSY))
+            radio.cachedResults = [secondOpen]
+            let attempt = await CoreWLANRecoveryService(radio: radio).recoverAttempt(
+                .init(networks: [first, second], allowPowerOn: false), authorization: .init())
+            check(attempt.result == .joined && radio.scanned == [first.ssid] && radio.cacheReads == 1,
+                  "One busy scan uses the OS cache once without repeating a rejected scan for each target")
+            check(radio.associated == [second.ssid] && attempt.cachedTargets == 1,
+                  "A later selected open Wi-Fi in the cached results cannot be starved by the first target")
+            check(attempt.failures.map(\.summary) == ["scan/posix/16"],
+                  "The successful busy-scan fallback retains the precise original native failure")
+        }
+        for unsafe in 0..<5 {
+            let radio = FakeRadio(); radio.scanError = NSError(domain: NSPOSIXErrorDomain, code: Int(EBUSY))
+            let token = WiFiRecoveryAuthorization()
+            switch unsafe {
+            case 0: radio.cachedResults = [secondOpen]
+            case 1: radio.cachedResults = [encrypted]
+            case 2: radio.cachedResults = [open]; radio.onCache = { token.invalidate() }
+            case 3: radio.cachedResults = [open]; radio.onCache = { radio.connection = .connected }
+            default: radio.cachedResults = [open]; radio.onCache = { radio.connection = .unknown }
+            }
+            let result = await CoreWLANRecoveryService(radio: radio).recover(request, authorization: token)
+            check(radio.joins == 0 && radio.scanned == [first.ssid] && radio.cacheReads == 1,
+                  "Busy-scan fallback preserves exact targets, open security, cancellation and physical guards \(unsafe)")
+            check(result == (unsafe < 2 ? .radioBusy : unsafe == 2 ? .cancelled
+                : unsafe == 3 ? .alreadyConnected : .connectionUnclear),
+                  "Busy-scan fallback reports the actual blocking condition \(unsafe)")
+        }
+        do {
+            let radio = FakeRadio(); radio.scanError = NSError(domain: NSPOSIXErrorDomain, code: Int(EBUSY))
+            let attempt = await CoreWLANRecoveryService(radio: radio).recoverAttempt(
+                .init(networks: [first, second], allowPowerOn: false), authorization: .init())
+            check(attempt.result == .radioBusy && attempt.scans == 1 && attempt.associations == 0,
+                  "A busy device without a safe cached target stops the whole scan round promptly")
+            let otherError = FakeRadio(); otherError.scanError = NSError(domain: NSCocoaErrorDomain, code: Int(EBUSY))
+            otherError.cachedResults = [open]
+            check(await run(otherError) == .failed && otherError.cacheReads == 0 && otherError.joins == 0,
+                  "The numeric code alone cannot authorize a cached-target fallback for another error domain")
+            let busyJoin = FakeRadio(); busyJoin.results = [open, secondOpen]
+            busyJoin.associationError = NSError(domain: NSPOSIXErrorDomain, code: Int(EBUSY))
+            check(await run(busyJoin, networks: [first, second]) == .radioBusy && busyJoin.joins == 1
+                  && busyJoin.scanned == [first.ssid],
+                  "A busy association stops later targets instead of issuing more calls to the occupied radio")
+        }
+        do {
+            let clock = ManualClock(); let radio = FakeRadio(); radio.results = [open]
+            radio.associationError = NSError(domain: CWErrorDomain, code: -3909,
+                userInfo: [NSLocalizedDescriptionKey: "hidden-ssid-password-and-radio-address"])
+            let model = WiFiRecoveryController(preferencesURL: nil, service: CoreWLANRecoveryService(radio: radio),
+                startAutomatically: false, requestsSystemPermission: false, now: { clock.now() })
+            model.applyPermissionStatus(.authorized)
+            model.updateContext(allowRecovery: true, hasPhysicalConnection: false, sleeping: false, allowedNetworks: [first])
+            model.setAutoJoinEnabled(true)
+            for _ in 0..<12 { await model.refreshOnce(); clock.advance(301) }
+            let summary = model.diagnosticSummary
+            check(summary.contains("scans=1 associations=1") && summary.contains("joined=0 "),
+                  "The controller distinguishes attempted association from an actual successful join")
+            check(summary.components(separatedBy: "association/coreWLAN/-3909").count == 9,
+                  "Native diagnostic history is bounded to the latest eight failures")
+            check(!summary.contains("hidden-ssid") && !summary.contains(first.ssid) && !summary.contains(first.id),
+                  "Controller diagnostics never retain error descriptions or network identifiers")
+            radio.associationError = nil
+            await model.refreshOnce()
+            check(model.diagnosticSummary.contains("joined=1 "),
+                  "A later successful join is counted separately while earlier native failures remain available")
+        }
         let noInterface = FakeRadio(); noInterface.powered = nil
         check(await run(noInterface) == .unavailable, "missing interface is handled")
         let invalidSSID = WiFiRecoveryNetwork(id: "record-x", ssid: "", displayName: "")
@@ -960,6 +1068,20 @@ struct WiFiRecoveryTests {
                   "Permission, platform and unclear-link failures retain conservative retry: \(protected)")
             model.setAutoJoinEnabled(false); await sleeper.cancelAll()
         }
+        do {
+            let clock = ManualClock(); let sleeper = ManualRetrySleeper(clock); let service = ControlledService()
+            let model = productionModel(service, clock, sleeper)
+            await waitForCall(service)
+            for (index, delay) in [2.0, 5, 10, 15, 15, 15, 15, 15, 15].enumerated() {
+                await service.release(.radioBusy)
+                let retry = await nextTicket(sleeper)
+                check(retry.deadline == clock.now().addingTimeInterval(delay),
+                      "Device-busy retries stay bounded to fifteen seconds without a tight loop \(index)")
+                clock.set(retry.deadline); _ = await sleeper.releaseDue()
+                await waitForCall(service, count: index + 2)
+            }
+            model.setAutoJoinEnabled(false); await service.release(); await sleeper.cancelAll()
+        }
         for progress in [WiFiRecoveryResult.poweredOn, .joined, .alreadyConnected] {
             let clock = ManualClock(); let sleeper = ManualRetrySleeper(clock); let service = ControlledService()
             let model = productionModel(service, clock, sleeper)
@@ -976,6 +1098,23 @@ struct WiFiRecoveryTests {
             check(freshRetry.deadline == clock.now().addingTimeInterval(2),
                   "Radio progress clears an older failure escalation: \(progress)")
             model.setAutoJoinEnabled(false); await sleeper.cancelAll()
+        }
+        do {
+            let clock = ManualClock(); let sleeper = ManualRetrySleeper(clock); let service = ControlledService()
+            let model = productionModel(service, clock, sleeper)
+            for cycle in 1...48 {
+                await waitForCall(service, count: cycle)
+                check(await service.validCalls(cycle), "Repeated disconnection starts one valid find operation \(cycle)")
+                await service.release(.joined)
+                let confirmation = await nextTicket(sleeper)
+                model.updateContext(allowRecovery: true, hasPhysicalConnection: true, sleeping: false, allowedNetworks: [first])
+                await waitUntil("reconnected retry cancellation") { await sleeper.cancelledAndEmpty(confirmation.id) }
+                check(model.status == .connected && model.diagnosticSummary.contains("joined=\(cycle) "),
+                      "Each successful cycle reaches connected and records its own join \(cycle)")
+                model.updateContext(allowRecovery: true, hasPhysicalConnection: false, sleeping: false, allowedNetworks: [first])
+            }
+            await waitForCall(service, count: 49)
+            model.setAutoJoinEnabled(false); await service.release(); await sleeper.cancelAll()
         }
         do {
             let clock = ManualClock(); let sleeper = ManualRetrySleeper(clock); let service = ControlledService()

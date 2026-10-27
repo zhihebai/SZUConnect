@@ -45,11 +45,47 @@ struct WiFiRecoveryRequest: Sendable {
 
 enum WiFiRecoveryResult: Equatable, Sendable {
     case cancelled, alreadyConnected, notFound, wifiOff, poweredOn, joined
-    case systemConnectionRequired, permissionRequired, noSelection, unavailable, connectionUnclear, failed
+    case systemConnectionRequired, permissionRequired, noSelection, unavailable, connectionUnclear, radioBusy, failed
+}
+
+struct WiFiRecoveryFailure: Equatable, Sendable {
+    enum Stage: String, Sendable { case power, scan, association }
+    enum Domain: String, Sendable { case coreWLAN, posix, cocoa, other }
+    let stage: Stage
+    let domain: Domain
+    let code: Int?
+
+    init(stage: Stage, error: Error) {
+        self.stage = stage
+        let native = error as NSError
+        switch native.domain {
+        case CWErrorDomain: domain = .coreWLAN
+        case NSPOSIXErrorDomain: domain = .posix
+        case NSCocoaErrorDomain: domain = .cocoa
+        default: domain = .other
+        }
+        code = (-65_535...65_535).contains(native.code) ? native.code : nil
+    }
+    var summary: String { "\(stage.rawValue)/\(domain.rawValue)/\(code.map(String.init) ?? "unknown")" }
+}
+
+struct WiFiRecoveryAttempt: Sendable {
+    let result: WiFiRecoveryResult
+    var scans = 0
+    var associations = 0
+    var cachedTargets = 0
+    var failures: [WiFiRecoveryFailure] = []
 }
 
 protocol WiFiRecoveryServicing: Sendable {
     func recover(_ request: WiFiRecoveryRequest, authorization: WiFiRecoveryAuthorization) async -> WiFiRecoveryResult
+    func recoverAttempt(_ request: WiFiRecoveryRequest, authorization: WiFiRecoveryAuthorization) async -> WiFiRecoveryAttempt
+}
+
+extension WiFiRecoveryServicing {
+    func recoverAttempt(_ request: WiFiRecoveryRequest, authorization: WiFiRecoveryAuthorization) async -> WiFiRecoveryAttempt {
+        WiFiRecoveryAttempt(result: await recover(request, authorization: authorization))
+    }
 }
 
 /// Deliberately has no CoreWLAN, location, keychain, or system-network calls.
@@ -155,6 +191,11 @@ final class WiFiRecoveryController: NSObject, ObservableObject, CLLocationManage
     private var operationRunning = false
     private var radioPowered: Bool?
     private var attemptCount = 0
+    private var joinedCount = 0
+    private var lastScanCount = 0
+    private var lastAssociationCount = 0
+    private var lastCachedTargetCount = 0
+    private var recentNativeFailures: [WiFiRecoveryFailure] = []
     private var recentResults: [String] = []
     private var failures = 0
     private var nextAttempt = Date.distantPast
@@ -428,7 +469,7 @@ final class WiFiRecoveryController: NSObject, ObservableObject, CLLocationManage
         let interval = nextAttempt.timeIntervalSince(now())
         let remaining = interval.isFinite ? Int(max(0, min(300, interval)).rounded(.up)) : 0
         let stage = operation == nil ? "idle" : operationRunning ? "radio" : "waiting"
-        return "wifiRecovery state=\(status) enabled=\(autoJoinEnabled) allowed=\(allowRecovery) physical=\(hasPhysicalConnection) sleeping=\(sleeping) permission=\(permissionStatus) selected=\(selectedNetworkIDs.count) power=\(radioPowered.map(String.init) ?? "unknown") stage=\(stage) attempts=\(attemptCount) retrySeconds=\(remaining) recent=\(recentResults.joined(separator: ","))"
+        return "wifiRecovery state=\(status) enabled=\(autoJoinEnabled) allowed=\(allowRecovery) physical=\(hasPhysicalConnection) sleeping=\(sleeping) permission=\(permissionStatus) selected=\(selectedNetworkIDs.count) power=\(radioPowered.map(String.init) ?? "unknown") stage=\(stage) attempts=\(attemptCount) joined=\(joinedCount) scans=\(lastScanCount) associations=\(lastAssociationCount) cachedTargets=\(lastCachedTargetCount) retrySeconds=\(remaining) recent=\(recentResults.joined(separator: ",")) nativeFailures=\(recentNativeFailures.map(\.summary).joined(separator: ","))"
     }
 
     private func noteResult(_ result: String) {
@@ -503,8 +544,14 @@ final class WiFiRecoveryController: NSObject, ObservableObject, CLLocationManage
         let selected = allowedNetworks.filter { selectedNetworkIDs.contains($0.id) }
         // Incomplete setup may still permit a radio-power check, but no Wi-Fi scan.
         if setupIssue == nil { status = .searching }
-        let result = await service.recover(.init(networks: selected, allowPowerOn: powerOnWhenDisconnected), authorization: token)
+        let attempt = await service.recoverAttempt(.init(networks: selected, allowPowerOn: powerOnWhenDisconnected), authorization: token)
         guard authorization === token, token.isValid, mayRecover, !Task.isCancelled else { return }
+        let result = attempt.result
+        lastScanCount = max(0, min(8, attempt.scans))
+        lastAssociationCount = max(0, min(8, attempt.associations))
+        lastCachedTargetCount = max(0, min(8, attempt.cachedTargets))
+        recentNativeFailures = Array((recentNativeFailures + attempt.failures.prefix(8)).suffix(8))
+        if result == .joined { joinedCount = min(joinedCount + 1, 1_000_000_000) }
         noteResult(String(describing: result))
         switch result {
         case .cancelled: updateIdleStatus()
@@ -518,6 +565,7 @@ final class WiFiRecoveryController: NSObject, ObservableObject, CLLocationManage
         case .noSelection: status = allowedNetworks.isEmpty ? .noKnownNetworks : .noSelection
         case .unavailable: status = .unavailable
         case .connectionUnclear: status = .connectionUnclear
+        case .radioBusy: status = .waiting
         case .failed: status = .failed
         }
         if result == .poweredOn || result == .joined || result == .alreadyConnected
@@ -528,7 +576,8 @@ final class WiFiRecoveryController: NSObject, ObservableObject, CLLocationManage
             nextAttempt = now().addingTimeInterval(min(2, retryDelays[0]))
             return
         }
-        let delays = result == .notFound || result == .failed ? retryDelays : protectedRetryDelays
+        let delays = result == .radioBusy ? retryDelays.map { min(15, $0) }
+            : result == .notFound || result == .failed ? retryDelays : protectedRetryDelays
         let delay = delays[min(failures, delays.count - 1)]
         failures = min(failures + 1, max(retryDelays.count, protectedRetryDelays.count) - 1)
         nextAttempt = now().addingTimeInterval(delay)
@@ -616,7 +665,12 @@ protocol WiFiRecoveryRadio: AnyObject {
     func powerState() -> Bool?
     func setPowerOn() throws
     func scan(ssid: String) throws -> [WiFiScanCandidate]
+    func cachedNetworks(ssids: Set<String>) -> [WiFiScanCandidate]
     func associateOpen(_ candidate: WiFiScanCandidate) throws
+}
+
+extension WiFiRecoveryRadio {
+    func cachedNetworks(ssids: Set<String>) -> [WiFiScanCandidate] { [] }
 }
 
 final class CoreWLANRecoveryService: WiFiRecoveryServicing, @unchecked Sendable {
@@ -625,11 +679,20 @@ final class CoreWLANRecoveryService: WiFiRecoveryServicing, @unchecked Sendable 
     init(radio: any WiFiRecoveryRadio = CoreWLANRecoveryRadio()) { self.radio = radio }
 
     func recover(_ request: WiFiRecoveryRequest, authorization: WiFiRecoveryAuthorization) async -> WiFiRecoveryResult {
+        await recoverAttempt(request, authorization: authorization).result
+    }
+    func recoverAttempt(_ request: WiFiRecoveryRequest, authorization: WiFiRecoveryAuthorization) async -> WiFiRecoveryAttempt {
         await withCheckedContinuation { continuation in
-            queue.async { [self] in continuation.resume(returning: recoverSerial(request, authorization: authorization)) }
+            queue.async { [self] in
+                var details = WiFiRecoveryAttempt(result: .cancelled)
+                let result = recoverSerial(request, authorization: authorization, details: &details)
+                continuation.resume(returning: WiFiRecoveryAttempt(result: result, scans: details.scans,
+                    associations: details.associations, cachedTargets: details.cachedTargets, failures: details.failures))
+            }
         }
     }
-    private func recoverSerial(_ request: WiFiRecoveryRequest, authorization: WiFiRecoveryAuthorization) -> WiFiRecoveryResult {
+    private func recoverSerial(_ request: WiFiRecoveryRequest, authorization: WiFiRecoveryAuthorization,
+                               details: inout WiFiRecoveryAttempt) -> WiFiRecoveryResult {
         guard authorization.isValid, request.networks.count <= 8,
               request.networks.allSatisfy(\.isValid) else { return .cancelled }
         func gate() -> WiFiRecoveryResult? {
@@ -651,32 +714,66 @@ final class CoreWLANRecoveryService: WiFiRecoveryServicing, @unchecked Sendable 
                 guard authorization.isValid else { return .cancelled }
                 try radio.setPowerOn()
                 return authorization.isValid ? .poweredOn : .cancelled
-            } catch { return authorization.isValid ? .failed : .cancelled }
+            } catch {
+                if authorization.isValid { details.failures.append(.init(stage: .power, error: error)) }
+                return authorization.isValid ? .failed : .cancelled
+            }
         }
         guard radio.permissionGranted() else { return .permissionRequired }
         guard !request.networks.isEmpty else { return .noSelection }
         var sawEncrypted = false
         var sawFailure = false
-        for ssid in Array(Set(request.networks.map(\.ssid))).sorted() {
+        let allowed = Set(request.networks.map(\.ssid))
+        var busyCache: [WiFiScanCandidate]?
+        func isBusy(_ error: Error) -> Bool {
+            let native = error as NSError
+            return native.domain == NSPOSIXErrorDomain && native.code == Int(EBUSY)
+        }
+        for ssid in allowed.sorted() {
             if let result = gate() { return result }
+            var stage = WiFiRecoveryFailure.Stage.scan
             do {
-                // Directed scans only. CoreWLAN can return other networks, so filter again exactly.
-                let found = try radio.scan(ssid: ssid).filter { $0.ssid == ssid }
+                let found: [WiFiScanCandidate]
+                if let busyCache {
+                    found = busyCache.filter { $0.ssid == ssid }
+                } else {
+                    do {
+                        // Directed scans only. Other results never broaden the selected targets.
+                        details.scans += 1
+                        found = try radio.scan(ssid: ssid).filter { $0.ssid == ssid }
+                    } catch {
+                        guard isBusy(error) else { throw error }
+                        if let result = gate() { return result }
+                        details.failures.append(.init(stage: .scan, error: error))
+                        // A busy radio is shared by every target. Read its existing OS results once,
+                        // rather than repeating the same rejected scan for each remembered SSID.
+                        let cached = Array(radio.cachedNetworks(ssids: allowed).prefix(64))
+                            .filter { allowed.contains($0.ssid) }
+                        busyCache = cached
+                        details.cachedTargets = Set(cached.filter(\.isOpen).map(\.ssid)).count
+                        found = cached.filter { $0.ssid == ssid }
+                    }
+                }
                 guard authorization.isValid else { return .cancelled }
                 sawEncrypted = sawEncrypted || found.contains(where: { !$0.isOpen })
                 guard let chosen = found.filter(\.isOpen).max(by: { $0.signal < $1.signal }) else { continue }
                 if let result = gate() { return result }
                 guard authorization.isValid else { return .cancelled }
+                stage = .association
+                details.associations += 1
                 try radio.associateOpen(chosen)
                 return authorization.isValid ? .joined : .cancelled
             } catch {
                 // One failed target must not starve the other remembered networks. Recheck
                 // cancellation and physical state before permitting another directed attempt.
                 if let result = gate() { return result }
+                details.failures.append(.init(stage: stage, error: error))
+                if isBusy(error) { return .radioBusy }
                 sawFailure = true
             }
         }
-        return sawFailure ? .failed : (sawEncrypted ? .systemConnectionRequired : .notFound)
+        return sawFailure ? .failed : busyCache != nil ? .radioBusy
+            : (sawEncrypted ? .systemConnectionRequired : .notFound)
     }
 }
 
@@ -702,6 +799,19 @@ final class CoreWLANRecoveryRadio: WiFiRecoveryRadio {
             let id = UUID(); cache[id] = network
             return WiFiScanCandidate(id: id, ssid: ssid, signal: network.rssiValue,
                                      isOpen: network.supportsSecurity(.none))
+        }
+    }
+    func cachedNetworks(ssids: Set<String>) -> [WiFiScanCandidate] {
+        cache.removeAll()
+        guard let interface = CWWiFiClient.shared().interface(),
+              let results = interface.cachedScanResults() else { return [] }
+        // Cache entries select only an already allowed open radio target. They never grant
+        // campus identity or trust; the normal fresh service verification still follows joining.
+        return ssids.sorted().compactMap { ssid in
+            guard let network = results.filter({ $0.ssid == ssid && $0.supportsSecurity(.none)
+                && !($0.bssid ?? "").isEmpty }).max(by: { $0.rssiValue < $1.rssiValue }) else { return nil }
+            let id = UUID(); cache[id] = network
+            return WiFiScanCandidate(id: id, ssid: ssid, signal: network.rssiValue, isOpen: true)
         }
     }
     func associateOpen(_ candidate: WiFiScanCandidate) throws {

@@ -19,7 +19,7 @@ project_license = add('PBXFileReference',lastKnownFileType='text',path='../../LI
 curl_license = add('PBXFileReference',lastKnownFileType='text',path='../../docs/licenses/curl-COPYING.txt',sourceTree='<group>')
 products = add('PBXGroup',children=[],name='Products',sourceTree='<group>')
 main = add('PBXGroup',children=[src_group,assets,legal_notice,project_license,curl_license,products],sourceTree='<group>')
-base = {'CLANG_CXX_LANGUAGE_STANDARD':'c++17','CLANG_ENABLE_MODULES':'YES','SWIFT_VERSION':'5.0','SWIFT_OBJC_BRIDGING_HEADER':'Sources/SrunCore.h','SWIFT_EMIT_LOC_STRINGS':'NO','MARKETING_VERSION':'1.1.0','CURRENT_PROJECT_VERSION':'35','ENABLE_USER_SCRIPT_SANDBOXING':'YES','ASSETCATALOG_COMPILER_APPICON_NAME':'AppIcon'}
+base = {'CLANG_CXX_LANGUAGE_STANDARD':'c++17','CLANG_ENABLE_MODULES':'YES','SWIFT_VERSION':'5.0','SWIFT_OBJC_BRIDGING_HEADER':'Sources/SrunCore.h','SWIFT_EMIT_LOC_STRINGS':'NO','MARKETING_VERSION':'1.1.0','CURRENT_PROJECT_VERSION':'37','ENABLE_USER_SCRIPT_SANDBOXING':'YES','ASSETCATALOG_COMPILER_APPICON_NAME':'AppIcon'}
 def configs(settings):
     result=[]
     for name in ['Debug','Release']:
