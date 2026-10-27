@@ -196,9 +196,12 @@ std::optional<Schedule::Request> Schedule::begin(double now) {
 void Schedule::finish(Result result, double now) {
     if (!active_ || token_.cancelled()) return;
     active_ = false; result_ = result;
-    constexpr double delays[]{15, 30, 60, 120, 300};
-    next_ = now + (result == Result::poweredOn ? 2 : delays[std::min(failures_, 4u)]);
-    failures_ = result == Result::poweredOn ? 0 : std::min(failures_ + 1, 4u);
+    constexpr double transient_delays[]{2, 5, 10, 20, 30, 60, 120, 300};
+    constexpr double protected_delays[]{15, 30, 60, 120, 300};
+    const bool progress = result == Result::poweredOn || result == Result::joined || result == Result::alreadyConnected;
+    const bool transient = result == Result::notFound || result == Result::failed;
+    next_ = now + (progress ? 2 : transient ? transient_delays[std::min(failures_, 7u)] : protected_delays[std::min(failures_, 4u)]);
+    failures_ = progress ? 0 : std::min(failures_ + 1, 7u);
 }
 std::string Schedule::status() const {
     if (!enabled_) return "disabled";

@@ -115,6 +115,18 @@ namespace {
 std::optional<CampusPortalHint> physical_hint(const EndpointResult& endpoint) {
     return endpoint.state == EndpointState::redirect ? endpoint.campus_area_hint : std::nullopt;
 }
+CampusArea discovery_scope(CampusArea choice, const ConnectivityReport& report, bool bound, bool prefer_teaching) {
+    if (choice == CampusArea::teaching) return CampusArea::teaching;
+    if (choice == CampusArea::dormitory) return CampusArea::dormitory;
+    const bool teaching = bound && (physical_hint(report.apple) == CampusPortalHint::teaching ||
+        physical_hint(report.microsoft) == CampusPortalHint::teaching);
+    const bool dormitory = bound && (physical_hint(report.apple) == CampusPortalHint::dormitory ||
+        physical_hint(report.microsoft) == CampusPortalHint::dormitory);
+    // A current teaching-only candidate needs HTTPS identity, not an unrelated
+    // dormitory timeout. Explicit dormitory and conflicting hints still read both.
+    if (dormitory) return CampusArea::dormitory;
+    return teaching || prefer_teaching ? CampusArea::teaching : CampusArea::automatic;
+}
 bool refresh_selection_hints(CampusArea area, const ConnectivityReport& report) {
     return area == CampusArea::automatic && (physical_hint(report.apple) || physical_hint(report.microsoft));
 }
@@ -164,6 +176,7 @@ void ConnectionEngine::configure(MonitoringMode mode, CampusArea area, ProbeMode
         mode_ = mode;
         area_ = area;
         probe_mode_ = probe;
+        session_audit_after_.reset();
         saved_ = std::move(saved);
         if (saved_ && !saved_->complete()) saved_.reset();
         draft_ = saved_.value_or(Credentials{});
@@ -179,6 +192,8 @@ void ConnectionEngine::configure(MonitoringMode mode, CampusArea area, ProbeMode
 bool ConnectionEngine::restore_recovery(const std::optional<std::string>& journal) {
     std::lock_guard<std::mutex> lock(mutex_);
     recovery_initialized_ = true;
+    last_recovery_journal_.reset();
+    last_recovery_json_.clear();
     if (!journal) return true;
     auto fail = [&] {
         Hold hold; hold.reason = HoldReason::security; policy_.add(hold);
@@ -225,40 +240,46 @@ bool ConnectionEngine::restore_recovery(const std::optional<std::string>& journa
     return true;
 }
 
-bool ConnectionEngine::persist_recovery_locked() {
+bool ConnectionEngine::persist_recovery_locked(bool require_write) {
     if (read_only_) return true;
     if (!hooks_.persist_recovery) return true; // In-memory test engines do not use storage.
     auto fail = [&] {
+        last_recovery_journal_.reset();
+        last_recovery_json_.clear();
         Hold hold; hold.reason = HoldReason::security; policy_.add(hold);
         return false;
     };
     if (!recovery_initialized_ || recovery_write_blocked_) return fail();
-    json::Value value = json::Value::object(), entries = json::Value::array();
-    value.set("schema", json::Value::number(1));
-    value.set("generation", json::Value::number(static_cast<double>(generation_)));
+    RecoveryJournal journal{generation_, recovery_deadline_wall_, {}};
     bool uncertain = false;
     for (const auto& hold : policy_.holds()) {
         if (hold.epoch) continue;
+        journal.holds.push_back({hold.reason, hold.origin, hold.area, hold.generation});
+        uncertain = uncertain || hold.reason == HoldReason::uncertain;
+    }
+    if (recovery_submission_pending_ && !uncertain)
+        journal.holds.push_back({HoldReason::uncertain, HoldOrigin::global, std::nullopt, std::nullopt});
+    if (last_recovery_journal_ == journal) {
+        if (require_write && !hooks_.persist_recovery(last_recovery_json_)) return fail();
+        return true;
+    }
+    json::Value value = json::Value::object(), entries = json::Value::array();
+    value.set("schema", json::Value::number(1));
+    value.set("generation", json::Value::number(static_cast<double>(journal.generation)));
+    for (const auto& hold : journal.holds) {
         json::Value entry = json::Value::object();
         entry.set("reason", json::Value::number(static_cast<int>(hold.reason)));
         entry.set("origin", json::Value::number(static_cast<int>(hold.origin)));
         if (hold.area) entry.set("area", json::Value::string(std::string(to_string(*hold.area))));
         if (hold.generation) entry.set("generation", json::Value::number(static_cast<double>(*hold.generation)));
         entries.push(std::move(entry));
-        uncertain = uncertain || hold.reason == HoldReason::uncertain;
-    }
-    if (recovery_submission_pending_ && !uncertain) {
-        json::Value entry = json::Value::object();
-        entry.set("reason", json::Value::number(static_cast<int>(HoldReason::uncertain)));
-        entry.set("origin", json::Value::number(static_cast<int>(HoldOrigin::global)));
-        entries.push(std::move(entry));
     }
     value.set("holds", std::move(entries));
-    if (recovery_deadline_wall_) value.set("notBefore", json::Value::number(*recovery_deadline_wall_));
+    if (journal.not_before) value.set("notBefore", json::Value::number(*journal.not_before));
     const auto data = json::serialize(value);
-    if (data == last_recovery_json_) return true;
-    if (!hooks_.persist_recovery(data)) return fail();
+    if ((require_write || data != last_recovery_json_) && !hooks_.persist_recovery(data)) return fail();
     last_recovery_json_ = data;
+    last_recovery_journal_ = std::move(journal);
     return true;
 }
 
@@ -270,6 +291,7 @@ void ConnectionEngine::set_mode(MonitoringMode mode) {
             (mode != MonitoringMode::recover && automatic_campus_verification_operation_)) cancel_locked(false);
         if (mode != MonitoringMode::recover) invalidate_campus_service_locked();
         mode_ = mode;
+        session_audit_after_.reset();
         consecutive_partial_ = 0;
         consecutive_transport_passes_ = 0;
         policy_.automatic_enabled = mode != MonitoringMode::manual;
@@ -285,6 +307,7 @@ void ConnectionEngine::set_area(CampusArea area) {
         if (policy_.busy()) cancel_locked(false);
         invalidate_campus_service_locked();
         area_ = area;
+        session_audit_after_.reset();
         consecutive_partial_ = 0;
         consecutive_transport_passes_ = 0;
         last_discovery_.reset();
@@ -301,6 +324,7 @@ void ConnectionEngine::set_probe_mode(ProbeMode mode) {
         if (probe_mode_ != mode) {
             consecutive_partial_ = 0;
             consecutive_transport_passes_ = 0;
+            session_audit_after_.reset();
         }
         probe_mode_ = mode;
         if (mode == ProbeMode::quick) full_check_pending_ = false;
@@ -448,10 +472,12 @@ void ConnectionEngine::reset_partial_episode_locked() {
     consecutive_partial_ = 0;
     consecutive_transport_passes_ = 0;
     partial_attempt_used_ = false;
+    preparation_retry_.reset();
 }
 
 void ConnectionEngine::new_epoch_locked() {
     rapid_recovery_until_.reset();
+    session_audit_after_.reset();
     full_check_pending_ = false;
     preserve_pending_submission_locked();
     reset_partial_episode_locked();
@@ -649,7 +675,7 @@ void ConnectionEngine::cancel_locked(bool mark_cancelled) {
     consecutive_transport_passes_ = 0;
     if (status_ == EngineStatus::checking || status_ == EngineStatus::discovering)
         status_ = online_ ? EngineStatus::online : EngineStatus::idle;
-    if (mark_cancelled) { status_ = EngineStatus::cancelled; rapid_recovery_until_.reset(); full_check_pending_ = false; }
+    if (mark_cancelled) { status_ = EngineStatus::cancelled; rapid_recovery_until_.reset(); session_audit_after_.reset(); full_check_pending_ = false; }
     pending_change_ = true;
 }
 
@@ -678,7 +704,28 @@ bool ConnectionEngine::run(OperationKind kind, bool may_authenticate, bool force
         pending_change_ = true;
     }
     flush();
-    perform(op, token, may_authenticate, force);
+    try {
+        perform(op, token, may_authenticate, force);
+    } catch (...) {
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            if (policy_.owns(op)) {
+                if (credential_operation_ == op.id && recovery_submission_pending_) {
+                    preserve_pending_submission_locked();
+                    status_ = EngineStatus::uncertain;
+                } else {
+                    status_ = online_ ? EngineStatus::online : EngineStatus::unavailable;
+                    if (kind == OperationKind::automatic) policy_.failed();
+                }
+                if (automatic_campus_verification_operation_ == op.id) {
+                    campus_verification_failed_ = true;
+                    confirmed_campus_service_.reset();
+                }
+                pending_change_ = true;
+            }
+        }
+        token.cancel();
+    }
     {
         std::lock_guard<std::mutex> lock(mutex_);
         if (policy_.finish(op)) pending_change_ = true;
@@ -698,9 +745,16 @@ void ConnectionEngine::accept_report_locked(const ConnectivityReport& report) {
     // A new candidate observation must not inherit a previous service-only
     // confirmation. Authentication still obtains its own fresh discovery below.
     if (physical_hint(report.apple) || physical_hint(report.microsoft)) confirmed_campus_service_.reset();
-    if (report.transport_recovered()) {
+    // Custom website failures do not block a later campus-session recovery.
+    // The bound channel still needs two complete, successful base checks.
+    const bool transport_recovered = requires_physical_binding_ && authentication_route_
+        ? report.complete_base_passed() : report.transport_recovered();
+    if (transport_recovered) {
         consecutive_transport_passes_ = std::min(2, consecutive_transport_passes_ + 1);
-        if (consecutive_transport_passes_ >= 2) partial_attempt_used_ = false;
+        if (consecutive_transport_passes_ >= 2) {
+            partial_attempt_used_ = false;
+            preparation_retry_.reset();
+        }
     } else consecutive_transport_passes_ = 0;
     pending_change_ = true;
 }
@@ -733,10 +787,11 @@ void ConnectionEngine::perform(const ConnectionPolicy::Operation& op, const Canc
     ProbeMode probe_mode;
     std::uint64_t memory_gen;
     std::optional<physical::Route> expected_route;
-    bool bound = false, prioritized = false, awaiting_submission_proof = false, prefer_teaching = false;
+    bool bound = false, prioritized = false, awaiting_submission_proof = false, prefer_teaching = false, prefer_dormitory = false, session_audit = false, preparation_pending = false;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         memory_gen = memory_generation_;
+        refresh_memory_locked();
         area = area_;
         awaiting_submission_proof = recovery_submission_pending_ ||
             std::any_of(policy_.holds().begin(), policy_.holds().end(), [](const Hold& hold) {
@@ -748,8 +803,16 @@ void ConnectionEngine::perform(const ConnectionPolicy::Operation& op, const Canc
         if (requires_physical_binding_ && !bound) { status_ = EngineStatus::unconfirmed; return; }
         if (kind == OperationKind::automatic && full_check_pending_ && probe_mode_ == ProbeMode::complete) may_authenticate = false;
         prioritized = kind == OperationKind::automatic && !awaiting_submission_proof && can_prioritize_recovery_locked();
-        probe_mode = awaiting_submission_proof ? ProbeMode::complete : prioritized ? ProbeMode::quick : probe_mode_;
-        prefer_teaching = kind == OperationKind::automatic && prefers_teaching_locked();
+        session_audit = kind == OperationKind::automatic && may_authenticate && bound && saved_ &&
+            probe_mode_ == ProbeMode::quick && !paused_locked() &&
+            (memory_level_ == MatchLevel::medium || memory_level_ == MatchLevel::strong || policy_.authorized()) &&
+            session_audit_after_ && now() >= *session_audit_after_;
+        preparation_pending = kind == OperationKind::automatic && may_authenticate && bound && preparation_retry_ &&
+            preparation_retry_current_locked(preparation_retry_->target);
+        probe_mode = awaiting_submission_proof || session_audit || preparation_pending ? ProbeMode::complete : prioritized ? ProbeMode::quick : probe_mode_;
+        const auto remembered_entry = remembered_entry_locked();
+        prefer_teaching = remembered_entry == CampusArea::teaching;
+        prefer_dormitory = remembered_entry == CampusArea::dormitory;
         if (kind == OperationKind::automatic) credentials = saved_;
         else if (Credentials d{trim(draft_.account), draft_.password}; d.complete()) credentials = d;
     }
@@ -761,13 +824,14 @@ void ConnectionEngine::perform(const ConnectionPolicy::Operation& op, const Canc
     }
     if (token.cancelled()) return;
     const ConnectivityReport report = service_.probe_with_scope(probe_mode, token,
-        kind == OperationKind::automatic && may_authenticate && bound, awaiting_submission_proof && bound);
+        kind == OperationKind::automatic && may_authenticate && bound, (awaiting_submission_proof || session_audit || preparation_pending) && bound);
     std::unique_lock<std::mutex> lock(mutex_);
     if (!policy_.owns(op) || token.cancelled() || expected_route != authentication_route_) return;
     if (probe_mode == ProbeMode::complete) full_check_pending_ = false;
     if (report.online() && rapid_recovery_until_) {
         rapid_recovery_until_.reset();
-        full_check_pending_ = prioritized && probe_mode_ == ProbeMode::complete;
+        full_check_pending_ = prioritized && probe_mode == ProbeMode::quick && probe_mode_ == ProbeMode::complete &&
+            !physical_hint(report.apple) && !physical_hint(report.microsoft);
     }
     if (kind == OperationKind::automatic && report.websites_deferred && report.complete_base_passed() && probe_mode_ == ProbeMode::complete)
         full_check_pending_ = true;
@@ -777,7 +841,21 @@ void ConnectionEngine::perform(const ConnectionPolicy::Operation& op, const Canc
     lock.lock();
     if (!policy_.owns(op)) return;
 
-    const bool partial = kind == OperationKind::automatic && bound ? report.campus_recoverable_partial() : report.recoverable_partial();
+    const bool campus_redirect = bound && (physical_hint(report.apple) || physical_hint(report.microsoft));
+    const bool authentication_required = bound &&
+        ((physical_hint(report.apple) && report.apple.authentication_required) ||
+         (physical_hint(report.microsoft) && report.microsoft.authentication_required));
+    // A public endpoint may remain reachable after the campus session expires.
+    // Periodic base-only audits also observe the peer that quick checks cancel.
+    if (kind == OperationKind::automatic && may_authenticate && bound) {
+        if (campus_redirect || !report.online() || (session_audit && !report.complete_base_passed()))
+            session_audit_after_ = now();
+        else if (!session_audit_after_ || report.complete_base_passed())
+            session_audit_after_ = partial_attempt_used_ && consecutive_transport_passes_ == 1
+                ? now() : now() + kSessionAuditSeconds;
+    }
+    const bool partial = kind == OperationKind::automatic && bound
+        ? authentication_required : report.recoverable_partial();
     consecutive_partial_ = kind == OperationKind::automatic && partial ? std::min(2, consecutive_partial_ + 1) : 0;
     const bool automatic_partial = kind == OperationKind::automatic && partial &&
         consecutive_partial_ >= 2 && !partial_attempt_used_;
@@ -837,17 +915,24 @@ void ConnectionEngine::perform(const ConnectionPolicy::Operation& op, const Canc
         pending_change_ = true;
         lock.unlock();
         flush();
-        const bool dormitory_hint = physical_hint(report.apple) == CampusPortalHint::dormitory ||
-            physical_hint(report.microsoft) == CampusPortalHint::dormitory;
-        discovery = service_.discover(prefer_teaching && !dormitory_hint ? CampusArea::teaching : area, token);
+        discovery = service_.discover(discovery_scope(area, report, bound, prefer_teaching), token);
         lock.lock();
         if (!policy_.owns(op) || token.cancelled() || expected_route != authentication_route_ || memory_gen != memory_generation_) return;
         last_discovery_ = discovery;
+        refresh_memory_locked();
         if (memory_verdict(dormitory_memory_level_, discovery, memory_ambiguous_locked()) == MemoryVerdict::authorized)
             touch_memory_locked(discovery.dormitory == Discovery::confirmed ? CampusArea::dormitory : CampusArea::teaching);
     }
 
-    const auto routing = resolve_campus_routing(area, report, discovery, bound, prefer_teaching);
+    const auto remembered_entry = remembered_entry_locked();
+    prefer_teaching = remembered_entry == CampusArea::teaching;
+    prefer_dormitory = remembered_entry == CampusArea::dormitory;
+    if (kind == OperationKind::automatic && bound && !policy_.authorized() &&
+        memory_level_ != MatchLevel::medium && memory_level_ != MatchLevel::strong) {
+        status_ = EngineStatus::needsTrust;
+        return;
+    }
+    const auto routing = resolve_campus_routing(area, report, discovery, bound, prefer_teaching, prefer_dormitory);
     record_routing_locked(area, report, discovery, routing);
     if (routing.decision != RoutingDecision::selected) {
         conflicting_campus_hints_ = routing.decision == RoutingDecision::conflictingHints;
@@ -855,7 +940,7 @@ void ConnectionEngine::perform(const ConnectionPolicy::Operation& op, const Canc
         pending_change_ = true;
         return;
     }
-    if (needs_discovery && verified_scope_locked(area, report, discovery, bound, prefer_teaching)) {
+    if (needs_discovery && verified_scope_locked(area, report, discovery, bound, prefer_teaching, prefer_dormitory)) {
         confirmed_campus_service_ = CampusServiceConfirmation{campus_service_context_locked(), now() + kCampusServiceRefreshSeconds};
         campus_service_retry_.reset();
     }
@@ -870,17 +955,21 @@ void ConnectionEngine::perform(const ConnectionPolicy::Operation& op, const Canc
     // A forget / revoke while this round was in flight must not be overtaken by its stale plan.
     if (memory_gen != memory_generation_) { status_ = EngineStatus::cancelled; return; }
     CampusArea target = decision.target;
+    if (kind == OperationKind::automatic && bound && preparation_retry_current_locked(target) && now() < preparation_retry_->after) {
+        status_ = EngineStatus::unavailable;
+        return;
+    }
     const double reservation_started = now();
     const auto previous_cooldown = policy_.cooldown_state();
     const auto previous_deadline_wall = recovery_deadline_wall_;
     const bool previous_submission_pending = recovery_submission_pending_;
+    const bool previous_partial_attempt = partial_attempt_used_;
     policy_.attempt_started(reservation_started);
     recovery_deadline_wall_ = hooks_.wall_now() + 90;
     recovery_submission_pending_ = true;
-    if (!persist_recovery_locked()) { status_ = EngineStatus::security; return; }
-    // Every login round spends the sustained-partial budget, including explicit/offline
-    // rounds and preflight failures. The existing no-submission fallback stays in this
-    // round; it can call attempt twice but can submit credentials at most once.
+    if (!persist_recovery_locked(true)) { status_ = EngineStatus::security; return; }
+    // Reserve the sustained-partial budget before invoking the transport. Restore
+    // only a definitely-unsent preparation failure; uncertain results keep it spent.
     partial_attempt_used_ = true;
     consecutive_transport_passes_ = 0;
     status_ = EngineStatus::loggingIn;
@@ -920,9 +1009,18 @@ void ConnectionEngine::perform(const ConnectionPolicy::Operation& op, const Canc
         policy_.restore_cooldown_state(previous_cooldown);
         recovery_deadline_wall_ = previous_deadline_wall;
         recovery_submission_pending_ = previous_submission_pending;
+        if (kind == OperationKind::automatic && bound && !token.cancelled()) {
+            constexpr double delays[]{5, 10, 20, 30, 60, 120, 300};
+            const unsigned failures = preparation_retry_current_locked(target)
+                ? std::min(preparation_retry_->failures + 1, 7u) : 1;
+            const double delay = constrained_ ? std::max(120.0, delays[failures - 1]) : delays[failures - 1];
+            preparation_retry_ = PreparationRetry{campus_service_context_locked(), generation_, target, failures, now() + delay};
+            partial_attempt_used_ = previous_partial_attempt;
+        }
     } else if (attempt.outcome != Outcome::cancelled) {
         recovery_submission_pending_ = false;
     }
+    if (attempt.credential_submission_started) preparation_retry_.reset();
     if (attempt.outcome != Outcome::unavailable && attempt.outcome != Outcome::challengeRefused) rapid_recovery_until_.reset();
     if (attempt.outcome == Outcome::success) {
         recovery_deadline_wall_ = hooks_.wall_now() + 90;
@@ -1038,7 +1136,7 @@ AutoLoginState ConnectionEngine::auto_login_locked() const {
             default: return AutoLoginState::needsTrust;
         }
     }
-    if (!online_ && cooldown_remaining_locked().has_value()) return AutoLoginState::coolingDown;
+    if ((!online_ || status_ == EngineStatus::coolingDown) && cooldown_remaining_locked().has_value()) return AutoLoginState::coolingDown;
     if (area_ == CampusArea::automatic) {
         for (const Hold& h : policy_.holds())
             if (h.area && h.generation == std::optional<std::uint64_t>(generation_)) return AutoLoginState::limited;
@@ -1046,12 +1144,17 @@ AutoLoginState ConnectionEngine::auto_login_locked() const {
     return AutoLoginState::ready;
 }
 
-bool ConnectionEngine::prefers_teaching_locked() const {
-    return requires_physical_binding_ && authentication_route_ && memory_area_ == "teaching" &&
-        (memory_level_ == MatchLevel::medium || memory_level_ == MatchLevel::strong) &&
-        std::any_of(memory_.records().begin(), memory_.records().end(), [&](const MemoryRecord& record) {
-            return record.id == memory_record_ && record.proof_teaching;
-        });
+std::optional<CampusArea> ConnectionEngine::remembered_entry_locked() const {
+    if (!memory_ok_ || !requires_physical_binding_ || !authentication_route_ || descriptors_.size() != 1) return std::nullopt;
+    const auto match = memory_.match(authentication_route_->descriptor, hooks_.wall_now(), &suppressed_);
+    if (match.level != MatchLevel::medium && match.level != MatchLevel::strong) return std::nullopt;
+    const auto record = std::find_if(memory_.records().begin(), memory_.records().end(), [&](const MemoryRecord& value) {
+        return value.id == match.record;
+    });
+    if (record == memory_.records().end() || !record->proof_teaching) return std::nullopt;
+    if (record->area == "teaching") return CampusArea::teaching;
+    if (record->area == "dormitory" && record->proof_dormitory) return CampusArea::dormitory;
+    return std::nullopt;
 }
 
 ConnectionEngine::CampusServiceContext ConnectionEngine::campus_service_context_locked() const {
@@ -1078,7 +1181,7 @@ void ConnectionEngine::confirm_remembered_campus_service(const ConnectionPolicy:
                                                        const ConnectivityReport& report, std::uint64_t memory_generation) {
     CampusServiceContext context;
     CampusArea discovery_area;
-    bool prefer_teaching = false;
+    bool prefer_teaching = false, prefer_dormitory = false;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         if (!policy_.owns(op) || token.cancelled() || memory_generation != memory_generation_ ||
@@ -1093,11 +1196,10 @@ void ConnectionEngine::confirm_remembered_campus_service(const ConnectionPolicy:
         campus_service_retry_ = CampusServiceRetry{context, now() + 30};
         start_discovery_locked();
         status_ = EngineStatus::discovering;
-        prefer_teaching = prefers_teaching_locked();
-        const bool dormitory_hint = physical_hint(report.apple) == CampusPortalHint::dormitory ||
-            physical_hint(report.microsoft) == CampusPortalHint::dormitory;
-        discovery_area = context.area == CampusArea::teaching || (prefer_teaching && !dormitory_hint)
-            ? CampusArea::teaching : CampusArea::automatic;
+        const auto remembered_entry = remembered_entry_locked();
+        prefer_teaching = remembered_entry == CampusArea::teaching;
+        prefer_dormitory = remembered_entry == CampusArea::dormitory;
+        discovery_area = discovery_scope(context.area, report, context.route.has_value(), prefer_teaching);
     }
     flush();
     {
@@ -1112,8 +1214,8 @@ void ConnectionEngine::confirm_remembered_campus_service(const ConnectionPolicy:
             context != campus_service_context_locked() || !automatic_campus_verification_eligible_locked()) return;
         last_discovery_ = discovery;
         record_routing_locked(context.area, report, discovery,
-            resolve_campus_routing(context.area, report, discovery, context.route.has_value(), prefer_teaching));
-        const bool confirmed = verified_scope_locked(context.area, report, discovery, context.route.has_value(), prefer_teaching).has_value();
+            resolve_campus_routing(context.area, report, discovery, context.route.has_value(), prefer_teaching, prefer_dormitory));
+        const bool confirmed = verified_scope_locked(context.area, report, discovery, context.route.has_value(), prefer_teaching, prefer_dormitory).has_value();
         if (confirmed) {
             // Refresh only during an ordinary healthy check. This timestamp grants no
             // authentication authority and never changes saved proof or its expiry.
@@ -1157,8 +1259,9 @@ std::optional<CampusRoutingResolution> ConnectionEngine::current_routing_locked(
     const auto report = last_report_.value_or(ConnectivityReport{});
     if (last_routing_ && routing_epoch_ == epoch_ && routing_area_ == area_ && routing_discovery_ == last_discovery_ &&
         routing_apple_hint_ == physical_hint(report.apple) && routing_microsoft_hint_ == physical_hint(report.microsoft)) return last_routing_;
+    const auto remembered_entry = remembered_entry_locked();
     return resolve_campus_routing(area_, report, *last_discovery_, requires_physical_binding_ && authentication_route_.has_value(),
-        prefers_teaching_locked());
+        remembered_entry == CampusArea::teaching, remembered_entry == CampusArea::dormitory);
 }
 
 bool ConnectionEngine::needs_dormitory_eligibility_locked() const {
@@ -1190,6 +1293,7 @@ Discovery ConnectionEngine::required_campus_verification_locked() const {
     // A completed independent check used its own current hints. The published
     // connectivity report remains unchanged and may contain an older redirect.
     if (confirmed_campus_service_ && confirmed_campus_service_->context == campus_service_context_locked()) return Discovery::confirmed;
+    if (const auto routing = current_routing_locked(); routing && routing->decision != RoutingDecision::selected) return Discovery::unconfirmed;
     if (last_discovery_->teaching == Discovery::confirmed &&
         (!needs_dormitory_eligibility_locked() || last_discovery_->dormitory == Discovery::confirmed)) return Discovery::confirmed;
     return last_discovery_->teaching == Discovery::notChecked && last_discovery_->dormitory == Discovery::notChecked
@@ -1197,10 +1301,10 @@ Discovery ConnectionEngine::required_campus_verification_locked() const {
 }
 
 std::optional<CampusArea> ConnectionEngine::verified_scope_locked(CampusArea choice, const ConnectivityReport& report,
-                                                                 const CampusDiscovery& discovery, bool bound, bool prefer_teaching) const {
-    const auto routing = resolve_campus_routing(choice, report, discovery, bound, prefer_teaching);
-    if (routing.decision == RoutingDecision::unconfirmed || routing.decision == RoutingDecision::conflictingHints) return std::nullopt;
-    const auto target = routing.decision == RoutingDecision::needsSelection ? choice : routing.choice;
+                                                                 const CampusDiscovery& discovery, bool bound, bool prefer_teaching, bool prefer_dormitory) const {
+    const auto routing = resolve_campus_routing(choice, report, discovery, bound, prefer_teaching, prefer_dormitory);
+    if (routing.decision != RoutingDecision::selected) return std::nullopt;
+    const auto target = routing.choice;
     if (discovery.teaching != Discovery::confirmed) return std::nullopt;
     if (target == CampusArea::teaching || (target == CampusArea::automatic && discovery.teaching_client_bound)) return CampusArea::teaching;
     if (discovery.dormitory == Discovery::confirmed) return CampusArea::dormitory;
@@ -1308,7 +1412,20 @@ bool ConnectionEngine::can_prioritize_recovery_locked() const {
         !recovery_submission_pending_ && !cooldown_remaining_locked().has_value();
 }
 
+bool ConnectionEngine::preparation_retry_current_locked(CampusArea target) const {
+    return preparation_retry_ && preparation_retry_->context == campus_service_context_locked() &&
+        preparation_retry_->credential_generation == generation_ && preparation_retry_->target == target;
+}
+
 int ConnectionEngine::next_check_delay_locked() const {
+    if (mode_ == MonitoringMode::recover && !read_only_ && !paused_locked() &&
+        !cooldown_remaining_locked() && preparation_retry_ && preparation_retry_current_locked(preparation_retry_->target) &&
+        now() < preparation_retry_->after) {
+        return static_cast<int>(std::clamp(std::ceil(preparation_retry_->after - now()), 1.0, 300.0));
+    }
+    if (mode_ == MonitoringMode::recover && !read_only_ && probe_mode_ == ProbeMode::quick &&
+        session_audit_after_ && now() >= *session_audit_after_ && partial_attempt_used_ && consecutive_transport_passes_ == 1 &&
+        policy_.available && !sleeping_ && !paused_locked()) return 2;
     if (rapid_recovery_until_ && now() < *rapid_recovery_until_ && status_ == EngineStatus::idle &&
         policy_.available && !sleeping_ && mode_ != MonitoringMode::manual) return 0;
     if (full_check_pending_ && policy_.available && !sleeping_ && probe_mode_ == ProbeMode::complete && !paused_locked() && !recovery_submission_pending_) return 2;
@@ -1318,8 +1435,18 @@ int ConnectionEngine::next_check_delay_locked() const {
         if (!online_) return 3;
     }
     if (mode_ == MonitoringMode::recover && !read_only_ && consecutive_partial_ == 1 && !partial_attempt_used_ &&
-        !paused_locked() && !cooldown_remaining_locked().has_value()) return 5;
-    return policy_.next_check_delay(constrained_, now(), paused_locked());
+        !paused_locked() && !cooldown_remaining_locked().has_value()) {
+        const bool login_redirect = requires_physical_binding_ && authentication_route_ && last_report_ &&
+            ((physical_hint(last_report_->apple) && last_report_->apple.authentication_required) ||
+             (physical_hint(last_report_->microsoft) && last_report_->microsoft.authentication_required));
+        return login_redirect ? 1 : 5;
+    }
+    const int delay = policy_.next_check_delay(constrained_, now(), paused_locked());
+    if (mode_ == MonitoringMode::recover && !read_only_ && saved_ && !constrained_ &&
+        policy_.available && policy_.foreground && !sleeping_ && !paused_locked() &&
+        status_ == EngineStatus::online && requires_physical_binding_ && authentication_route_ && descriptors_.size() == 1 &&
+        (policy_.authorized() || memory_level_ == MatchLevel::medium || memory_level_ == MatchLevel::strong)) return std::min(delay, 15);
+    return delay;
 }
 
 Credentials ConnectionEngine::draft() const {
@@ -1429,7 +1556,9 @@ std::optional<ConnectionEngine::RememberRequest> ConnectionEngine::prepare_remem
         request.memory_generation_ = memory_generation_;
         request.area_ = area_;
         request.selection_report_ = last_report_.value_or(ConnectivityReport{});
-        request.prefer_teaching_ = prefers_teaching_locked();
+        const auto remembered_entry = remembered_entry_locked();
+        request.prefer_teaching_ = remembered_entry == CampusArea::teaching;
+        request.prefer_dormitory_ = remembered_entry == CampusArea::dormitory;
         request.route_ = authentication_route_;
         request.merging_record_ids_ = memory_.merge_candidates(descriptors_.front(), hooks_.wall_now());
         token_ = request.token_;
@@ -1469,7 +1598,9 @@ std::optional<ConnectionEngine::CampusVerificationRequest> ConnectionEngine::pre
         request.memory_generation_ = memory_generation_;
         request.area_ = area_;
         request.selection_report_ = last_report_.value_or(ConnectivityReport{});
-        request.prefer_teaching_ = prefers_teaching_locked();
+        const auto remembered_entry = remembered_entry_locked();
+        request.prefer_teaching_ = remembered_entry == CampusArea::teaching;
+        request.prefer_dormitory_ = remembered_entry == CampusArea::dormitory;
         request.route_ = authentication_route_;
         request.previous_status_ = status_;
         token_ = request.token_;
@@ -1508,8 +1639,8 @@ ConnectionEngine::CampusVerificationResult ConnectionEngine::verify_campus(const
         if (!owns_campus_verification_locked(request)) return CampusVerificationResult::cancelled;
     }
     CampusDiscovery discovery;
-    if (bound) discovery = service_.discover(request.area_ == CampusArea::teaching ? CampusArea::teaching : CampusArea::automatic,
-                                           request.token_);
+    if (bound) discovery = service_.discover(discovery_scope(request.area_, selection_report,
+        request.route_.has_value(), request.prefer_teaching_), request.token_);
     CampusVerificationResult result = CampusVerificationResult::unavailable;
     {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -1518,9 +1649,9 @@ ConnectionEngine::CampusVerificationResult ConnectionEngine::verify_campus(const
             last_discovery_ = discovery;
             record_routing_locked(request.area_, selection_report, discovery,
                 resolve_campus_routing(request.area_, selection_report, discovery,
-                    request.route_.has_value(), request.prefer_teaching_));
+                    request.route_.has_value(), request.prefer_teaching_, request.prefer_dormitory_));
             result = verified_scope_locked(request.area_, selection_report, discovery,
-                request.route_.has_value(), request.prefer_teaching_) ? CampusVerificationResult::confirmed : CampusVerificationResult::needsProof;
+                request.route_.has_value(), request.prefer_teaching_, request.prefer_dormitory_) ? CampusVerificationResult::confirmed : CampusVerificationResult::needsProof;
         }
         campus_verification_failed_ = result != CampusVerificationResult::confirmed;
         if (result == CampusVerificationResult::confirmed)
@@ -1574,7 +1705,7 @@ ConnectionEngine::RememberResult ConnectionEngine::trust_and_remember(const Reme
         if (!owns_remember_locked(request)) return RememberResult::cancelled;
     }
     // The selected area is fixed when the operation is reserved. Discovery never reads credentials.
-    const auto discovery = service_.discover(request.area_ == CampusArea::teaching ? CampusArea::teaching : CampusArea::automatic,
+    const auto discovery = service_.discover(request.area_ == CampusArea::teaching ? CampusArea::teaching : CampusArea::dormitory,
                                              request.token_);
     RememberResult result = RememberResult::needsProof;
     {
@@ -1583,9 +1714,9 @@ ConnectionEngine::RememberResult ConnectionEngine::trust_and_remember(const Reme
         last_discovery_ = discovery;
         record_routing_locked(request.area_, selection_report, discovery,
             resolve_campus_routing(request.area_, selection_report, discovery,
-                request.route_.has_value(), request.prefer_teaching_));
+                request.route_.has_value(), request.prefer_teaching_, request.prefer_dormitory_));
         const auto scope = verified_scope_locked(request.area_, selection_report, discovery,
-            request.route_.has_value(), request.prefer_teaching_);
+            request.route_.has_value(), request.prefer_teaching_, request.prefer_dormitory_);
         if (scope) {
             const bool dormitory_scope = *scope == CampusArea::dormitory;
             NetworkMemory next = memory_;

@@ -151,7 +151,7 @@ template<class Check> void run_campus_verification_runtime_tests(Check& check) {
         check(scheduled && *scheduled > AppController::wall_now() + 110 && app.snapshot().online,
             "recover-mode cancellation fixture has an existing 120-second same-cable monitoring deadline");
         fake->constrained = false; app.refresh_environment();
-        check(app.snapshot().epoch == epoch && app.next_check() == scheduled && app.snapshot().next_check_seconds == 30,
+        check(app.snapshot().epoch == epoch && app.next_check() == scheduled && app.snapshot().next_check_seconds == 15,
             "same-cable environment refresh preserves the old long deadline while the current policy permits a shorter interval");
         const auto memory = fake->files[L"network-memory.json"], labels = fake->files[L"network-labels.json"];
         const int probes = fake->probes, system_probes = fake->system_probes;
@@ -168,7 +168,7 @@ template<class Check> void run_campus_verification_runtime_tests(Check& check) {
         });
         check(scheduled && app.next_check() && *app.next_check() >= *scheduled &&
             *app.next_check() > AppController::wall_now() + 100,
-            "cancelling independent verification never shortens a longer pre-existing recover-mode deadline to the current 30-second cadence");
+            "cancelling independent verification never shortens a longer pre-existing recover-mode deadline to the current fifteen-second cadence");
         check(!app.snapshot().last_discovery && !app.snapshot().verifying_campus && app.snapshot().epoch == epoch &&
             app.memory_verification_message() != "campus.verify.confirmed" &&
             fake->files[L"network-memory.json"] == memory && fake->files[L"network-labels.json"] == labels &&

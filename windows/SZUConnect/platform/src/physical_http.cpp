@@ -13,12 +13,19 @@
 
 #include <algorithm>
 #include <chrono>
+#include <condition_variable>
+#include <deque>
 #include <charconv>
 #include <ctime>
 #include <optional>
 #include <cstring>
 #include <limits>
 #include <mutex>
+#include <thread>
+#ifdef SZU_PHYSICAL_HTTP_TESTING
+#include <atomic>
+#include <semaphore>
+#endif
 #include <string_view>
 #include <vector>
 
@@ -29,6 +36,119 @@ namespace szu::win {
 namespace {
 using Clock = std::chrono::steady_clock;
 constexpr std::size_t kHeaderLimit = 65536, kBodyLimit = 1048576, kUrlLimit = 65536;
+
+// Resolver cleanup can outlive a socket timeout. Only credential-free DNS work
+// uses this lane; the caller never waits for late cleanup or borrows late results.
+class DnsTaskLane {
+    struct Work {
+        std::function<physical::ResolvedAddresses(const CancelToken&, int)> run;
+        Clock::time_point deadline;
+        CancelToken token;
+        std::mutex mutex;
+        std::condition_variable changed;
+        bool done = false;
+        physical::ResolvedAddresses result;
+        std::optional<physical::Failure> failure;
+    };
+public:
+    explicit DnsTaskLane(std::size_t workers = 2, std::size_t limit = 4)
+        : limit_(std::clamp<std::size_t>(limit, 1, 4)), active_(std::clamp<std::size_t>(workers, 1, 2)) {
+        try {
+            for (std::size_t i=0;i<active_.size();++i) workers_.emplace_back([this,i] { execute(i); });
+        } catch (...) {
+            { std::lock_guard<std::mutex> lock(mutex_); closing_ = true; }
+            changed_.notify_all();
+            for (auto& worker : workers_) if (worker.joinable()) worker.join();
+            throw;
+        }
+    }
+    ~DnsTaskLane() {
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            closing_ = true;
+            for (const auto& work : queued_) work->token.cancel();
+            for (const auto& work : active_) if (work) work->token.cancel();
+        }
+        changed_.notify_all();
+        for (auto& worker : workers_) if (worker.joinable()) worker.join();
+    }
+    physical::ResolvedAddresses run(std::function<physical::ResolvedAddresses(const CancelToken&, int)> action,
+                                    int timeout_ms, const CancelToken& parent) {
+        if (parent.cancelled()) throw physical::Error(physical::Failure::cancelled);
+        if (timeout_ms <= 0) throw physical::Error(physical::Failure::timeout);
+        auto work = std::make_shared<Work>();
+        work->run = std::move(action); work->deadline = Clock::now() + std::chrono::milliseconds(timeout_ms);
+        struct Registration {
+            const CancelToken& parent; std::uint64_t id;
+            ~Registration() { parent.remove(id); }
+        } registration{parent, parent.on_cancel([work] { work->token.cancel(); work->changed.notify_all(); })};
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            if (parent.cancelled()) throw physical::Error(physical::Failure::cancelled);
+            const auto active = std::count_if(active_.begin(),active_.end(),[](const auto& value) {return bool(value);});
+            if (closing_ || queued_.size() + static_cast<std::size_t>(active) >= limit_)
+                throw physical::Error(physical::Failure::unavailable);
+            queued_.push_back(work);
+        }
+        changed_.notify_one();
+        std::unique_lock<std::mutex> lock(work->mutex);
+        work->changed.wait_until(lock,work->deadline,[&] { return work->done || parent.cancelled(); });
+        if (parent.cancelled()) { lock.unlock(); work->token.cancel(); throw physical::Error(physical::Failure::cancelled); }
+        if (!work->done || Clock::now() >= work->deadline) {
+            lock.unlock(); work->token.cancel(); throw physical::Error(physical::Failure::timeout);
+        }
+        if (work->failure) throw physical::Error(*work->failure);
+        return std::move(work->result);
+    }
+#ifdef SZU_PHYSICAL_HTTP_TESTING
+    bool wait_idle_for(std::chrono::seconds timeout) {
+        std::unique_lock<std::mutex> lock(mutex_);
+        return changed_.wait_for(lock,timeout,[&] {
+            return queued_.empty() && std::none_of(active_.begin(),active_.end(),[](const auto& work) {return bool(work);});
+        });
+    }
+#endif
+private:
+    void execute(std::size_t index) {
+        while (true) {
+            std::shared_ptr<Work> work;
+            {
+                std::unique_lock<std::mutex> lock(mutex_);
+                changed_.wait(lock,[&] { return closing_ || !queued_.empty(); });
+                if (closing_ && queued_.empty()) return;
+                work = queued_.front(); queued_.pop_front(); active_[index] = work;
+            }
+            physical::ResolvedAddresses result;
+            std::optional<physical::Failure> failure;
+            try {
+                const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(work->deadline-Clock::now()).count();
+                if (work->token.cancelled()) throw physical::Error(physical::Failure::cancelled);
+                if (remaining <= 0) throw physical::Error(physical::Failure::timeout);
+                result = work->run(work->token,static_cast<int>(remaining));
+                if (work->token.cancelled()) throw physical::Error(physical::Failure::cancelled);
+                if (Clock::now() >= work->deadline) throw physical::Error(physical::Failure::timeout);
+            } catch (const physical::Error& error) { failure = error.reason; }
+            catch (...) { failure = physical::Failure::unavailable; }
+            {
+                std::lock_guard<std::mutex> lock(work->mutex);
+                work->result = failure ? physical::ResolvedAddresses{} : std::move(result);
+                work->failure = failure; work->done = true;
+            }
+            work->changed.notify_all();
+            {
+                std::lock_guard<std::mutex> lock(mutex_); active_[index].reset();
+            }
+            changed_.notify_all();
+        }
+    }
+    const std::size_t limit_;
+    std::mutex mutex_;
+    std::condition_variable changed_;
+    bool closing_ = false;
+    std::deque<std::shared_ptr<Work>> queued_;
+    std::vector<std::shared_ptr<Work>> active_;
+    std::vector<std::thread> workers_;
+};
 
 struct Target { std::string host, scheme; unsigned port = 0; };
 
@@ -69,39 +189,54 @@ CURLcode perform_cancellable(CURL* handle, const CancelToken& token) {
         CURLM* value = curl_multi_init();
         ~Multi() { if (value) curl_multi_cleanup(value); }
     };
-    const auto multi = std::make_shared<Multi>();
-    if (!multi->value) return CURLE_OUT_OF_MEMORY;
+    Multi multi;
+    if (!multi.value) return CURLE_OUT_OF_MEMORY;
     const auto error = [](CURLMcode code) {
         return code == CURLM_OUT_OF_MEMORY ? CURLE_OUT_OF_MEMORY : CURLE_FAILED_INIT;
     };
-    const auto added = curl_multi_add_handle(multi->value, handle);
+    const auto added = curl_multi_add_handle(multi.value, handle);
     if (added != CURLM_OK) return error(added);
     struct Attachment {
         CURLM* multi;
         CURL* easy;
         ~Attachment() { curl_multi_remove_handle(multi, easy); }
-    } attachment{multi->value, handle};
-    // Removal does not wait for a cancellation callback already copied by cancel().
-    // Its shared ownership keeps the multi handle alive until wakeup returns.
+    } attachment{multi.value, handle};
+    struct Wakeup {
+        std::mutex mutex;
+        CURLM* value = nullptr;
+        void invoke() {
+            std::lock_guard<std::mutex> lock(mutex);
+            if (value) curl_multi_wakeup(value);
+        }
+        void detach() {
+            std::lock_guard<std::mutex> lock(mutex);
+            value = nullptr;
+        }
+    };
+    auto wakeup = std::make_shared<Wakeup>();
+    wakeup->value = multi.value;
+    // A copied cancellation callback may outlive removal. Detach it before
+    // cleanup; the transfer thread alone owns destruction of the CURL handle.
     struct Registration {
         const CancelToken& token;
         std::uint64_t id;
-        ~Registration() { token.remove(id); }
-    } registration{token, token.on_cancel([multi] { curl_multi_wakeup(multi->value); })};
+        std::shared_ptr<Wakeup> wakeup;
+        ~Registration() { token.remove(id); wakeup->detach(); }
+    } registration{token, token.on_cancel([wakeup] { wakeup->invoke(); }), wakeup};
     while (true) {
         if (token.cancelled()) return CURLE_ABORTED_BY_CALLBACK;
         int running = 0;
-        auto code = curl_multi_perform(multi->value, &running);
+        auto code = curl_multi_perform(multi.value, &running);
         if (code != CURLM_OK) return error(code);
         if (token.cancelled()) return CURLE_ABORTED_BY_CALLBACK;
         if (!running) {
             int remaining = 0;
-            while (const auto* message = curl_multi_info_read(multi->value, &remaining)) {
+            while (const auto* message = curl_multi_info_read(multi.value, &remaining)) {
                 if (message->msg == CURLMSG_DONE && message->easy_handle == handle) return message->data.result;
             }
             return CURLE_FAILED_INIT;
         }
-        code = curl_multi_poll(multi->value, nullptr, 0, 1000, nullptr);
+        code = curl_multi_poll(multi.value, nullptr, 0, 1000, nullptr);
         if (code != CURLM_OK) return error(code);
     }
 }
@@ -128,10 +263,20 @@ struct Transfer {
     HeaderPhase header_phase = HeaderPhase::awaitingStatus;
     int header_status = 0;
     std::size_t header_limit = kHeaderLimit;
+    std::function<bool()> lease_current{};
+    Clock::time_point next_progress_route_check{};
+    Clock::time_point deadline = Clock::time_point::max();
+    bool timed_out = false;
 };
 
+bool within_deadline(Transfer& transfer) {
+    if (Clock::now() < transfer.deadline) return true;
+    transfer.timed_out = true;
+    return false;
+}
 bool source_current(Transfer& transfer) {
     try {
+        if (!within_deadline(transfer)) return false;
         if (transfer.token.cancelled() || !transfer.current()) { transfer.stale = true; return false; }
         // The route validator also checks the selected physical gateway/DNS lease.
         // Native checks independently require this exact LUID/index/address to exist.
@@ -148,7 +293,7 @@ bool source_current(Transfer& transfer) {
             GetUnicastIpAddressEntry(&row) != NO_ERROR || row.DadState != IpDadStatePreferred) {
             transfer.stale = true; return false;
         }
-        return true;
+        return within_deadline(transfer);
     } catch (...) { transfer.stale = true; return false; } // Never unwind through libcurl's C callbacks.
 }
 
@@ -178,13 +323,20 @@ int prerequisite(void* opaque, char*, char* local_ip, int, int) {
 }
 int progress(void* opaque, curl_off_t, curl_off_t, curl_off_t, curl_off_t) {
     auto& transfer = *static_cast<Transfer*>(opaque);
-    try { return transfer.token.cancelled() || !transfer.current() ? 1 : 0; }
+    try {
+        if (transfer.token.cancelled() || (transfer.lease_current && !transfer.lease_current()) || !within_deadline(transfer)) return 1;
+        if (Clock::now() < transfer.next_progress_route_check) return 0;
+        const bool valid = transfer.current();
+        transfer.next_progress_route_check = Clock::now() + std::chrono::milliseconds(250);
+        if (!valid) transfer.stale = true;
+        return valid && within_deadline(transfer) ? 0 : 1;
+    }
     catch (...) { transfer.stale = true; return 1; }
 }
 
 std::size_t write_body(char* bytes, std::size_t size, std::size_t count, void* opaque) {
     auto& transfer = *static_cast<Transfer*>(opaque);
-    if (transfer.token.cancelled()) return 0;
+    if (transfer.token.cancelled() || !within_deadline(transfer)) return 0;
     if ((size && count > std::numeric_limits<std::size_t>::max() / size) || size * count > transfer.limit - transfer.body.size()) {
         transfer.too_large = true; return 0;
     }
@@ -207,7 +359,7 @@ int status_from_header(std::string_view line) {
 }
 std::size_t write_header(char* bytes, std::size_t size, std::size_t count, void* opaque) {
     auto& transfer = *static_cast<Transfer*>(opaque);
-    if (transfer.token.cancelled()) return 0;
+    if (transfer.token.cancelled() || !within_deadline(transfer)) return 0;
     if ((size && count > std::numeric_limits<std::size_t>::max() / size) || size * count > transfer.header_limit - transfer.header_bytes) {
         transfer.too_large = true; return 0;
     }
@@ -277,7 +429,9 @@ CURLcode configure_security(CURL* handle) {
 }
 
 HttpError classify(CURLcode code, const Transfer& transfer) {
-    if (transfer.token.cancelled() || transfer.stale || code == CURLE_ABORTED_BY_CALLBACK) return HttpError::cancelled;
+    if (transfer.token.cancelled() || transfer.stale) return HttpError::cancelled;
+    if (transfer.timed_out) return HttpError::timeout;
+    if (code == CURLE_ABORTED_BY_CALLBACK) return HttpError::cancelled;
     if (transfer.too_large || code == CURLE_FILESIZE_EXCEEDED) return HttpError::tooLarge;
     if (transfer.malformed) return HttpError::network;
     if (transfer.header_stop && code == CURLE_WRITE_ERROR) return HttpError::none;
@@ -301,7 +455,8 @@ std::string lowercase(std::string value) {
 }
 // Exactly one bounded Location from the final header section. Trailer headers,
 // duplicate Locations and malformed/control-containing values never grant proof.
-std::optional<CampusPortalHint> campus_location(const std::string& headers, const std::string& request_url) {
+std::optional<CampusPortalHint> campus_location(const std::string& headers, const std::string& request_url, bool* authentication_required = nullptr) {
+    if (authentication_required) *authentication_required = false;
     std::string location;
     bool found = false;
     auto offset = headers.find("\r\n");
@@ -320,7 +475,9 @@ std::optional<CampusPortalHint> campus_location(const std::string& headers, cons
         }
         offset = end + 2;
     }
-    return found ? wire::campus_redirect_hint(location, request_url) : std::nullopt;
+    const auto hint = found ? wire::campus_redirect_hint(location, request_url) : std::nullopt;
+    if (hint && authentication_required) *authentication_required = wire::campus_authentication_required(location, request_url);
+    return hint;
 }
 
 struct Cookie {
@@ -512,7 +669,8 @@ double dns_cache_ttl(const std::string& headers, double ttl) {
     return std::clamp(ttl - static_cast<double>(age), 0.0, 300.0);
 }
 DnsHttpsResponse dns_https_get(const HttpRequest& request, const std::string& resolution, const physical::Route& route,
-                              const CancelToken& token, const std::function<bool()>& current) {
+                              const CancelToken& token, const std::function<bool()>& current,
+                              const std::function<bool()>& lease_current = {}) {
     DnsHttpsResponse result;
     const auto started = Clock::now();
     auto finish = [&](HttpError error) {
@@ -530,6 +688,8 @@ DnsHttpsResponse dns_https_get(const HttpRequest& request, const std::string& re
     if (remaining <= 0) return finish(HttpError::timeout);
     Easy easy; if (!easy.value) return finish(HttpError::network);
     Transfer transfer{route, token, current, kDnsHttpsLimit, {}, {}};
+    transfer.lease_current = lease_current ? lease_current : current;
+    transfer.deadline = started + std::chrono::milliseconds(request.timeout_ms);
     transfer.header_limit = kDnsHttpsLimit;
     List mapping, headers;
     if ((!resolution.empty() && !mapping.add(resolution)) || !headers.add("Accept: application/dns-message") ||
@@ -599,7 +759,7 @@ physical::ResolvedAddresses resolve_https_dns(const std::string& host, const phy
 }
 }  // namespace
 
-physical::ResolvedAddresses resolve_physical_https_a(const std::string& host, const physical::Route& route,
+static physical::ResolvedAddresses resolve_physical_https_inline(const std::string& host, const physical::Route& route,
                                                     int timeout_ms, const CancelToken& token) {
     const auto started = Clock::now();
     if (token.cancelled()) throw physical::Error(physical::Failure::cancelled);
@@ -613,8 +773,18 @@ physical::ResolvedAddresses resolve_physical_https_a(const std::string& host, co
     if (remaining <= 0) throw physical::Error(physical::Failure::timeout);
     return resolve_https_dns(host, route, static_cast<int>(remaining), token, current, now, transaction,
         [&](const HttpRequest& request, const std::string& resolution, const CancelToken& cancel) {
-            return dns_https_get(request, resolution, route, cancel, current);
+            return dns_https_get(request, resolution, route, cancel, current, [&] { return !token.cancelled(); });
         });
+}
+
+physical::ResolvedAddresses resolve_physical_https_a(const std::string& host, const physical::Route& route,
+                                                    int timeout_ms, const CancelToken& token) {
+    if (!physical::allowed_host(host) || timeout_ms <= 0 || timeout_ms > 12000)
+        throw physical::Error(physical::Failure::unavailable);
+    static DnsTaskLane lane;
+    return lane.run([host,route](const CancelToken& child,int budget) {
+        return resolve_physical_https_inline(host,route,budget,child);
+    },timeout_ms,token);
 }
 
 struct PhysicalHttpSession::State {
@@ -643,7 +813,7 @@ HttpResponse PhysicalHttpSession::get(const HttpRequest& request, const CancelTo
         if (error == HttpError::none || error == HttpError::redirect || error == HttpError::cancelled)
             response.failure_stage = HttpFailureStage::none;
         if (error != HttpError::none && error != HttpError::redirect) {
-            response.body.clear(); response.campus_area_hint.reset(); response.campus_redirect = false;
+            response.body.clear(); response.campus_area_hint.reset(); response.campus_redirect = false; response.authentication_required = false;
         }
         return response;
     };
@@ -684,6 +854,8 @@ HttpResponse PhysicalHttpSession::get(const HttpRequest& request, const CancelTo
     if (!easy.value) return finish(HttpError::network);
     const std::function<bool()> current = [this] { return state_->current(); };
     Transfer transfer{state_->route, token, current, request.max_bytes, {}, {}};
+    transfer.lease_current = state_->binding_current;
+    transfer.deadline = started + std::chrono::milliseconds(request.timeout_ms);
     transfer.headers_only = request.headers_only;
     List resolution, headers;
     if (target.host != "172.30.255.42") {
@@ -728,7 +900,7 @@ HttpResponse PhysicalHttpSession::get(const HttpRequest& request, const CancelTo
     response.status = static_cast<int>(status);
     response.body = std::move(transfer.body);
     if (status >= 300 && status < 400) {
-        response.campus_area_hint = campus_location(transfer.headers, request.url);
+        response.campus_area_hint = campus_location(transfer.headers, request.url, &response.authentication_required);
         response.campus_redirect = response.campus_area_hint.has_value();
     }
     if (state_->cookies && request.allow_cookies) {
@@ -743,7 +915,61 @@ HttpResponse PhysicalHttpSession::get(const HttpRequest& request, const CancelTo
 }
 
 #ifdef SZU_PHYSICAL_HTTP_TESTING
+bool dns_task_lane_policy_test() {
+    struct Signals { std::binary_semaphore entered{0}, release{0}, finished{0}; std::atomic<unsigned> calls{0}; };
+    for (const bool cancel : {false,true}) {
+        auto signals=std::make_shared<Signals>(); DnsTaskLane lane(1,1); CancelToken parent;
+        std::optional<physical::Failure> failure;
+        std::thread caller([&] {
+            try {
+                (void)lane.run([signals](const CancelToken&,int) {
+                    ++signals->calls; signals->entered.release(); signals->release.acquire();
+                    return physical::ResolvedAddresses{{"192.0.2.80"},60};
+                },cancel?10000:1000,parent);
+            } catch(const physical::Error& error) {failure=error.reason;}
+            signals->finished.release();
+        });
+        const bool entered=signals->entered.try_acquire_for(std::chrono::seconds(5));
+        bool bounded=true;
+        if(cancel && entered) {
+            CancelToken other;
+            try {
+                (void)lane.run([signals](const CancelToken&,int) {++signals->calls;return physical::ResolvedAddresses{};},1000,other);
+                bounded=false;
+            } catch(const physical::Error& error) {bounded=error.reason==physical::Failure::unavailable;}
+            parent.cancel();
+        }
+        const bool returned=signals->finished.try_acquire_for(std::chrono::seconds(5));
+        signals->release.release(); caller.join();
+        if(!entered || !returned || !bounded || signals->calls!=1 ||
+           failure!=(cancel?physical::Failure::cancelled:physical::Failure::timeout))return false;
+        if(!lane.wait_idle_for(std::chrono::seconds(5)))return false;
+        const auto fresh=lane.run([](const CancelToken&,int) {return physical::ResolvedAddresses{{"192.0.2.81"},30};},1000,CancelToken{});
+        if(fresh.addresses!=std::vector<std::string>{"192.0.2.81"})return false;
+    }
+    {
+        auto signals=std::make_shared<Signals>(); DnsTaskLane lane(1,2); CancelToken parent;
+        std::thread caller([&] {
+            try {(void)lane.run([signals](const CancelToken&,int) {
+                ++signals->calls; signals->entered.release(); signals->release.acquire(); return physical::ResolvedAddresses{};
+            },10000,parent);}catch(const physical::Error&){}
+        });
+        const bool entered=signals->entered.try_acquire_for(std::chrono::seconds(5));
+        std::optional<physical::Failure> queued;
+        try {(void)lane.run([signals](const CancelToken&,int) {++signals->calls;return physical::ResolvedAddresses{};},1000,CancelToken{});}
+        catch(const physical::Error& error){queued=error.reason;}
+        parent.cancel(); signals->release.release(); caller.join();
+        if(!entered || queued!=physical::Failure::timeout || !lane.wait_idle_for(std::chrono::seconds(5)) || signals->calls!=1)return false;
+    }
+    {
+        DnsTaskLane lane;
+        try {(void)lane.run([](const CancelToken&,int)->physical::ResolvedAddresses {throw physical::Error(physical::Failure::security);},1000,CancelToken{});}
+        catch(const physical::Error& error){return error.reason==physical::Failure::security;}
+    }
+    return false;
+}
 bool physical_https_dns_policy_test() {
+    if(!dns_task_lane_policy_test())return false;
     if (dns_base64url({}) != "" || dns_base64url({'f'}) != "Zg" || dns_base64url({'f', 'o'}) != "Zm8" ||
         dns_base64url({'f', 'o', 'o'}) != "Zm9v" || dns_base64url({0xfb, 0xff, 0xff}) != "-___") return false;
     const std::string host = "net.szu.edu.cn";
@@ -929,9 +1155,11 @@ bool physical_http_native_socket_test(std::uint32_t index, std::uint64_t luid) {
     WSADATA data{}; if (WSAStartup(MAKEWORD(2, 2), &data) != 0) return false;
     physical::Route route; route.interface_index = index; route.interface_luid = luid; route.source_ipv4 = "127.0.0.1";
     CancelToken token;
-    bool current_value = true;
-    std::function<bool()> current = [&] { return current_value; };
+    bool current_value = true, lease_value = true;
+    unsigned route_reads = 0;
+    std::function<bool()> current = [&] { ++route_reads; return current_value && lease_value; };
     Transfer transfer{route, token, current, 1, {}, {}};
+    transfer.lease_current = [&] { return lease_value; };
     curl_sockaddr address{}; address.family = AF_INET; address.socktype = SOCK_STREAM; address.protocol = IPPROTO_TCP;
     const auto socket_value = open_socket(&transfer, CURLSOCKTYPE_IPCXN, &address);
     bool result = socket_value != CURL_SOCKET_BAD;
@@ -943,11 +1171,22 @@ bool physical_http_native_socket_test(std::uint32_t index, std::uint64_t luid) {
         char good[] = "127.0.0.1", wrong[] = "127.0.0.2";
         result = result && prerequisite(&transfer, nullptr, good, 0, 0) == CURL_PREREQFUNC_OK &&
             prerequisite(&transfer, nullptr, wrong, 0, 0) == CURL_PREREQFUNC_ABORT;
+        route_reads = 0;
+        for (unsigned i=0;i<100;++i) result = result && progress(&transfer,0,0,0,0)==0;
+        result = result && route_reads == 1;
+        lease_value = false;
+        result = result && progress(&transfer,0,0,0,0)==1 && route_reads==1;
+        lease_value = true;
         current_value = false;
-        result = result && prerequisite(&transfer, nullptr, good, 0, 0) == CURL_PREREQFUNC_ABORT &&
+        transfer.request_started = false;
+        result = result && prerequisite(&transfer, nullptr, good, 0, 0) == CURL_PREREQFUNC_ABORT && !transfer.request_started &&
             open_socket(&transfer, CURLSOCKTYPE_IPCXN, &address) == CURL_SOCKET_BAD;
-        current_value = true; token.cancel();
-        result = result && prerequisite(&transfer, nullptr, good, 0, 0) == CURL_PREREQFUNC_ABORT;
+        current_value = true; transfer.stale = false; transfer.deadline = Clock::now();
+        result = result && prerequisite(&transfer,nullptr,good,0,0)==CURL_PREREQFUNC_ABORT && !transfer.request_started &&
+            classify(CURLE_ABORTED_BY_CALLBACK,transfer)==HttpError::timeout;
+        token.cancel();
+        result = result && prerequisite(&transfer, nullptr, good, 0, 0) == CURL_PREREQFUNC_ABORT && progress(&transfer,0,0,0,0)==1;
+        result = result && classify(CURLE_ABORTED_BY_CALLBACK,transfer)==HttpError::cancelled;
         closesocket(socket_value);
     }
     WSACleanup(); return result;
@@ -1020,6 +1259,14 @@ bool physical_http_native_policy_test() {
     if (campus_location("HTTP/1.1 302 Found\r\nLocation: https://net.szu.edu.cn/srun_portal_pc\r\nLocation: https://evil.invalid/\r\n\r\n", request.url)) return false;
     if (campus_location("HTTP/1.1 302 Found\r\nLocation: http://172.30.255.42:801/eportal?client=fake\r\n\r\n",
         "http://www.msftconnecttest.com/connecttest.txt") != CampusPortalHint::dormitory) return false;
+    for (const auto* location : {"http://172.30.255.42/a70.htm?wlanuserip=192.0.2.7", "http://172.30.255.42:80/a79.htm"}) {
+        const auto header = "HTTP/1.1 302 Found\r\nLocation: " + std::string(location) + "\r\n\r\n";
+        bool required = false;
+        if (campus_location(header, "http://www.msftconnecttest.com/connecttest.txt", &required) != CampusPortalHint::dormitory ||
+            required != (std::string_view(location).find("a70.htm") != std::string_view::npos)) return false;
+        if (campus_location("HTTP/1.1 302 Found\r\nLocation: " + std::string(location) + "\r\nLocation: https://evil.invalid/\r\n\r\n",
+            "http://www.msftconnecttest.com/connecttest.txt")) return false;
+    }
     for (const auto* url : {"https://net.szu.edu.cn/srun_portal_pc", "https://example.invalid/", "https://www.apple.com/", "http://www.msftconnecttest.com/connecttest.txt?extra=1"})
         if (campus_location(good, url)) return false;
     for (const auto* header : {"HTTP/1.1 302 Found\r\nLocation: https://net.szu.edu.cn:444/srun_portal_pc\r\n\r\n",

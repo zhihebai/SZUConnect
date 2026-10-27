@@ -1,6 +1,7 @@
 #include "szu/presentation.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdio>
 #include <ctime>
@@ -397,6 +398,8 @@ DiagnosticEnvironment sample_environment(const DiagnosticEnvironment& input) {
         if (sample_token(input.connection, {"wifi", "ethernet", "multiple", "tunnelHidden", "none", "unknown"})) safe.connection = input.connection;
         if (sample_token(input.system_proxy, {"on", "off", "unknown"})) safe.system_proxy = input.system_proxy;
         if (sample_token(input.tun, {"detected", "notDetected", "unknown"})) safe.tun = input.tun;
+        if (sample_token(input.physical_egress, {"normal", "forwarding", "weakHostSend", "forwardingAndWeakHostSend", "unknown"}))
+            safe.physical_egress = input.physical_egress;
     }
     return safe;
 }
@@ -434,6 +437,7 @@ json::Value context_json(const SampleContext& c) {
     environment.set("connection", json::Value::string(c.environment.connection));
     environment.set("systemProxy", json::Value::string(c.environment.system_proxy));
     environment.set("tun", json::Value::string(c.environment.tun));
+    environment.set("physicalEgress", json::Value::string(c.environment.physical_egress));
     environment.set("refreshing", json::Value::boolean(c.environment.refreshing));
     value.set("environment", std::move(environment));
     return value;
@@ -453,6 +457,7 @@ std::optional<SampleContext> context_from_json(const json::Value* value) {
     context.environment.connection = environment->string_at("connection").value_or("unknown");
     context.environment.system_proxy = environment->string_at("systemProxy").value_or("unknown");
     context.environment.tun = environment->string_at("tun").value_or("unknown");
+    context.environment.physical_egress = environment->string_at("physicalEgress").value_or("unknown");
     context.environment.refreshing = environment->bool_at("refreshing").value_or(false);
     return sample_context(context);
 }
@@ -511,6 +516,7 @@ json::Value failure_context_json(const FailureContext& c, bool timestamps) {
     environment.set("connection", json::Value::string(c.environment.connection));
     environment.set("systemProxy", json::Value::string(c.environment.system_proxy));
     environment.set("tun", json::Value::string(c.environment.tun));
+    environment.set("physicalEgress", json::Value::string(c.environment.physical_egress));
     environment.set("refreshing", json::Value::boolean(c.environment.refreshing)); value.set("environment", std::move(environment));
     auto campus = json::Value::object(); campus.set("state", json::Value::string(c.campus_state));
     campus.set("issue", json::Value::string(std::string(failure_issue_token(c.campus_issue)))); value.set("campusVerification", std::move(campus));
@@ -546,6 +552,7 @@ std::optional<FailureContext> failure_context_from_json(const json::Value* value
     c.area = value->string_at("area").value_or(""); c.status = value->string_at("status").value_or("");
     c.environment = {environment->string_at("connection").value_or("unknown"), environment->string_at("systemProxy").value_or("unknown"),
         environment->string_at("tun").value_or("unknown"), environment->bool_at("refreshing").value_or(false)};
+    c.environment.physical_egress = environment->string_at("physicalEgress").value_or("unknown");
     c.campus_state = campus->string_at("state").value_or("notChecked");
     const auto issue = campus->string_at("issue").value_or("none");
     for (const auto candidate : {CampusVerificationIssue::none, CampusVerificationIssue::dnsTimeout, CampusVerificationIssue::dns, CampusVerificationIssue::dnsTls,
@@ -596,34 +603,38 @@ void HealthLog::prune(double now) {
 
 HealthSummary HealthLog::summary(double now) const {
     HealthSummary out;
-    std::vector<double> latencies;
+    std::array<double, kLimit> latencies;
+    std::size_t count = 0;
     for (const Sample& s : items_) {
         if (now - s.time > kWindowSeconds) continue;
         ++out.samples;
         if (s.online) ++out.online;
-        if (s.latency_ms >= 0) latencies.push_back(s.latency_ms);
+        if (s.latency_ms >= 0) latencies[count++] = s.latency_ms;
     }
-    if (!latencies.empty()) {
-        std::sort(latencies.begin(), latencies.end());
-        const std::size_t n = latencies.size();
-        out.median_latency_ms = n % 2 ? latencies[n / 2] : (latencies[n / 2 - 1] + latencies[n / 2]) / 2;
+    if (count) {
+        const auto middle = latencies.begin() + static_cast<std::ptrdiff_t>(count / 2);
+        std::nth_element(latencies.begin(), middle, latencies.begin() + static_cast<std::ptrdiff_t>(count));
+        out.median_latency_ms = count % 2 ? *middle : (*std::max_element(latencies.begin(), middle) + *middle) / 2;
     }
     return out;
 }
 
 HealthRange HealthLog::range(double now, std::size_t ribbon) const {
     HealthRange out;
-    std::vector<const Sample*> window;
+    std::array<double, kLimit> window;
+    std::size_t count = 0;
     for (const Sample& s : items_)
-        if (now - s.time <= kWindowSeconds) window.push_back(&s);
-    out.count = static_cast<int>(window.size());
-    if (window.empty()) return out;
-    out.first = window.front()->time;
-    out.last = window.back()->time;
-    const std::size_t take = std::min(ribbon, window.size());
+        if (now - s.time <= kWindowSeconds) window[count++] = s.time;
+    out.count = static_cast<int>(count);
+    if (!count) return out;
+    out.first = window[0];
+    out.last = window[count - 1];
+    const std::size_t take = std::min(ribbon, count);
     out.ribbon_count = static_cast<int>(take);
-    out.ribbon_first = window[window.size() - take]->time;
-    out.ribbon_last = window.back()->time;
+    if (take) {
+        out.ribbon_first = window[count - take];
+        out.ribbon_last = window[count - 1];
+    }
     return out;
 }
 
@@ -765,6 +776,7 @@ DiagnosticEnvironment anonymous_environment(const DiagnosticEnvironment& input) 
         safe.connection = fixed_token(input.connection, {"wifi", "ethernet", "multiple", "tunnelHidden", "none", "unknown"});
         safe.system_proxy = fixed_token(input.system_proxy, {"on", "off", "unknown"});
         safe.tun = fixed_token(input.tun, {"detected", "notDetected", "unknown"});
+        safe.physical_egress = fixed_token(input.physical_egress, {"normal", "forwarding", "weakHostSend", "forwardingAndWeakHostSend", "unknown"});
     }
     return safe;
 }
@@ -830,6 +842,7 @@ json::Value diagnostics_export(const ExportContext& c, const HealthLog& health, 
         environment.set("connection", json::Value::string(safe.connection));
         environment.set("systemProxy", json::Value::string(safe.system_proxy));
         environment.set("tun", json::Value::string(safe.tun));
+        environment.set("physicalEgress", json::Value::string(safe.physical_egress));
         environment.set("refreshing", json::Value::boolean(safe.refreshing));
         root.set("environment", std::move(environment));
     }
@@ -895,6 +908,8 @@ std::string diagnostics_summary_text(const ExportContext& c, const HealthLog& he
             {"access", std::string(copy::text("env.access." + safe.connection))},
             {"proxy", std::string(copy::text("env.proxy." + safe.system_proxy))},
             {"tunnel", std::string(copy::text("env.tunnel." + safe.tun))}});
+        text += "\n" + copy::format("records.diagnostics.physicalEgress", {
+            {"state", std::string(copy::text("env.egress." + safe.physical_egress))}});
     }
     if (c.recovery) {
         const auto& recovery = *c.recovery;

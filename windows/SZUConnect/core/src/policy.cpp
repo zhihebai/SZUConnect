@@ -1,4 +1,5 @@
 #include "szu/policy.hpp"
+#include <cmath>
 
 namespace szu {
 
@@ -68,7 +69,7 @@ void ConnectionPolicy::observe_probe(bool online) {
 }
 
 int ConnectionPolicy::next_check_delay(bool constrained, double now, bool paused) const {
-    if (not_before_ && *not_before_ > now) return 15;
+    if (not_before_ && *not_before_ > now) return static_cast<int>(std::clamp(std::ceil(*not_before_ - now), 1.0, 15.0));
     if (paused) return constrained ? 120 : 60;
     if (consecutive_probe_failures_ == 1) return 5;
     if (failures_ > 0) return retry_delay();
@@ -254,7 +255,7 @@ const Hold* ConnectionPolicy::global_hold(std::optional<std::uint64_t> generatio
 }
 
 CampusRoutingResolution resolve_campus_routing(CampusArea choice, const ConnectivityReport& report,
-                                             const CampusDiscovery& discovery, bool physically_bound, bool prefer_teaching) {
+                                             const CampusDiscovery& discovery, bool physically_bound, bool prefer_teaching, bool prefer_dormitory) {
     if (choice != CampusArea::automatic) return {RoutingDecision::selected, choice, false};
     if (!physically_bound) return {};
     const auto apple = report.apple.state == EndpointState::redirect ? report.apple.campus_area_hint : std::nullopt;
@@ -266,6 +267,8 @@ CampusRoutingResolution resolve_campus_routing(CampusArea choice, const Connecti
             return {RoutingDecision::selected, CampusArea::teaching, false, true};
         if (prefer_teaching && discovery.teaching == Discovery::confirmed)
             return {RoutingDecision::selected, CampusArea::teaching, false};
+        if (prefer_dormitory && discovery.teaching == Discovery::confirmed && discovery.dormitory == Discovery::confirmed)
+            return {RoutingDecision::selected, CampusArea::dormitory, false};
         if (discovery.teaching == Discovery::confirmed && discovery.dormitory == Discovery::confirmed)
             return {RoutingDecision::needsSelection, CampusArea::automatic, false};
         return {};

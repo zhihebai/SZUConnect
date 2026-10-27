@@ -2,7 +2,7 @@
 #   Windows:  cmake --preset windows-x64 && cmake --build --preset windows-release && ctest --preset windows-release
 #   Any OS:   cmake --preset core-only && cmake --build --preset core && ctest --preset core   (portable core tests only)
 cmake_minimum_required(VERSION 3.21)
-project(SZUConnect VERSION 1.0.0.34 DESCRIPTION "SZUConnect campus network helper (unofficial)" LANGUAGES C CXX)
+project(SZUConnect VERSION 1.1.0.35 DESCRIPTION "SZUConnect campus network helper (unofficial)" LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -187,6 +187,8 @@ if(WIN32)
       target_link_options(szu_network_view_native_tests PRIVATE /MANIFESTUAC:NO)
     endif()
     add_test(NAME szu_network_view_native_tests COMMAND szu_network_view_native_tests --normal-view-only)
+    add_test(NAME szu_egress_notice_native_tests COMMAND szu_network_view_native_tests --egress-notice-only)
+    set_tests_properties(szu_egress_notice_native_tests PROPERTIES TIMEOUT 30)
     add_test(NAME szu_network_view_observe_native_tests COMMAND szu_network_view_native_tests --observe-view-only)
     add_test(NAME szu_paragraph_layout_native_tests COMMAND szu_network_view_native_tests --paragraph-layout-only)
     add_test(NAME szu_hero_website_chip_native_tests COMMAND szu_network_view_native_tests --hero-website-chips-only)

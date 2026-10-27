@@ -246,7 +246,8 @@ void AppController::start() {
                 request = *system_probe_pending_;
                 system_probe_pending_.reset();
             }
-            const auto report = runtime_->system_connectivity(request.mode, request.token);
+            std::optional<ConnectivityReport> report;
+            try { report = runtime_->system_connectivity(request.mode, request.token); } catch (...) {}
             {
                 std::lock_guard<std::mutex> lock(system_probe_mutex_);
                 if (!system_probe_stopping_ && request.generation == system_probe_generation_ && !request.token.cancelled()) {
@@ -270,7 +271,7 @@ void AppController::start() {
                 jobs_.pop_front();
                 engine_busy_ = true;
             }
-            job();
+            try { job(); } catch (...) { engine_->cancel(); }
             finish_proxy_assistant_round();
             engine_busy_ = false;
             post_changed();
@@ -289,6 +290,7 @@ void AppController::shutdown() {
     for (const auto id : {kTimerAuto, kTimerNetwork, kTimerPersist, kTimerWake, kTimerWiFi}) KillTimer(window_, id);
     auto_armed_ = false; next_due_.reset(); auto_timer_retry_deadline_.reset();
     network_refresh_timer_armed_ = false;
+    logs_timer_armed_ = false;
     { std::lock_guard<std::mutex> lock(wifi_mutex_); wifi_schedule_.cancel(); }
     runtime_->stop_watchers();
     engine_->cancel();
@@ -310,7 +312,7 @@ void AppController::shutdown() {
     if (system_probe_worker_.joinable()) system_probe_worker_.join();
     if (compat_thread_.joinable()) compat_thread_.join();
     if (diagnostics_export_worker_.joinable()) diagnostics_export_worker_.join();
-    if (logs_dirty_) persist_logs();
+    if (events_dirty_ || health_dirty_) persist_logs();
 }
 
 void AppController::post_changed() {
@@ -335,6 +337,7 @@ bool AppController::run_engine(std::function<void()> job, bool automatic) {
     context.environment.refreshing = network_refresh_pending_ || !diagnostic_network_fresh_;
     if (!context.environment.refreshing) {
         context.environment.connection = network_.access;
+        context.environment.physical_egress = physical_egress_status();
         context.environment.system_proxy = proxy_.state;
         context.environment.tun = network_.tunnel_known ? (network_.path.tunnel ? "detected" : "notDetected") : "unknown";
     }
@@ -384,6 +387,7 @@ void AppController::seal_fresh_report_environment(const win::NetworkSnapshot& ne
     auto& environment = active_report_context_->environment;
     environment.refreshing = false;
     environment.connection = network.access;
+    environment.physical_egress = win::physical_egress_status(network, engine_->snapshot().authentication_route);
     environment.tun = network.tunnel_known ? (network.path.tunnel ? "detected" : "notDetected") : "unknown";
     // The fresh attachment capture did not reread Windows proxy settings.
     environment.system_proxy = "unknown";
@@ -410,6 +414,7 @@ AppController::FailureCapture AppController::capture_failure_context(bool automa
     c.environment.refreshing = network_refresh_pending_ || !diagnostic_network_fresh_;
     if (!c.environment.refreshing) {
         c.environment.connection = network_.access; c.environment.system_proxy = proxy_.state;
+        c.environment.physical_egress = physical_egress_status();
         c.environment.tun = network_.tunnel_known ? (network_.path.tunnel ? "detected" : "notDetected") : "unknown";
         if (network_.path.requires_physical_binding) {
             c.physical_network = physical::anonymous_diagnostics(network_.physical_diagnostics);
@@ -614,14 +619,14 @@ void AppController::on_changed() {
     refresh_network_labels();
     for (auto& event : events) {
         const bool failure = event.failure || is_failure_event(event.message);
-        logs_dirty_ |= events_.append(event.time, std::move(event.message), failure, event.context);
+        events_dirty_ |= events_.append(event.time, std::move(event.message), failure, event.context);
     }
     for (const auto& report : reports) {
         health_.append(report.sample);
         if (report.epoch == engine_->snapshot().epoch) last_checked_ = report.sample.time;
-        logs_dirty_ = true;
+        health_dirty_ = true;
     }
-    if (logs_dirty_ && !read_only_) SetTimer(window_, kTimerPersist, 1500, nullptr);
+    schedule_log_persistence();
     restore_campus_verification_schedule();
     if (!campus_verification_schedule_ && !engine_busy_ && !manual_queued_ && !manual_connection_pending_ &&
         !auto_armed_ && !auto_timer_retry_deadline_ && settings_.mode != MonitoringMode::manual &&
@@ -707,6 +712,7 @@ void AppController::on_timer(UINT_PTR id) {
         }
         case kTimerPersist:
             KillTimer(window_, kTimerPersist);
+            logs_timer_armed_ = false;
             persist_logs();
             break;
         case kTimerWake:
@@ -1494,7 +1500,8 @@ bool AppController::verify_campus_service() {
     auto_armed_ = false; next_due_.reset();
     auto_timer_retry_deadline_.reset();
     jobs_.push_back([this, request = *request, generation, epoch, failure_capture] {
-        const auto result = engine_->verify_campus(request);
+        auto result = ConnectionEngine::CampusVerificationResult::needsProof;
+        try { result = engine_->verify_campus(request); } catch (...) { engine_->cancel(); }
         if (result == ConnectionEngine::CampusVerificationResult::needsProof) record_operation_failure(failure_capture, "verificationFailed");
         else if (result == ConnectionEngine::CampusVerificationResult::unavailable) record_operation_failure(failure_capture, "identificationUnavailable");
         { std::lock_guard<std::mutex> inbox_lock(inbox_mutex_);
@@ -1787,6 +1794,12 @@ bool AppController::is_failure_event(const std::string& text) const {
     return false;
 }
 
+std::string AppController::physical_egress_status() const {
+    const auto state = snapshot();
+    if (!diagnostic_network_fresh_ || network_refresh_pending_ || state.sleeping || shutting_down_) return "unknown";
+    return win::physical_egress_status(network_, state.authentication_route);
+}
+
 records::ExportContext AppController::export_context() const {
     records::ExportContext context;
     context.version = kVersion;
@@ -1802,6 +1815,7 @@ records::ExportContext AppController::export_context() const {
     environment.refreshing = !current_environment;
     if (current_environment) {
         environment.connection = network_.access;
+        environment.physical_egress = physical_egress_status();
         environment.system_proxy = proxy_.state;
         environment.tun = network_.tunnel_known ? (network_.tunnel.tunnel ? "detected" : "notDetected") : "unknown";
     }
@@ -2088,14 +2102,33 @@ void AppController::save_settings() {
     if (!runtime_->write(L"settings.json", json::serialize(root, true))) notice_ = "error.writeFailed";
 }
 
+void AppController::schedule_log_persistence() {
+    if (read_only_ || shutting_down_ || logs_timer_armed_ ||
+        (!(events_dirty_ && events_writable_) && !(health_dirty_ && health_writable_))) return;
+    const auto delay = std::min(60000u, 1500u << log_write_failures_);
+    logs_timer_armed_ = SetTimer(window_, kTimerPersist, delay, nullptr) != 0;
+}
+
 void AppController::persist_logs() {
-    logs_dirty_ = false;
     if (read_only_) return;
+    const auto before = health_.items().size();
     health_.prune(wall_now());
+    health_dirty_ |= before != health_.items().size();
     bool ok = true;
-    if (events_writable_) ok = runtime_->write(L"events.json", json::serialize(events_.to_json())) && ok;
-    if (health_writable_) ok = runtime_->write(L"health.json", json::serialize(health_.to_json())) && ok;
-    if (!ok) notice_ = "error.writeFailed";
+    if (events_dirty_ && events_writable_) {
+        if (runtime_->write(L"events.json", json::serialize(events_.to_json()))) events_dirty_ = false;
+        else ok = false;
+    }
+    if (health_dirty_ && health_writable_) {
+        if (runtime_->write(L"health.json", json::serialize(health_.to_json()))) health_dirty_ = false;
+        else ok = false;
+    }
+    if (ok) log_write_failures_ = 0;
+    else {
+        notice_ = "error.writeFailed";
+        log_write_failures_ = std::min(6u, log_write_failures_ + 1);
+        schedule_log_persistence();
+    }
 }
 
 }  // namespace szu::app

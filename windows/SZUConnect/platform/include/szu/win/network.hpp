@@ -14,9 +14,15 @@
 
 namespace szu::win {
 
+struct PhysicalEgress {
+    physical::Route route;
+    std::string binding = "unknown";
+};
+
 struct NetworkSnapshot {
     PathSnapshot path;                         // fed to ConnectionEngine::receive_path
     physical::CandidateDiagnostics physical_diagnostics; // anonymous counts; no address or interface name
+    std::vector<PhysicalEgress> physical_egress; // transient interface flags, excluded from memory identity
     std::string access;                        // env.access.* key suffix: wifi | ethernet | multiple | tunnelHidden | none | unknown
     std::vector<std::string> adapter_names;    // friendly adapter names of live interfaces (UI only; never exported)
     routes::Evidence tunnel;                   // route-level VPN/TUN evidence (context, not proof)
@@ -29,6 +35,7 @@ struct NetworkSnapshot {
 };
 
 NetworkSnapshot capture_network(bool read_wifi_name = true);
+std::string physical_egress_status(const NetworkSnapshot&, const std::optional<physical::Route>& selected);
 std::optional<std::string> connected_ssid(std::uint64_t interface_luid);
 
 // Calls `changed` (on a system thread) after interface or route changes. Debounce in the caller.

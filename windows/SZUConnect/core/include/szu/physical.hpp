@@ -119,10 +119,13 @@ struct ExchangeHooks {
     std::function<bool(std::size_t, const Packet&)> send;
     std::function<std::vector<ExchangeEvent>(const std::vector<std::size_t>&, double)> receive;
     std::function<bool()> cancelled;
+    std::function<void()> prepare_send{};
 };
 // One common deadline for all associated resolvers; initial send plus bounded
 // retransmissions at 250/750 ms. No public/system DNS or TCP fallback.
 std::vector<std::string> dns_exchange(std::string_view host, std::uint16_t transaction,
                                     std::size_t servers, double deadline, const ExchangeHooks& hooks);
+ResolvedAddresses dns_exchange_with_ttl(std::string_view host, std::uint16_t transaction,
+                                        std::size_t servers, double deadline, const ExchangeHooks& hooks);
 
 }  // namespace szu::physical

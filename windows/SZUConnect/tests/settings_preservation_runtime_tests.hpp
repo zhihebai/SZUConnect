@@ -111,10 +111,14 @@ template<class Check> void run_settings_preservation_runtime_tests(Check& check)
             fake->files[L"settings.json"] = R"({"formatVersion":1,"monitoringMode":"manual"})";
             fake->files[damaged] = "damaged-fixture-original";
             if (read_failure) fake->unreadable.insert(damaged);
+            fake->physical_path = true;
             AppController app(nullptr, RuntimeMode::normal, std::move(services)); app.start();
+            app.check();
+            wifiruntime::wait_for([&] { app.on_changed(); return !app.health().items().empty() && !app.snapshot().busy; });
             app.set_mode(MonitoringMode::observe); app.on_changed(); app.on_timer(kTimerPersist); app.shutdown();
             const wchar_t* healthy = std::wstring(damaged) == L"events.json" ? L"health.json" : L"events.json";
-            check(fake->files.at(damaged) == "damaged-fixture-original" && !fake->wrote(damaged) && fake->wrote(healthy),
+            check(!app.health().items().empty() && fake->files.at(damaged) == "damaged-fixture-original" &&
+                  !fake->wrote(damaged) && fake->wrote(healthy),
                   "unreadable or unpreserved log remains intact while the independent healthy log still persists");
             check(read_failure ? fake->quarantined.empty() : fake->quarantined == std::vector<std::wstring>{damaged},
                   "read failures never quarantine and failed log quarantine does not authorize replacement");

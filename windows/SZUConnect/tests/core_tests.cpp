@@ -29,6 +29,7 @@
 #include "szu/presentation.hpp"
 #include "szu/srun.hpp"
 #include "test_support.hpp"
+#include "history_statistics_tests.hpp"
 #include "../platform/include/szu/win/http.hpp"
 #include "../app/smoke_options.hpp"
 
@@ -1010,6 +1011,7 @@ void engine_tests(Harness& t) {
 
 void records_tests(Harness& t) {
     t.begin("records");
+    run_history_statistics_tests(t);
     t.equal(records::iso8601(0), std::string("1970-01-01T00:00:00Z"), "epoch iso");
     t.equal(records::iso8601(1790000000), std::string("2026-09-21T14:13:20Z"), "2026 iso");
     for (double v : {0.0, 951782400.0, 1790000000.0, 4102444799.0})
@@ -1095,6 +1097,7 @@ void records_tests(Harness& t) {
         !records::diagnostics_export(ctx, health, log).find("recovery"), "older diagnostic contexts omit optional environment and recovery");
     records::DiagnosticEnvironment environment;
     environment.connection = "ethernet"; environment.system_proxy = "on"; environment.tun = "detected";
+    environment.physical_egress = "forwarding";
     ctx.environment = environment;
     records::DiagnosticRecovery recovery;
     recovery.state = "paused"; recovery.paused = recovery.network_available = recovery.network_remembered = true;
@@ -1104,6 +1107,7 @@ void records_tests(Harness& t) {
     auto report = records::diagnostics_export(ctx, health, log);
     t.check(report.find("environment")->string_at("connection") == "ethernet" &&
         report.find("environment")->string_at("systemProxy") == "on" && report.find("environment")->string_at("tun") == "detected" &&
+        report.find("environment")->string_at("physicalEgress") == "forwarding" &&
         report.find("recovery")->find("holdReasons")->size() == 2 &&
         report.find("recovery")->find("holdReasons")->items()[0].as_string() == "userPaused" &&
         report.find("recovery")->number_at("cooldownRemainingSeconds") == 13,
@@ -1114,12 +1118,13 @@ void records_tests(Harness& t) {
         copied.find(std::string(copy::text("records.diagnostics.protection.userPaused"))) != std::string::npos &&
         copied.find(copy::format("records.diagnostics.cooldown", {{"seconds", "13"}})) != std::string::npos,
         "copied diagnostics describe the same anonymous environment, protections and cooldown");
-    ctx.environment->connection = ctx.environment->system_proxy = ctx.environment->tun = "fixture-private-name-192.0.2.7";
+    ctx.environment->connection = ctx.environment->system_proxy = ctx.environment->tun = ctx.environment->physical_egress = "fixture-private-name-192.0.2.7";
     ctx.recovery->state = "fixture-private-scope";
     ctx.recovery->cooldown_remaining = 1e100;
     report = records::diagnostics_export(ctx, health, log);
     t.check(report.find("environment")->string_at("connection") == "unknown" &&
         report.find("environment")->string_at("systemProxy") == "unknown" && report.find("environment")->string_at("tun") == "unknown" &&
+        report.find("environment")->string_at("physicalEgress") == "unknown" &&
         report.find("recovery")->string_at("state") == "unknown" && report.find("recovery")->number_at("cooldownRemainingSeconds") == 86400 &&
         json::serialize(report).find("fixture-private") == std::string::npos &&
         records::diagnostics_summary_text(ctx, health).find("fixture-private") == std::string::npos,
@@ -1143,6 +1148,39 @@ void records_tests(Harness& t) {
 }
 
 void recovery_journal_tests(Harness& t) {
+    {
+        t.begin("unchanged-pending-checkpoint-retry");
+        szutest::ScriptedService retry;
+        retry.discovery = {{{"teaching", "confirmed"}, {"dormitory", "notChecked"}}};
+        retry.attempts["teaching"] = "uncertain";
+        const double fixed_clock = 50, fixed_wall = 1800000000;
+        bool writable = true; int write_calls = 0; std::string checkpoint;
+        ConnectionEngine::Hooks hooks;
+        hooks.now = [&] { return fixed_clock; }; hooks.wall_now = [&] { return fixed_wall; };
+        hooks.persist_recovery = [&](const std::string& value) {
+            ++write_calls;
+            if (!writable) return false;
+            checkpoint = value; return true;
+        };
+        ConnectionEngine engine(retry, hooks);
+        engine.configure(MonitoringMode::recover, CampusArea::teaching, ProbeMode::quick, Credentials{"fixture-account", "fixture-password"});
+        engine.restore_recovery(std::nullopt);
+        PathSnapshot path; path.usable = true; path.identity = "fixture-checkpoint-network"; engine.receive_path(path);
+        engine.connect();
+        t.check(retry.submissions.size() == 1 && engine.snapshot().pause_reason == HoldReason::uncertain,
+            "an uncertain fake submission retains the durable unresolved marker");
+        const auto previous_checkpoint = checkpoint; const int before_retry = write_calls;
+        writable = false; engine.connect();
+        t.check(write_calls > before_retry && checkpoint == previous_checkpoint && retry.submissions.size() == 1,
+            "an identical same-clock explicit retry checks durable storage before any second credential submission");
+        t.check(engine.snapshot().pause_reason == HoldReason::security,
+            "failed unchanged checkpoints produce a visible security hold instead of using an encoded cache");
+        writable = true; engine.resume_auto_login();
+        retry.attempts["teaching"] = "success"; retry.probes = {"offline", "online"};
+        engine.connect();
+        t.check(retry.submissions.size() == 2 && engine.snapshot().online && engine.snapshot().cooldown_remaining,
+            "restored storage and explicit resume admit exactly one later fake submission with cooldown");
+    }
     t.begin("durable-recovery");
     szutest::ScriptedService service;
     service.discovery = {{{"teaching", "confirmed"}, {"dormitory", "notChecked"}}};
@@ -1290,12 +1328,12 @@ void internet_check_tests(Harness& t) {
     };
     t.check(service.configure({enabled, disabled, preset}, true) && retains_report() && calls == 1 && raw.probe_calls == captured_base_calls,
         "Adding an unselected preset retains the completed result, actual mode and request durations without starting requests");
-    const std::vector<WebsiteTarget> edited_unselected_targets{{"other-preset", "https://other-preset.example/", false}, enabled};
-    t.check(service.configure(edited_unselected_targets, true) && retains_report() && calls == 1 &&
+    const std::vector<WebsiteTarget> moved_disabled{{"other-preset", "https://other-preset.example/", false}, enabled};
+    t.check(service.configure(moved_disabled, true) && retains_report() && calls == 1 &&
         raw.probe_calls == captured_base_calls,
         "Removing, editing and moving only disabled rows cannot replace the selected results or start requests");
-    const std::vector<WebsiteTarget> equivalent_selected_targets{{"a", "HTTPS://ALPHA.EXAMPLE:0443", true}};
-    t.check(service.configure(equivalent_selected_targets, true) && retains_report() && calls == 1 &&
+    const std::vector<WebsiteTarget> normalized_selected{{"a", "HTTPS://ALPHA.EXAMPLE:0443", true}};
+    t.check(service.configure(normalized_selected, true) && retains_report() && calls == 1 &&
         raw.probe_calls == captured_base_calls, "Equivalent normalized selected targets preserve their existing report");
     raw.default_probe = "offline";
     const auto private_hints = service.probe_verification_hints(CancelToken{});
@@ -1382,9 +1420,8 @@ void internet_check_tests(Harness& t) {
         t.check(!active.configure({enabled, enabled}, false) && !active_parent.cancelled(),
             "Invalid configuration cannot change the active strategy or cancel the accepted probe");
         if (change == "enabled" || change == "strategy") {
-            const std::vector<WebsiteTarget> changed_targets{enabled, {preset.id, preset.url, true}};
-            const bool reconfigured = change == "enabled" ? active.configure(changed_targets, true) :
-                active.configure({enabled, preset}, false);
+            const std::vector<WebsiteTarget> changed_targets{enabled, {preset.id, preset.url, change == "enabled"}};
+            const bool reconfigured = active.configure(changed_targets, change == "enabled");
             t.check(reconfigured && active_parent.cancelled() && !active.activity(),
                 "Changing the selected targets or proxy strategy cancels the owned probe instead of mixing configurations");
         } else if (change == "websitePath") {
@@ -1618,6 +1655,8 @@ void copy_tests(Harness& t) {
 #include "address_resolver_tests.hpp"
 #include "tun_parity_tests.hpp"
 #include "wired_session_recovery_tests.hpp"
+#include "session_expiry_recovery_tests.hpp"
+#include "recovery_latency_tests.hpp"
 #include "r11_parser_policy_tests.hpp"
 #include "config_boundary_tests.hpp"
 #include "r11_engine_sync_tests.hpp"
@@ -1661,6 +1700,8 @@ int main(int argc, char** argv) {
     address_resolver_tests(t);
     tun_parity_tests(t);
     wired_session_recovery_tests(t);
+    session_expiry_recovery_tests(t);
+    recovery_latency_tests(t);
     r11_parser_policy_tests(t);
     config_boundary_tests(t);
     r11_engine_sync_tests(t);

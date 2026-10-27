@@ -45,7 +45,8 @@ public:
     virtual ConnectivityReport probe_verification_hints(const CancelToken& token) {
         return probe(ProbeMode::quick, token);
     }
-    // Read-only campus discovery (no credentials). teaching: teaching only; dormitory/automatic: both.
+    // Read-only discovery. Dormitory requires both services; automatic may stop
+    // after a fresh exact-source teaching CONFIG. Neither operation carries credentials.
     virtual CampusDiscovery discover(CampusArea area, const CancelToken& token) = 0;
     // Exactly one concrete area (teaching or dormitory), at most one credential submission.
     virtual LoginAttempt attempt(const Credentials& credentials, CampusArea area, const CancelToken& token) = 0;
@@ -204,6 +205,7 @@ public:
         CampusArea area_ = CampusArea::automatic;
         ConnectivityReport selection_report_;
         bool prefer_teaching_ = false;
+        bool prefer_dormitory_ = false;
         std::optional<physical::Route> route_;
         std::vector<std::string> merging_record_ids_;
     };
@@ -220,6 +222,7 @@ public:
         CampusArea area_ = CampusArea::automatic;
         ConnectivityReport selection_report_;
         bool prefer_teaching_ = false;
+        bool prefer_dormitory_ = false;
         std::optional<physical::Route> route_;
         EngineStatus previous_status_ = EngineStatus::idle;
     };
@@ -251,6 +254,7 @@ public:
 
 private:
     static constexpr double kCampusServiceRefreshSeconds = 15 * 60;
+    static constexpr double kSessionAuditSeconds = 15;
     struct CampusServiceContext {
         std::uint64_t epoch = 0, memory_generation = 0;
         CampusArea area = CampusArea::automatic;
@@ -265,6 +269,13 @@ private:
         CampusServiceContext context;
         double refresh_after = 0;
     };
+    struct PreparationRetry {
+        CampusServiceContext context;
+        std::uint64_t credential_generation = 0;
+        CampusArea target = CampusArea::automatic;
+        unsigned failures = 0;
+        double after = 0;
+    };
     bool run(OperationKind kind, bool may_authenticate, bool force);
     void perform(const ConnectionPolicy::Operation& op, const CancelToken& token, bool may_authenticate, bool force);
     void confirm_remembered_campus_service(const ConnectionPolicy::Operation& op, const CancelToken& token,
@@ -274,7 +285,7 @@ private:
     double now() const { return hooks_.now(); }
 
     // helpers; caller holds mutex_
-    bool persist_recovery_locked();
+    bool persist_recovery_locked(bool require_write = false);
     bool paused_locked() const;
     std::optional<HoldReason> pause_reason_locked() const;
     AutoLoginState auto_login_locked() const;
@@ -291,7 +302,7 @@ private:
                                const LoginAttempt& attempt);
     void refresh_memory_locked();
     bool memory_ambiguous_locked() const { return tunnel_ || multiple_physical_ || descriptors_.size() > 1; }
-    bool prefers_teaching_locked() const;
+    std::optional<CampusArea> remembered_entry_locked() const;
     std::optional<CampusRoutingResolution> current_routing_locked() const;
     bool needs_dormitory_eligibility_locked() const;
     bool needs_memory_update_locked() const;
@@ -300,10 +311,11 @@ private:
     void record_routing_locked(CampusArea choice, const ConnectivityReport& report,
                                const CampusDiscovery& discovery, const CampusRoutingResolution& routing);
     std::optional<CampusArea> verified_scope_locked(CampusArea choice, const ConnectivityReport& report,
-                                                   const CampusDiscovery& discovery, bool bound, bool prefer_teaching) const;
+                                                   const CampusDiscovery& discovery, bool bound, bool prefer_teaching, bool prefer_dormitory = false) const;
     std::optional<AuthenticationScope> authentication_scope_locked() const;
     std::optional<double> cooldown_remaining_locked() const;
     bool can_prioritize_recovery_locked() const;
+    bool preparation_retry_current_locked(CampusArea target) const;
     std::string remember_blocker_locked() const;
     RememberResult remember_rejection_locked() const;
     bool owns_remember_locked(const RememberRequest& request) const;
@@ -327,7 +339,8 @@ private:
     bool online_ = false;
     int consecutive_partial_ = 0;
     int consecutive_transport_passes_ = 0;
-    bool partial_attempt_used_ = false;  // one recovery round per sustained partial episode
+    bool partial_attempt_used_ = false;  // one login submission per sustained partial episode
+    std::optional<PreparationRetry> preparation_retry_;
     MonitoringMode mode_ = MonitoringMode::manual;
     CampusArea area_ = CampusArea::automatic;
     ProbeMode probe_mode_ = ProbeMode::quick;
@@ -346,6 +359,7 @@ private:
     bool requires_physical_binding_ = false;
     std::optional<physical::Route> authentication_route_;
     std::optional<double> rapid_recovery_until_;
+    std::optional<double> session_audit_after_;
     bool full_check_pending_ = false;
     bool offer_forced_login_ = false;
     std::optional<LoginAttempt> last_attempt_;
@@ -357,6 +371,20 @@ private:
     bool recovery_write_blocked_ = false;
     bool recovery_submission_pending_ = false;
     std::optional<double> recovery_deadline_wall_;
+    struct RecoveryHold {
+        HoldReason reason;
+        HoldOrigin origin;
+        std::optional<CampusArea> area;
+        std::optional<std::uint64_t> generation;
+        bool operator==(const RecoveryHold&) const = default;
+    };
+    struct RecoveryJournal {
+        std::uint64_t generation;
+        std::optional<double> not_before;
+        std::vector<RecoveryHold> holds;
+        bool operator==(const RecoveryJournal&) const = default;
+    };
+    std::optional<RecoveryJournal> last_recovery_journal_;
     std::string last_recovery_json_;
     NetworkMemory memory_;
     bool memory_ok_ = false;

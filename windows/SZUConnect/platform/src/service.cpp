@@ -209,7 +209,10 @@ ConnectivityReport WinHttpService::probe(ProbeMode mode, const CancelToken& toke
         else r.error = HttpError::cancelled;
         const bool ok = r.ok() && (apple ? wire::is_connectivity_success(r.body, r.status) : wire::is_microsoft_success(r.body, r.status));
         EndpointResult result{endpoint_state(r, ok), r.elapsed};
-        if (result.state == EndpointState::redirect) result.campus_area_hint = r.campus_area_hint;
+        if (result.state == EndpointState::redirect) {
+            result.campus_area_hint = r.campus_area_hint;
+            result.authentication_required = r.campus_area_hint && r.authentication_required;
+        }
         std::lock_guard<std::mutex> lock(mutex);
         (apple ? report.apple : report.microsoft) = result;
         if (mode == ProbeMode::quick && (result.succeeded() || (result.state == EndpointState::redirect && result.campus_area_hint)))
@@ -227,6 +230,7 @@ ConnectivityReport WinHttpService::probe(ProbeMode mode, const CancelToken& toke
     if (!current(*operation)) {
         report.apple.state = EndpointState::cancelled; report.microsoft.state = EndpointState::cancelled;
         report.apple.campus_area_hint.reset(); report.microsoft.campus_area_hint.reset();
+        report.apple.authentication_required = report.microsoft.authentication_required = false;
     }
     return report;
 }
@@ -257,7 +261,7 @@ CampusDiscovery WinHttpService::discover(CampusArea area, const CancelToken& tok
     discovery.teaching_client_bound = page_config.configuration.value && operation->binding->route &&
         page_config.configuration.value->ip == operation->binding->route->source_ipv4;
     if (!current(*operation)) return {};
-    if (area == CampusArea::teaching) return discovery;
+    if (area == CampusArea::teaching || (area == CampusArea::automatic && discovery.teaching_client_bound)) return discovery;
     HttpRequest dorm;
     dorm.url = "http://172.30.255.42:801/eportal";
     dorm.timeout_ms = kProbeTimeoutMs;
@@ -297,9 +301,8 @@ LoginAttempt WinHttpService::teaching(const Credentials& credentials, Scope& ope
         request.allow_cookies = true;
         HttpResponse r = this->get(*fixed, request, operation, token);
         if (retry && !token.cancelled() && wire::is_transient(portal_error(r))) {
-            // Only pre-submission credential-free pages/challenges are retried.
-            for (int step = 0; step < 16 && !token.cancelled(); ++step) std::this_thread::sleep_for(std::chrono::milliseconds(50));
-            if (!token.cancelled()) r = this->get(*fixed, request, operation, token);
+            // Retry pages and challenge requests only, never the login request.
+            if (!token.wait_for(0.8)) r = this->get(*fixed, request, operation, token);
         }
         return r;
     };

@@ -34,6 +34,7 @@ struct ParsedUrl {
 std::optional<ParsedUrl> parse_url(std::string_view url);
 // Only fixed public probes may supply a candidate. The Location and query are never returned.
 std::optional<CampusPortalHint> campus_redirect_hint(std::string_view location, std::string_view probe_url);
+bool campus_authentication_required(std::string_view location, std::string_view probe_url);
 bool is_allowed(std::string_view url);
 std::string percent_encode(std::string_view text);  // RFC 3986 unreserved characters pass through
 using Query = std::vector<std::pair<std::string, std::string>>;

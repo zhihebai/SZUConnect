@@ -432,13 +432,15 @@ inline void tun_parity_tests(Harness& t) {
                 "continuous proxy website failures never trigger automatic campus login or synthesize trust");
         t.check(f.website_calls > 0 && f.engine->snapshot().online,
                 "read-only website diagnostics retain the successful physical base fact");
-        t.check(f.engine->next_check_delay() >= 30, "supplement is consumed without a two-second monitoring loop");
+        t.check(f.engine->next_check_delay() >= 15, "supplement is consumed without a two-second monitoring loop");
     }
     {
         TunParityFixture f; f.advance(46);
         f.base.response = ConnectivityReport::simple(true, false); f.base.response.microsoft.state = EndpointState::redirect;
+        f.base.response.microsoft.campus_area_hint = CampusPortalHint::teaching;
+        f.base.response.microsoft.authentication_required = true;
         f.engine->automatic_round();
-        t.equal(f.engine->next_check_delay(), 5, "outside priority window a true partial base failure keeps five-second confirmation");
+        t.equal(f.engine->next_check_delay(), 1, "a bound login-required redirect confirms promptly outside the priority window");
         f.engine->automatic_round();
         t.equal(f.base.submissions.size(), std::size_t(1), "read-only website supplement cannot steal the second authentication confirmation");
         t.equal(f.website_calls, 0, "true base failure is not blocked by optional websites");

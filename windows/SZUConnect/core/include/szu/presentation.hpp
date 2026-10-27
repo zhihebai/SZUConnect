@@ -76,6 +76,7 @@ std::optional<double> parse_iso8601(std::string_view text);
 struct DiagnosticEnvironment {
     std::string connection = "unknown", system_proxy = "unknown", tun = "unknown";
     bool refreshing = false;
+    std::string physical_egress = "unknown";
 };
 
 struct DiagnosticRecovery {

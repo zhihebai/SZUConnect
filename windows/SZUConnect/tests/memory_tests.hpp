@@ -650,7 +650,7 @@ inline void memory_verification_tests(Harness& t) {
             t.check(!r.e->snapshot().last_discovery && r.e->snapshot().can_remember, "reliable online path offers verification without old proof");
             t.equal(r.e->trust_and_remember(), R::remembered, "online credential-free remember works for every mode and selected area");
             t.check(r.svc.discoveries == 1 && r.svc.discovery_areas.front() ==
-                    (area == CampusArea::teaching ? CampusArea::teaching : CampusArea::automatic),
+                    (area == CampusArea::teaching ? CampusArea::teaching : CampusArea::dormitory),
                     "remember discovers only the selected campus scope");
             t.check(r.svc.attempt_log.empty() && r.svc.submissions.empty() && r.svc.probe_calls == 1,
                     "verification never accesses authentication or runs another Internet check");
