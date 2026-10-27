@@ -779,7 +779,7 @@ void ConnectionEngine::perform(const ConnectionPolicy::Operation& op, const Canc
     ProbeMode probe_mode;
     std::uint64_t memory_gen;
     std::optional<physical::Route> expected_route;
-    bool bound = false, prioritized = false, awaiting_submission_proof = false, prefer_teaching = false, prefer_dormitory = false, session_audit = false;
+    bool bound = false, prioritized = false, awaiting_submission_proof = false, prefer_teaching = false, prefer_dormitory = false, session_audit = false, preparation_pending = false;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         memory_gen = memory_generation_;
@@ -799,7 +799,9 @@ void ConnectionEngine::perform(const ConnectionPolicy::Operation& op, const Canc
             probe_mode_ == ProbeMode::quick && !paused_locked() &&
             (memory_level_ == MatchLevel::medium || memory_level_ == MatchLevel::strong || policy_.authorized()) &&
             session_audit_after_ && now() >= *session_audit_after_;
-        probe_mode = awaiting_submission_proof || session_audit ? ProbeMode::complete : prioritized ? ProbeMode::quick : probe_mode_;
+        preparation_pending = kind == OperationKind::automatic && may_authenticate && bound && preparation_retry_ &&
+            preparation_retry_current_locked(preparation_retry_->target);
+        probe_mode = awaiting_submission_proof || session_audit || preparation_pending ? ProbeMode::complete : prioritized ? ProbeMode::quick : probe_mode_;
         const auto remembered_entry = remembered_entry_locked();
         prefer_teaching = remembered_entry == CampusArea::teaching;
         prefer_dormitory = remembered_entry == CampusArea::dormitory;
@@ -814,13 +816,14 @@ void ConnectionEngine::perform(const ConnectionPolicy::Operation& op, const Canc
     }
     if (token.cancelled()) return;
     const ConnectivityReport report = service_.probe_with_scope(probe_mode, token,
-        kind == OperationKind::automatic && may_authenticate && bound, (awaiting_submission_proof || session_audit) && bound);
+        kind == OperationKind::automatic && may_authenticate && bound, (awaiting_submission_proof || session_audit || preparation_pending) && bound);
     std::unique_lock<std::mutex> lock(mutex_);
     if (!policy_.owns(op) || token.cancelled() || expected_route != authentication_route_) return;
     if (probe_mode == ProbeMode::complete) full_check_pending_ = false;
     if (report.online() && rapid_recovery_until_) {
         rapid_recovery_until_.reset();
-        full_check_pending_ = prioritized && probe_mode_ == ProbeMode::complete;
+        full_check_pending_ = prioritized && probe_mode == ProbeMode::quick && probe_mode_ == ProbeMode::complete &&
+            !physical_hint(report.apple) && !physical_hint(report.microsoft);
     }
     if (kind == OperationKind::automatic && report.websites_deferred && report.complete_base_passed() && probe_mode_ == ProbeMode::complete)
         full_check_pending_ = true;
@@ -1407,7 +1410,7 @@ bool ConnectionEngine::preparation_retry_current_locked(CampusArea target) const
 }
 
 int ConnectionEngine::next_check_delay_locked() const {
-    if (status_ == EngineStatus::unavailable && mode_ == MonitoringMode::recover && !read_only_ && !paused_locked() &&
+    if (mode_ == MonitoringMode::recover && !read_only_ && !paused_locked() &&
         !cooldown_remaining_locked() && preparation_retry_ && preparation_retry_current_locked(preparation_retry_->target) &&
         now() < preparation_retry_->after) {
         return static_cast<int>(std::clamp(std::ceil(preparation_retry_->after - now()), 1.0, 300.0));

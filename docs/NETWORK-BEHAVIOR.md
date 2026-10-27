@@ -179,6 +179,8 @@ macOS 合并同一同步代码段内重复的完整物理租约采集。异步�
 
 Windows 对固定域名的加密解析设置有界任务队列，超时或取消后停止等待，丢弃迟到结果。已有合格 HTTPS 旧候选时，保留回退所需预算，避免底层查询清理拖过整轮截止时间。连接建立、发送前和结果返回时仍核验物理绑定及证书；认证提交不进入该队列。
 
+Windows 登录准备阶段失败后，重试等待期间检查两项基础结果，保留原截止时间；单项快速成功不会打断已确认的恢复流程。仅快速检测成功后需要补充完整检测时，才安排只读补检；不会用补检取代已到期的登录准备重试。
+
 - [URLSession 代理](https://developer.apple.com/documentation/foundation/urlsessionconfiguration/connectionproxydictionary)：未覆盖代理配置时采用系统设置。
 - [Apple VPN 路由](https://developer.apple.com/documentation/networkextension/routing-your-vpn-network-traffic)：路由、全量隧道和按应用规则可改变连接路径。
 - [WinHTTP 代理](https://learn.microsoft.com/en-us/windows/win32/api/winhttp/nf-winhttp-winhttpopen)：自动代理模式采用适用的系统和用户配置。

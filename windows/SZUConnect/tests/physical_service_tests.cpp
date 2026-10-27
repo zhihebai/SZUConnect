@@ -746,16 +746,22 @@ void verify_session_expiry_recovery(Checks& t) {
     }
 }
 void verify_unsent_preparation_recovery(Checks& t) {
-    for (const auto mode : {ProbeMode::quick, ProbeMode::complete}) for (const bool transport_failure : {false, true}) {
+    for (const auto mode : {ProbeMode::quick, ProbeMode::complete}) for (const bool transport_failure : {false, true})
+        for (const bool public_peer_first : {false, true}) {
         Backend backend; WinHttpService service(backend.hooks());
-        std::atomic<bool> preparation_ready{false}, session_online{false};
+        std::atomic<bool> preparation_ready{false}, session_online{false}, preparation_failed{false};
         backend.respond = [&](const HttpRequest& request, const auto&, const auto&) {
             const auto url = wire::parse_url(request.url);
+            if (public_peer_first && url->host == "www.apple.com" && !session_online && !preparation_failed) {
+                HttpResponse result; result.error = HttpError::timeout; return result;
+            }
             if (url->host == "www.msftconnecttest.com" && !session_online) {
+                if (public_peer_first && preparation_failed) std::this_thread::sleep_for(std::chrono::milliseconds(4));
                 HttpResponse result; result.status = 302; result.error = HttpError::redirect;
                 result.campus_area_hint = CampusPortalHint::teaching; result.authentication_required = true; return result;
             }
             if (url->path == "/cgi-bin/get_challenge" && !preparation_ready) {
+                preparation_failed = true;
                 if (!transport_failure) return success(R"({"error":"not_online_error"})");
                 HttpResponse result; result.error = HttpError::timeout; result.failure_stage = HttpFailureStage::transport; return result;
             }
