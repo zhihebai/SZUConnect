@@ -12,7 +12,7 @@
 
 | 平台 | 安装包 | 系统要求 |
 | --- | --- | --- |
-| macOS | [下载 DMG（1.0.0）](https://github.com/zhihebai/SZUConnect/releases/download/v1.0.0/SZUConnect-1.0.0-macOS-universal.dmg) | macOS 14+，Apple 芯片或 Intel |
+| macOS | [下载 DMG（1.1.0）](https://github.com/zhihebai/SZUConnect/releases/download/v1.1.0/SZUConnect-1.1.0-macOS-universal.dmg) | macOS 14+，Apple 芯片或 Intel |
 | Windows | [下载 EXE（1.1.0）](https://github.com/zhihebai/SZUConnect/releases/download/v1.1.0/SZUConnect-1.1.0-win-x64.exe) | Windows 11 x64 |
 
 [项目说明与使用教程（PDF）](https://github.com/zhihebai/SZUConnect/raw/refs/heads/main/docs/%E2%80%9C%E6%B7%B1%E5%A4%A7%E9%9A%8F%E8%BF%9E%E2%80%9D%E9%A1%B9%E7%9B%AE%E8%AF%B4%E6%98%8E%E4%B8%8E%E4%BD%BF%E7%94%A8%E6%95%99%E7%A8%8B-v1.0.pdf)
