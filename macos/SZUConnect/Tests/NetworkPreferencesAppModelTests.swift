@@ -11,10 +11,12 @@ private actor PreferencesConnectionService: ConnectionService {
         var resets = 0
     }
     private var calls = Calls()
+    private var queuedReports: [ConnectivityReport] = []
+    func queueReports(_ reports: [ConnectivityReport]) { queuedReports = reports }
     func resetConnections() async { calls.resets += 1 }
     func probe() async -> ConnectivityReport {
         calls.probes += 1
-        return ConnectivityReport(apple: true, microsoft: true)
+        return queuedReports.isEmpty ? ConnectivityReport(apple: true, microsoft: true) : queuedReports.removeFirst()
     }
     func confirmedCampusArea(area: CampusArea) async -> CampusArea? {
         calls.discoveries += 1
@@ -671,6 +673,54 @@ struct NetworkPreferencesAppModelTests {
             let reloaded = model(stores)
             expect(reloaded.wifiRecovery.allowedNetworks.map(\.ssid) == [ssid],
                    "Successful \(failedStore) retry preserves its sole Wi-Fi candidate after restart")
+        }
+
+        do {
+            let stores = try Stores(); defer { stores.remove() }
+            try seed(stores); _ = try seedLabels(stores)
+            let service = PreferencesConnectionService()
+            let app = AppModel(client: service, isolated: true, now: { date },
+                isolatedCredentials: Credentials(account: "fixture-account-24", password: "fixture-password-24"),
+                memoryStore: stores.memory, labelsStore: stores.labels, verificationSleep: { _ in })
+            app.setMonitoringMode(.recover)
+            app.wifiRecovery.requestWiFiNamePermission()
+            app.wifiRecovery.setAutoJoinEnabled(true)
+            let absent = NetworkContinuitySnapshot(identity: nil, linkActive: false)
+            app.applyEnvironmentObservation(PathObservation(usable: false, interfaces: "fixture-disconnected", constrained: false,
+                continuity: absent, capturedAt: date, wifiRadioPowered: false))
+            expect(app.wifiRecovery.status == .wifiOff && !app.wifiRecovery.allowedNetworks.isEmpty,
+                   "An identified disconnection retains its known targets and explains that Wi-Fi power is off")
+            app.applyEnvironmentObservation(PathObservation(usable: false, interfaces: "fixture-disconnected", constrained: false,
+                continuity: absent, capturedAt: date, wifiRadioPowered: true))
+            expect(app.wifiRecovery.status == .waiting && app.wifiRecovery.diagnosticSummary.contains("power=true"),
+                   "A radio power change is delivered even when the disconnected path itself is unchanged")
+            await app.wifiRecovery.refreshOnce()
+            expect(app.wifiRecovery.diagnosticSummary.contains("attempts=1")
+                   && app.wifiRecovery.diagnosticSummary.contains("notFound"),
+                   "The real model permits a fake find-network attempt while all physical links are absent")
+            let beforeLink = await service.snapshot()
+            expect(beforeLink.logins == 0 && beforeLink.discoveries == 0 && beforeLink.probes == 0,
+                   "Finding a physical Wi-Fi never submits credentials or starts a campus request before a usable link")
+            var present = NetworkContinuitySnapshot(identity: NetworkIdentity(fingerprint: "fixture-rejoined-network"), linkActive: true)
+            present.hasUsablePhysicalLink = true; present.descriptors = [descriptor]
+            present.label = .make(kind: .wifi, ssid: ssid)
+            app.applyEnvironmentObservation(PathObservation(usable: true, interfaces: "fixture-rejoined-wifi", constrained: false,
+                continuity: present, capturedAt: date, wifiRadioPowered: true))
+            expect(app.wifiRecovery.status == .connected && app.networkAvailable,
+                   "The arrived physical path stops Wi-Fi recovery and enables the normal connection pipeline")
+            await service.queueReports([ConnectivityReport(apple: false, microsoft: false),
+                                        ConnectivityReport(apple: false, microsoft: false),
+                                        ConnectivityReport(apple: true, microsoft: true)])
+            for _ in 0..<3 {
+                await app.runAutomaticCycle()
+                if (await service.snapshot()).logins > 0 { break }
+            }
+            let afterLink = await service.snapshot()
+            expect(afterLink.logins == 1 && app.isOnline,
+                   "After physical reconnection a remembered network completes one simulated campus login and confirmation")
+            let summary = app.diagnosticSummary
+            expect(summary.contains("wifiRecovery state=") && !summary.contains(ssid) && !summary.contains(firstID),
+                   "The model exports find-network state without Wi-Fi names or memory identifiers")
         }
 
         if failures.isEmpty { print("PASS NetworkPreferencesAppModelTests: \(checks) checks") }

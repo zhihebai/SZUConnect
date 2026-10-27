@@ -815,6 +815,9 @@ enum AppMaintenanceState: Equatable { case running, stopping, ready }
 
     private func receive(_ observation: PathObservation) {
         guard !isMaintaining else { return }
+        #if os(macOS)
+        defer { wifiRecovery.observeRadioPower(observation.wifiRadioPowered) }
+        #endif
         invalidateManualSnapshot(resumeMonitoring: true)
         defer { refreshSystemConnectivityIfNeeded() }
         observeWebsitePath(observation)
@@ -945,6 +948,9 @@ enum AppMaintenanceState: Equatable { case running, stopping, ready }
 
     func applyEnvironmentObservation(_ incoming: PathObservation) {
         guard !isMaintaining else { return }
+        #if os(macOS)
+        defer { wifiRecovery.observeRadioPower(incoming.wifiRadioPowered) }
+        #endif
         defer { if isolated && !diagnosticApplyingObservation { diagnosticFreshness.completeCurrent() } }
         physicalCollectedAt = incoming.capturedAt
         invalidateManualSnapshot(resumeMonitoring: true)
@@ -3455,6 +3461,9 @@ private extension AppModel {
             "protection reasons=\(recovery.holdReasons.map(\.rawValue).joined(separator: ",")) cooldownSeconds=\(recovery.cooldownRemainingSeconds.map(String.init) ?? "-")",
             SharedCopy.t("diagnostic.field.checkedAt") + (environment.refreshing ? unknown : (lastCheckedAt?.formatted(date: .numeric, time: .standard) ?? SharedCopy.t("connection.neverChecked"))),
             "campus state=\(campus.state) issue=\(campus.issue)"]
+        #if os(macOS)
+        lines.append(wifiRecovery.diagnosticSummary)
+        #endif
         if campus.issue != "none" { lines.append(SharedCopy.t("diagnostic.field.clues") + SharedCopy.t("campus.verify." + campus.issue + "Hint")) }
         if let lastAuthDiagnosticSummary { lines.append(SharedCopy.t("diagnostic.field.authenticationLast") + lastAuthDiagnosticSummary) }
         if !environment.refreshing, let lastRoutingDiagnostic { lines.append(SharedCopy.t("diagnostic.field.clues") + lastRoutingDiagnostic.summary) }
