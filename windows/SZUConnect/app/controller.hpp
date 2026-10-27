@@ -32,8 +32,8 @@ inline constexpr UINT kMsgTray = WM_APP + 3;
 inline constexpr UINT kMsgActivateWidget = WM_APP + 4;
 inline constexpr UINT_PTR kTimerAuto = 1, kTimerNetwork = 2, kTimerPersist = 3, kTimerSpin = 4, kTimerFeedback = 5, kTimerWake = 6, kTimerWiFi = 7, kTimerUiClock = 8;
 
-inline constexpr const char* kVersion = "1.0.0";
-inline constexpr const char* kBuild = "34";
+inline constexpr const char* kVersion = "1.1.0";
+inline constexpr const char* kBuild = "35";
 
 struct Settings {
     MonitoringMode mode = MonitoringMode::manual;  // a fresh install never checks or logs in on its own
@@ -236,6 +236,7 @@ private:
     void save_settings();
     bool save_website_preferences(const WebsitePreferences& preferences);
     void persist_logs();
+    void schedule_log_persistence();
     records::ExportContext export_context() const;
     void clear_system_connectivity(bool recheck_after_network_refresh = false);
     void refresh_system_connectivity(bool recheck_only = false);
@@ -324,7 +325,9 @@ private:
     bool network_refresh_pending_ = false;  // UI-thread gate until debounced physical identity is captured
     bool diagnostic_network_fresh_ = false; // display/export freshness only; wake waits for a new applied capture
     bool network_refresh_timer_armed_ = false;  // UI-thread scheduling, independent of the admission gate
-    bool logs_dirty_ = false;
+    bool events_dirty_ = false, health_dirty_ = false;
+    bool logs_timer_armed_ = false;
+    unsigned log_write_failures_ = 0;
     std::vector<std::string> failure_markers_;
 
     std::thread worker_;

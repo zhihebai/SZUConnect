@@ -29,6 +29,7 @@
 #include "szu/presentation.hpp"
 #include "szu/srun.hpp"
 #include "test_support.hpp"
+#include "history_statistics_tests.hpp"
 #include "../platform/include/szu/win/http.hpp"
 #include "../app/smoke_options.hpp"
 
@@ -1010,6 +1011,7 @@ void engine_tests(Harness& t) {
 
 void records_tests(Harness& t) {
     t.begin("records");
+    run_history_statistics_tests(t);
     t.equal(records::iso8601(0), std::string("1970-01-01T00:00:00Z"), "epoch iso");
     t.equal(records::iso8601(1790000000), std::string("2026-09-21T14:13:20Z"), "2026 iso");
     for (double v : {0.0, 951782400.0, 1790000000.0, 4102444799.0})
@@ -1146,6 +1148,39 @@ void records_tests(Harness& t) {
 }
 
 void recovery_journal_tests(Harness& t) {
+    {
+        t.begin("unchanged-pending-checkpoint-retry");
+        szutest::ScriptedService retry;
+        retry.discovery = {{{"teaching", "confirmed"}, {"dormitory", "notChecked"}}};
+        retry.attempts["teaching"] = "uncertain";
+        const double fixed_clock = 50, fixed_wall = 1800000000;
+        bool writable = true; int write_calls = 0; std::string checkpoint;
+        ConnectionEngine::Hooks hooks;
+        hooks.now = [&] { return fixed_clock; }; hooks.wall_now = [&] { return fixed_wall; };
+        hooks.persist_recovery = [&](const std::string& value) {
+            ++write_calls;
+            if (!writable) return false;
+            checkpoint = value; return true;
+        };
+        ConnectionEngine engine(retry, hooks);
+        engine.configure(MonitoringMode::recover, CampusArea::teaching, ProbeMode::quick, Credentials{"fixture-account", "fixture-password"});
+        engine.restore_recovery(std::nullopt);
+        PathSnapshot path; path.usable = true; path.identity = "fixture-checkpoint-network"; engine.receive_path(path);
+        engine.connect();
+        t.check(retry.submissions.size() == 1 && engine.snapshot().pause_reason == HoldReason::uncertain,
+            "an uncertain fake submission retains the durable unresolved marker");
+        const auto previous_checkpoint = checkpoint; const int before_retry = write_calls;
+        writable = false; engine.connect();
+        t.check(write_calls > before_retry && checkpoint == previous_checkpoint && retry.submissions.size() == 1,
+            "an identical same-clock explicit retry checks durable storage before any second credential submission");
+        t.check(engine.snapshot().pause_reason == HoldReason::security,
+            "failed unchanged checkpoints produce a visible security hold instead of using an encoded cache");
+        writable = true; engine.resume_auto_login();
+        retry.attempts["teaching"] = "success"; retry.probes = {"offline", "online"};
+        engine.connect();
+        t.check(retry.submissions.size() == 2 && engine.snapshot().online && engine.snapshot().cooldown_remaining,
+            "restored storage and explicit resume admit exactly one later fake submission with cooldown");
+    }
     t.begin("durable-recovery");
     szutest::ScriptedService service;
     service.discovery = {{{"teaching", "confirmed"}, {"dormitory", "notChecked"}}};

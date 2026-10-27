@@ -285,7 +285,7 @@ private:
     double now() const { return hooks_.now(); }
 
     // helpers; caller holds mutex_
-    bool persist_recovery_locked();
+    bool persist_recovery_locked(bool require_write = false);
     bool paused_locked() const;
     std::optional<HoldReason> pause_reason_locked() const;
     AutoLoginState auto_login_locked() const;
@@ -371,6 +371,20 @@ private:
     bool recovery_write_blocked_ = false;
     bool recovery_submission_pending_ = false;
     std::optional<double> recovery_deadline_wall_;
+    struct RecoveryHold {
+        HoldReason reason;
+        HoldOrigin origin;
+        std::optional<CampusArea> area;
+        std::optional<std::uint64_t> generation;
+        bool operator==(const RecoveryHold&) const = default;
+    };
+    struct RecoveryJournal {
+        std::uint64_t generation;
+        std::optional<double> not_before;
+        std::vector<RecoveryHold> holds;
+        bool operator==(const RecoveryJournal&) const = default;
+    };
+    std::optional<RecoveryJournal> last_recovery_journal_;
     std::string last_recovery_json_;
     NetworkMemory memory_;
     bool memory_ok_ = false;

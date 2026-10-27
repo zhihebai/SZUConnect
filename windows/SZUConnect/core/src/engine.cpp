@@ -192,6 +192,8 @@ void ConnectionEngine::configure(MonitoringMode mode, CampusArea area, ProbeMode
 bool ConnectionEngine::restore_recovery(const std::optional<std::string>& journal) {
     std::lock_guard<std::mutex> lock(mutex_);
     recovery_initialized_ = true;
+    last_recovery_journal_.reset();
+    last_recovery_json_.clear();
     if (!journal) return true;
     auto fail = [&] {
         Hold hold; hold.reason = HoldReason::security; policy_.add(hold);
@@ -238,40 +240,46 @@ bool ConnectionEngine::restore_recovery(const std::optional<std::string>& journa
     return true;
 }
 
-bool ConnectionEngine::persist_recovery_locked() {
+bool ConnectionEngine::persist_recovery_locked(bool require_write) {
     if (read_only_) return true;
     if (!hooks_.persist_recovery) return true; // In-memory test engines do not use storage.
     auto fail = [&] {
+        last_recovery_journal_.reset();
+        last_recovery_json_.clear();
         Hold hold; hold.reason = HoldReason::security; policy_.add(hold);
         return false;
     };
     if (!recovery_initialized_ || recovery_write_blocked_) return fail();
-    json::Value value = json::Value::object(), entries = json::Value::array();
-    value.set("schema", json::Value::number(1));
-    value.set("generation", json::Value::number(static_cast<double>(generation_)));
+    RecoveryJournal journal{generation_, recovery_deadline_wall_, {}};
     bool uncertain = false;
     for (const auto& hold : policy_.holds()) {
         if (hold.epoch) continue;
+        journal.holds.push_back({hold.reason, hold.origin, hold.area, hold.generation});
+        uncertain = uncertain || hold.reason == HoldReason::uncertain;
+    }
+    if (recovery_submission_pending_ && !uncertain)
+        journal.holds.push_back({HoldReason::uncertain, HoldOrigin::global, std::nullopt, std::nullopt});
+    if (last_recovery_journal_ == journal) {
+        if (require_write && !hooks_.persist_recovery(last_recovery_json_)) return fail();
+        return true;
+    }
+    json::Value value = json::Value::object(), entries = json::Value::array();
+    value.set("schema", json::Value::number(1));
+    value.set("generation", json::Value::number(static_cast<double>(journal.generation)));
+    for (const auto& hold : journal.holds) {
         json::Value entry = json::Value::object();
         entry.set("reason", json::Value::number(static_cast<int>(hold.reason)));
         entry.set("origin", json::Value::number(static_cast<int>(hold.origin)));
         if (hold.area) entry.set("area", json::Value::string(std::string(to_string(*hold.area))));
         if (hold.generation) entry.set("generation", json::Value::number(static_cast<double>(*hold.generation)));
         entries.push(std::move(entry));
-        uncertain = uncertain || hold.reason == HoldReason::uncertain;
-    }
-    if (recovery_submission_pending_ && !uncertain) {
-        json::Value entry = json::Value::object();
-        entry.set("reason", json::Value::number(static_cast<int>(HoldReason::uncertain)));
-        entry.set("origin", json::Value::number(static_cast<int>(HoldOrigin::global)));
-        entries.push(std::move(entry));
     }
     value.set("holds", std::move(entries));
-    if (recovery_deadline_wall_) value.set("notBefore", json::Value::number(*recovery_deadline_wall_));
+    if (journal.not_before) value.set("notBefore", json::Value::number(*journal.not_before));
     const auto data = json::serialize(value);
-    if (data == last_recovery_json_) return true;
-    if (!hooks_.persist_recovery(data)) return fail();
+    if ((require_write || data != last_recovery_json_) && !hooks_.persist_recovery(data)) return fail();
     last_recovery_json_ = data;
+    last_recovery_journal_ = std::move(journal);
     return true;
 }
 
@@ -959,7 +967,7 @@ void ConnectionEngine::perform(const ConnectionPolicy::Operation& op, const Canc
     policy_.attempt_started(reservation_started);
     recovery_deadline_wall_ = hooks_.wall_now() + 90;
     recovery_submission_pending_ = true;
-    if (!persist_recovery_locked()) { status_ = EngineStatus::security; return; }
+    if (!persist_recovery_locked(true)) { status_ = EngineStatus::security; return; }
     // Reserve the sustained-partial budget before invoking the transport. Restore
     // only a definitely-unsent preparation failure; uncertain results keep it spent.
     partial_attempt_used_ = true;

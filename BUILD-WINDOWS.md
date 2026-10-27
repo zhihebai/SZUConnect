@@ -82,7 +82,7 @@ ctest --test-dir /tmp/SZUConnect-core --output-on-failure
 
 ## 发行包
 
-下载文件名只保留产品版本，如 `SZUConnect-1.0.0-win-x64.exe`；构建号保留在内部版本元数据、诊断文件及打包回执中，界面只显示产品版本。打包核对资源文件、应用常量、manifest、EXE 版本资源及 x64 PE 标识，生成独立 EXE、内部验证 ZIP 与回执。Windows 公开下载仅提供 EXE。
+下载文件名只保留产品版本，如 `SZUConnect-1.1.0-win-x64.exe`；构建号保留在内部版本元数据、诊断文件及打包回执中，界面只显示产品版本。打包核对资源文件、应用常量、manifest、EXE 版本资源及 x64 PE 标识，生成独立 EXE、内部验证 ZIP 与回执。Windows 公开下载仅提供 EXE。
 
 内部 ZIP 仅包含 `SZUConnect.exe`，须与独立 EXE 字节一致，不对外发布。原生离线回执、独立包清单和校验文件保存在仓库外的构建产物中，不放入 ZIP。
 

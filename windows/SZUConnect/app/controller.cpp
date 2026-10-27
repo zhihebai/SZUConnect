@@ -290,6 +290,7 @@ void AppController::shutdown() {
     for (const auto id : {kTimerAuto, kTimerNetwork, kTimerPersist, kTimerWake, kTimerWiFi}) KillTimer(window_, id);
     auto_armed_ = false; next_due_.reset(); auto_timer_retry_deadline_.reset();
     network_refresh_timer_armed_ = false;
+    logs_timer_armed_ = false;
     { std::lock_guard<std::mutex> lock(wifi_mutex_); wifi_schedule_.cancel(); }
     runtime_->stop_watchers();
     engine_->cancel();
@@ -311,7 +312,7 @@ void AppController::shutdown() {
     if (system_probe_worker_.joinable()) system_probe_worker_.join();
     if (compat_thread_.joinable()) compat_thread_.join();
     if (diagnostics_export_worker_.joinable()) diagnostics_export_worker_.join();
-    if (logs_dirty_) persist_logs();
+    if (events_dirty_ || health_dirty_) persist_logs();
 }
 
 void AppController::post_changed() {
@@ -618,14 +619,14 @@ void AppController::on_changed() {
     refresh_network_labels();
     for (auto& event : events) {
         const bool failure = event.failure || is_failure_event(event.message);
-        logs_dirty_ |= events_.append(event.time, std::move(event.message), failure, event.context);
+        events_dirty_ |= events_.append(event.time, std::move(event.message), failure, event.context);
     }
     for (const auto& report : reports) {
         health_.append(report.sample);
         if (report.epoch == engine_->snapshot().epoch) last_checked_ = report.sample.time;
-        logs_dirty_ = true;
+        health_dirty_ = true;
     }
-    if (logs_dirty_ && !read_only_) SetTimer(window_, kTimerPersist, 1500, nullptr);
+    schedule_log_persistence();
     restore_campus_verification_schedule();
     if (!campus_verification_schedule_ && !engine_busy_ && !manual_queued_ && !manual_connection_pending_ &&
         !auto_armed_ && !auto_timer_retry_deadline_ && settings_.mode != MonitoringMode::manual &&
@@ -711,6 +712,7 @@ void AppController::on_timer(UINT_PTR id) {
         }
         case kTimerPersist:
             KillTimer(window_, kTimerPersist);
+            logs_timer_armed_ = false;
             persist_logs();
             break;
         case kTimerWake:
@@ -2100,14 +2102,33 @@ void AppController::save_settings() {
     if (!runtime_->write(L"settings.json", json::serialize(root, true))) notice_ = "error.writeFailed";
 }
 
+void AppController::schedule_log_persistence() {
+    if (read_only_ || shutting_down_ || logs_timer_armed_ ||
+        (!(events_dirty_ && events_writable_) && !(health_dirty_ && health_writable_))) return;
+    const auto delay = std::min(60000u, 1500u << log_write_failures_);
+    logs_timer_armed_ = SetTimer(window_, kTimerPersist, delay, nullptr) != 0;
+}
+
 void AppController::persist_logs() {
-    logs_dirty_ = false;
     if (read_only_) return;
+    const auto before = health_.items().size();
     health_.prune(wall_now());
+    health_dirty_ |= before != health_.items().size();
     bool ok = true;
-    if (events_writable_) ok = runtime_->write(L"events.json", json::serialize(events_.to_json())) && ok;
-    if (health_writable_) ok = runtime_->write(L"health.json", json::serialize(health_.to_json())) && ok;
-    if (!ok) notice_ = "error.writeFailed";
+    if (events_dirty_ && events_writable_) {
+        if (runtime_->write(L"events.json", json::serialize(events_.to_json()))) events_dirty_ = false;
+        else ok = false;
+    }
+    if (health_dirty_ && health_writable_) {
+        if (runtime_->write(L"health.json", json::serialize(health_.to_json()))) health_dirty_ = false;
+        else ok = false;
+    }
+    if (ok) log_write_failures_ = 0;
+    else {
+        notice_ = "error.writeFailed";
+        log_write_failures_ = std::min(6u, log_write_failures_ + 1);
+        schedule_log_persistence();
+    }
 }
 
 }  // namespace szu::app
