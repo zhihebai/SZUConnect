@@ -141,6 +141,7 @@ final class WiFiRecoveryController: NSObject, ObservableObject, CLLocationManage
     private let requestsSystemPermission: Bool
     private let preferencesReadOnly: Bool
     private let retryDelays: [TimeInterval]
+    private let protectedRetryDelays: [TimeInterval]
     // Tests advance a paired clock and sleeper; normal runs use the system defaults.
     private let now: () -> Date
     private let retrySleep: @Sendable (TimeInterval) async throws -> Void
@@ -151,6 +152,10 @@ final class WiFiRecoveryController: NSObject, ObservableObject, CLLocationManage
     private var authorization: WiFiRecoveryAuthorization?
     private var operation: Task<Void, Never>?
     private var operationID: UUID?
+    private var operationRunning = false
+    private var radioPowered: Bool?
+    private var attemptCount = 0
+    private var recentResults: [String] = []
     private var failures = 0
     private var nextAttempt = Date.distantPast
     private var locationManager: CLLocationManager?
@@ -160,7 +165,8 @@ final class WiFiRecoveryController: NSObject, ObservableObject, CLLocationManage
 
     init(preferencesURL: URL?, service: any WiFiRecoveryServicing = CoreWLANRecoveryService(),
          startAutomatically: Bool = true, requestsSystemPermission: Bool = true, preferencesReadOnly: Bool = false,
-         retryDelays: [TimeInterval] = [15, 30, 60, 120, 300],
+         retryDelays: [TimeInterval] = [2, 5, 10, 20, 30, 60, 120, 300],
+         protectedRetryDelays: [TimeInterval] = [15, 30, 60, 120, 300],
          now: @escaping () -> Date = Date.init,
          retrySleep: @escaping @Sendable (TimeInterval) async throws -> Void = {
              try await Task.sleep(for: .seconds($0))
@@ -171,6 +177,7 @@ final class WiFiRecoveryController: NSObject, ObservableObject, CLLocationManage
         self.requestsSystemPermission = requestsSystemPermission
         self.preferencesReadOnly = preferencesReadOnly
         self.retryDelays = retryDelays.isEmpty ? [300] : retryDelays.map { max(0.01, $0) }
+        self.protectedRetryDelays = protectedRetryDelays.isEmpty ? [300] : protectedRetryDelays.map { max(0.01, $0) }
         self.now = now
         self.retrySleep = retrySleep
         super.init()
@@ -398,6 +405,36 @@ final class WiFiRecoveryController: NSObject, ObservableObject, CLLocationManage
     }
     /// Current connectivity and optional setup readiness are independent presentation facts.
     var hasExistingConnection: Bool { hasPhysicalConnection && !sleeping }
+    /// A real power transition can make an old missing-network deadline obsolete.
+    /// Identical polls preserve backoff; a running scan keeps its ownership.
+    func observeRadioPower(_ powered: Bool?) {
+        guard !isMaintaining, !preferencesReadOnly, let powered, radioPowered != powered else { return }
+        radioPowered = powered
+        noteResult(powered ? "powerOn" : "powerOff")
+        guard mayRecover else { updateIdleStatus(); return }
+        if operationRunning {
+            if !powered { invalidate(); updateIdleStatus() }
+            return
+        }
+        guard powered || powerOnWhenDisconnected else { updateIdleStatus(); return }
+        resetBackoff()
+        invalidate()
+        updateIdleStatus()
+        scheduleIfNeeded()
+    }
+
+    /// Fixed state names and bounded counters only; never includes SSIDs or errors.
+    var diagnosticSummary: String {
+        let interval = nextAttempt.timeIntervalSince(now())
+        let remaining = interval.isFinite ? Int(max(0, min(300, interval)).rounded(.up)) : 0
+        let stage = operation == nil ? "idle" : operationRunning ? "radio" : "waiting"
+        return "wifiRecovery state=\(status) enabled=\(autoJoinEnabled) allowed=\(allowRecovery) physical=\(hasPhysicalConnection) sleeping=\(sleeping) permission=\(permissionStatus) selected=\(selectedNetworkIDs.count) power=\(radioPowered.map(String.init) ?? "unknown") stage=\(stage) attempts=\(attemptCount) retrySeconds=\(remaining) recent=\(recentResults.joined(separator: ","))"
+    }
+
+    private func noteResult(_ result: String) {
+        recentResults.append(result)
+        if recentResults.count > 8 { recentResults.removeFirst(recentResults.count - 8) }
+    }
     private var mayRecover: Bool {
         !isMaintaining && !preferencesReadOnly && !preferencesUnreadable && autoJoinEnabled && allowRecovery && !hasPhysicalConnection && !sleeping
             && (powerOnWhenDisconnected || setupIssue == nil)
@@ -423,6 +460,7 @@ final class WiFiRecoveryController: NSObject, ObservableObject, CLLocationManage
             }
         }
         else if preferencesReadOnly || sleeping || !allowRecovery { status = .paused }
+        else if radioPowered == false && !powerOnWhenDisconnected { status = .wifiOff }
         else { status = .waiting }
     }
     private func scheduleIfNeeded() {
@@ -457,6 +495,9 @@ final class WiFiRecoveryController: NSObject, ObservableObject, CLLocationManage
 
     private func performAttempt() async {
         guard mayRecover, nextAttempt <= now() else { return }
+        operationRunning = true
+        defer { operationRunning = false }
+        attemptCount = min(attemptCount + 1, 1_000_000_000)
         let token = WiFiRecoveryAuthorization(); authorization = token
         nextAttempt = now().addingTimeInterval(retryDelays[min(failures, retryDelays.count - 1)])
         let selected = allowedNetworks.filter { selectedNetworkIDs.contains($0.id) }
@@ -464,6 +505,7 @@ final class WiFiRecoveryController: NSObject, ObservableObject, CLLocationManage
         if setupIssue == nil { status = .searching }
         let result = await service.recover(.init(networks: selected, allowPowerOn: powerOnWhenDisconnected), authorization: token)
         guard authorization === token, token.isValid, mayRecover, !Task.isCancelled else { return }
+        noteResult(String(describing: result))
         switch result {
         case .cancelled: updateIdleStatus()
         case .alreadyConnected: status = .connected
@@ -478,15 +520,17 @@ final class WiFiRecoveryController: NSObject, ObservableObject, CLLocationManage
         case .connectionUnclear: status = .connectionUnclear
         case .failed: status = .failed
         }
-        if result == .poweredOn || (powerOnWhenDisconnected && (result == .permissionRequired || result == .noSelection)) {
+        if result == .poweredOn || result == .joined || result == .alreadyConnected
+            || (powerOnWhenDisconnected && (result == .permissionRequired || result == .noSelection)) {
             // Power permission is independent of name access and network selection. Keep checking
             // the radio promptly while setup is incomplete; these checks cannot scan or associate.
             failures = 0
             nextAttempt = now().addingTimeInterval(min(2, retryDelays[0]))
             return
         }
-        let delay = retryDelays[min(failures, retryDelays.count - 1)]
-        failures = min(failures + 1, retryDelays.count - 1)
+        let delays = result == .notFound || result == .failed ? retryDelays : protectedRetryDelays
+        let delay = delays[min(failures, delays.count - 1)]
+        failures = min(failures + 1, max(retryDelays.count, protectedRetryDelays.count) - 1)
         nextAttempt = now().addingTimeInterval(delay)
     }
 

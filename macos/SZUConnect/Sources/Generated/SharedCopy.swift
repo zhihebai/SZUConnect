@@ -612,7 +612,7 @@ enum SharedCopy {
         "info.networkSharing.body": "开启 TUN 后，移动热点或网络共享\n可能导致校园登录连接失败。\n\n只用本机时，可暂时关闭移动热点，\n再点“检测连接”，无需重新记住网络。\n\n需要共享时，可先使用系统代理；\n或按代理软件说明调整共享来源。\n\n关闭热点会让其他设备暂时断网。\n深大随连不会自动关闭热点或修改共享。\n\n若未开启共享仍有此提示，\n请附排查报告联系项目反馈。",
         "info.networkSharing.title": "网络共享与 TUN",
         "info.open": "说明",
-        "info.probe.body": "快速检测：检查 Apple 和 Microsoft，有一项通过或提示校园登录时即结束。\n\n完整检测：检查 Apple、Microsoft 和已勾选的常用网址。\n\n后台检测沿用此设置；登录结果不明时，会临时使用完整检测。",
+        "info.probe.body": "快速检测：检查 Apple 和 Microsoft，有一项通过或提示校园登录时即结束。\n\n完整检测：检查 Apple、Microsoft 和已勾选的常用网址。\n\n自动重连会定期复查两项基础检测，避免漏掉校园登录失效。常用网址仍按所选方式检测。\n\n登录结果不明时，也会临时复查基础联网。",
         "info.probe.title": "选择检测方式",
         "info.proxyModes.body": "系统代理：支持这项设置的应用按 macOS 代理设置联网。\n\nVPN / TUN：可能通过虚拟连接接管流量，也可能影响校园登录。\n\n“优先物理连接”只表示系统优先的 Wi-Fi 或网线，不代表 TUN 的最终出口。\n\n规则模式按规则选择直连或代理；全局模式统一使用选定出口。直连模式不等于关闭 TUN。\n\n同时开启系统代理与 TUN 不保证更快。\n\nTUN 开关及实际分流，请以代理软件为准。",
         "info.proxyModes.title": "系统代理、TUN 与分流模式",

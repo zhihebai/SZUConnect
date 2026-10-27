@@ -4,6 +4,7 @@ import CryptoKit
 #if os(macOS)
 import SystemConfiguration
 import SystemConfiguration.SCDynamicStoreCopyDHCPInfo
+import CoreWLAN
 import Darwin
 #endif
 
@@ -394,6 +395,7 @@ struct PathObservation: Sendable {
     var physicalCandidates: [CampusPhysicalRoute] = []
     var physicalDiagnostics: CampusPhysicalNetwork.CandidateDiagnostics? = nil
     var capturedAt: Date = Date()
+    var wifiRadioPowered: Bool? = nil
 
     static func permitsProbe(pathSatisfied: Bool, physicalPath: Bool, tunnelUsable: Bool) -> Bool {
         pathSatisfied && (physicalPath || tunnelUsable)
@@ -406,9 +408,11 @@ struct PathObservation: Sendable {
         let physicalReport = CampusPhysicalNetwork.candidateReport()
         let candidates = physicalReport.candidates
         let physicalDiagnostics: CampusPhysicalNetwork.CandidateDiagnostics? = physicalReport.diagnostics
+        let wifiRadioPowered = CWWiFiClient.shared().interface()?.powerOn()
         #else
         let candidates: [CampusPhysicalRoute] = []
         let physicalDiagnostics: CampusPhysicalNetwork.CandidateDiagnostics? = nil
+        let wifiRadioPowered: Bool? = nil
         #endif
         let physical = path.usesInterfaceType(.wifi) || path.usesInterfaceType(.wiredEthernet)
         #if os(macOS)
@@ -429,7 +433,7 @@ struct PathObservation: Sendable {
                                interfaces: Array(Set(labels)).sorted().joined(separator: " · "),
                                constrained: path.isConstrained || path.isExpensive,
                                continuity: continuity, physicalCandidates: candidates,
-                               physicalDiagnostics: physicalDiagnostics)
+                               physicalDiagnostics: physicalDiagnostics, wifiRadioPowered: wifiRadioPowered)
     }
 }
 

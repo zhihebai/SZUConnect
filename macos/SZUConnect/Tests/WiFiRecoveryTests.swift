@@ -558,7 +558,7 @@ struct WiFiRecoveryTests {
                         delays: [TimeInterval] = [15], clock: ManualClock? = nil,
                         sleeper: ManualRetrySleeper? = nil) -> WiFiRecoveryController {
             let model = WiFiRecoveryController(preferencesURL: nil, service: service, startAutomatically: automatic,
-                requestsSystemPermission: false, retryDelays: delays, now: { clock?.now() ?? Date() },
+                requestsSystemPermission: false, retryDelays: delays, protectedRetryDelays: delays, now: { clock?.now() ?? Date() },
                 retrySleep: { seconds in
                     if let sleeper { try await sleeper.sleep(seconds) }
                     else { try await Task.sleep(for: .seconds(seconds)) }
@@ -909,6 +909,145 @@ struct WiFiRecoveryTests {
         check(await lateSleeper.history() == [lateTicket] && afterLateWakeCount == 2,
               "late completion produces one replacement operation without duplicate service entry")
         lateModel.setAutoJoinEnabled(false); await lateService.release(); await lateSleeper.cancelAll()
+        do {
+            let clock = ManualClock(); let sleeper = ManualRetrySleeper(clock)
+            let service = ControlledService()
+            let model = WiFiRecoveryController(preferencesURL: nil, service: service,
+                startAutomatically: true, requestsSystemPermission: false,
+                now: { clock.now() }, retrySleep: { try await sleeper.sleep($0) })
+            model.applyPermissionStatus(.authorized)
+            model.updateContext(allowRecovery: true, hasPhysicalConnection: false, sleeping: false, allowedNetworks: [first])
+            model.setAutoJoinEnabled(true)
+            await waitForCall(service)
+            await service.release(.notFound)
+            let retry = await nextTicket(sleeper)
+            check(retry.deadline == clock.now().addingTimeInterval(2),
+                  "A temporarily missing remembered Wi-Fi retries after two seconds with production defaults")
+            model.setAutoJoinEnabled(false); await sleeper.cancelAll()
+        }
+        func productionModel(_ service: ControlledService, _ clock: ManualClock,
+                             _ sleeper: ManualRetrySleeper) -> WiFiRecoveryController {
+            let model = WiFiRecoveryController(preferencesURL: nil, service: service,
+                startAutomatically: true, requestsSystemPermission: false,
+                now: { clock.now() }, retrySleep: { try await sleeper.sleep($0) })
+            model.applyPermissionStatus(.authorized)
+            model.updateContext(allowRecovery: true, hasPhysicalConnection: false, sleeping: false, allowedNetworks: [first])
+            model.setAutoJoinEnabled(true)
+            return model
+        }
+        do {
+            let clock = ManualClock(); let sleeper = ManualRetrySleeper(clock); let service = ControlledService()
+            let model = productionModel(service, clock, sleeper)
+            await waitForCall(service)
+            for (index, delay) in [2.0, 5, 10, 20, 30, 60, 120, 300, 300].enumerated() {
+                await service.release(index.isMultiple(of: 2) ? .notFound : .failed)
+                let retry = await nextTicket(sleeper)
+                check(retry.deadline == clock.now().addingTimeInterval(delay),
+                      "Transient target failures use the bounded production retry step \(index)")
+                clock.set(retry.deadline.addingTimeInterval(-0.001))
+                check(await sleeper.releaseDue() == 0, "Transient retry never runs before its deadline \(index)")
+                clock.set(retry.deadline); _ = await sleeper.releaseDue()
+                await waitForCall(service, count: index + 2)
+            }
+            model.setAutoJoinEnabled(false); await service.release(); await sleeper.cancelAll()
+        }
+        for protected in [WiFiRecoveryResult.permissionRequired, .unavailable, .systemConnectionRequired, .connectionUnclear, .wifiOff] {
+            let clock = ManualClock(); let sleeper = ManualRetrySleeper(clock); let service = ControlledService()
+            let model = productionModel(service, clock, sleeper)
+            await waitForCall(service); await service.release(protected)
+            let retry = await nextTicket(sleeper)
+            check(retry.deadline == clock.now().addingTimeInterval(15),
+                  "Permission, platform and unclear-link failures retain conservative retry: \(protected)")
+            model.setAutoJoinEnabled(false); await sleeper.cancelAll()
+        }
+        for progress in [WiFiRecoveryResult.poweredOn, .joined, .alreadyConnected] {
+            let clock = ManualClock(); let sleeper = ManualRetrySleeper(clock); let service = ControlledService()
+            let model = productionModel(service, clock, sleeper)
+            await waitForCall(service); await service.release(.notFound)
+            let firstRetry = await nextTicket(sleeper)
+            clock.set(firstRetry.deadline); _ = await sleeper.releaseDue(); await waitForCall(service, count: 2)
+            await service.release(progress)
+            let confirmation = await nextTicket(sleeper)
+            check(confirmation.deadline == clock.now().addingTimeInterval(2),
+                  "Radio progress permits prompt link observation: \(progress)")
+            clock.set(confirmation.deadline); _ = await sleeper.releaseDue(); await waitForCall(service, count: 3)
+            await service.release(.notFound)
+            let freshRetry = await nextTicket(sleeper)
+            check(freshRetry.deadline == clock.now().addingTimeInterval(2),
+                  "Radio progress clears an older failure escalation: \(progress)")
+            model.setAutoJoinEnabled(false); await sleeper.cancelAll()
+        }
+        do {
+            let clock = ManualClock(); let sleeper = ManualRetrySleeper(clock); let service = ControlledService()
+            let model = configured(service, automatic: true, delays: [120], clock: clock, sleeper: sleeper)
+            await waitForCall(service)
+            model.observeRadioPower(false)
+            await service.release(.notFound)
+            let oldRetry = await nextTicket(sleeper)
+            model.observeRadioPower(true)
+            await waitForCall(service, count: 2)
+            check(await sleeper.cancelledAndEmpty(oldRetry.id),
+                  "Opening Wi-Fi revokes a stale long wait and starts a fresh attempt")
+            let activeToken = await service.latestValid
+            model.observeRadioPower(true); model.observeRadioPower(nil)
+            let remainsValid = await service.latestValid
+            let unchangedCount = await service.count
+            check(activeToken && remainsValid && unchangedCount == 2,
+                  "Repeated or unknown power observations preserve the running scan and never overlap it")
+            await service.release(.notFound)
+            let retry = await nextTicket(sleeper)
+            model.observeRadioPower(true)
+            check(await sleeper.tickets() == [retry], "Identical powered-on polls preserve the exact retry ticket")
+            check(!model.diagnosticSummary.contains(first.ssid) && !model.diagnosticSummary.contains(first.id)
+                  && model.diagnosticSummary.contains("attempts=2"),
+                  "Find-network diagnostics expose bounded state and counters without network names or identifiers")
+            model.setAutoJoinEnabled(false); await sleeper.cancelAll()
+        }
+        do {
+            let radio = FakeRadio(); radio.results = [open]
+            let gate = BlockingScan(); radio.onScan = { gate.block() }
+            let model = WiFiRecoveryController(preferencesURL: nil, service: CoreWLANRecoveryService(radio: radio),
+                startAutomatically: false, requestsSystemPermission: false)
+            model.applyPermissionStatus(.authorized)
+            model.updateContext(allowRecovery: true, hasPhysicalConnection: false, sleeping: false, allowedNetworks: [first])
+            model.setAutoJoinEnabled(true); model.observeRadioPower(true)
+            let pending = Task { await model.refreshOnce() }
+            await waitUntil("power-revocation scan") { gate.started }
+            radio.powered = false; model.observeRadioPower(false)
+            gate.resume(); await pending.value
+            check(radio.joins == 0 && radio.powers == 0,
+                  "Powering off during a native-service scan revokes association without overriding power consent")
+        }
+        for blocked in 0..<6 {
+            let clock = ManualClock(); let sleeper = ManualRetrySleeper(clock); let service = ControlledService()
+            let model = configured(service, automatic: true, delays: [120], clock: clock, sleeper: sleeper)
+            await waitForCall(service); await service.release(.notFound)
+            let retry = await nextTicket(sleeper)
+            switch blocked {
+            case 0: model.setAutoJoinEnabled(false)
+            case 1: model.updateContext(allowRecovery: false, hasPhysicalConnection: false, sleeping: false, allowedNetworks: [first])
+            case 2: model.updateContext(allowRecovery: true, hasPhysicalConnection: true, sleeping: false, allowedNetworks: [first])
+            case 3: model.updateContext(allowRecovery: true, hasPhysicalConnection: false, sleeping: true, allowedNetworks: [first])
+            case 4: model.setNetworkSelected(first.id, selected: false)
+            default: model.applyPermissionStatus(.denied)
+            }
+            model.observeRadioPower(false); model.observeRadioPower(true)
+            await waitUntil("blocked power retry cancellation") { await sleeper.cancelledAndEmpty(retry.id) }
+            clock.advance(1000)
+            _ = await sleeper.releaseDue()
+            check(await service.count == 1, "Radio signals cannot bypass an existing stop condition \(blocked)")
+            model.setAutoJoinEnabled(false); await sleeper.cancelAll()
+        }
+        do {
+            let service = ControlledService()
+            let model = WiFiRecoveryController(preferencesURL: nil, service: service,
+                startAutomatically: false, requestsSystemPermission: false, preferencesReadOnly: true)
+            model.applyPermissionStatus(.authorized)
+            model.updateContext(allowRecovery: true, hasPhysicalConnection: false, sleeping: false, allowedNetworks: [first])
+            model.observeRadioPower(false); model.observeRadioPower(true)
+            await model.refreshOnce()
+            check(await service.count == 0, "Read-only radio observations never enter recovery or mutate preferences")
+        }
         check(await PreviewWiFiRecoveryService().recover(request, authorization: .init()) == .notFound, "preview implementation completes without system services")
         print("Wi-Fi recovery: \(passed) assertions passed; fake radio only, no real network or credentials.")
     }

@@ -246,7 +246,7 @@ enum AppMaintenanceState: Equatable { case running, stopping, ready }
     private var logURL: URL?
     private var healthURL: URL?
     private var recoveryJournalURL: URL?
-    private var lastRecoveryJournalData: Data?
+    private var lastRecoveryJournal: RecoveryJournal?
     private var recoveryJournalBlocked = false
     private var pendingRecoverySubmission = false
     @Published private var automaticCredentials: Credentials?
@@ -263,6 +263,7 @@ enum AppMaintenanceState: Equatable { case running, stopping, ready }
     // A real path transition gets a bounded recovery burst, never a new login permission.
     private var rapidRecoveryDeadline: Date?
     private var recoveryFullCheckPending = false
+    private var sessionAuditDeadline: TimeInterval?
     private var authorizationGraceDeadline: Date?
     private var authorizationGraceTask: Task<Void, Never>?
     // Authentication holds are scoped by saved-credential generation and network epoch.
@@ -753,7 +754,7 @@ enum AppMaintenanceState: Equatable { case running, stopping, ready }
             if let journal = try RecoveryJournal.read(url, now: now()) {
                 savedGeneration = journal.generation
                 policy.restoreRecovery(journal)
-                lastRecoveryJournalData = try journal.encoded()
+                lastRecoveryJournal = journal
                 holds = policy.holds.holds
                 automaticRecoveryPaused = pausedForAutomatic
             }
@@ -814,6 +815,9 @@ enum AppMaintenanceState: Equatable { case running, stopping, ready }
 
     private func receive(_ observation: PathObservation) {
         guard !isMaintaining else { return }
+        #if os(macOS)
+        defer { wifiRecovery.observeRadioPower(observation.wifiRadioPowered) }
+        #endif
         invalidateManualSnapshot(resumeMonitoring: true)
         defer { refreshSystemConnectivityIfNeeded() }
         observeWebsitePath(observation)
@@ -944,6 +948,9 @@ enum AppMaintenanceState: Equatable { case running, stopping, ready }
 
     func applyEnvironmentObservation(_ incoming: PathObservation) {
         guard !isMaintaining else { return }
+        #if os(macOS)
+        defer { wifiRecovery.observeRadioPower(incoming.wifiRadioPowered) }
+        #endif
         defer { if isolated && !diagnosticApplyingObservation { diagnosticFreshness.completeCurrent() } }
         physicalCollectedAt = incoming.capturedAt
         invalidateManualSnapshot(resumeMonitoring: true)
@@ -1620,6 +1627,7 @@ enum AppMaintenanceState: Equatable { case running, stopping, ready }
         manualActionRevision &+= 1
         invalidateManualSnapshot(resumeMonitoring: true)
         if mode == .quick { recoveryFullCheckPending = false }
+        sessionAuditDeadline = nil
         partialRecovery.resetConfirmation()
         probeMode = mode
         defaults?.set(mode.rawValue, forKey: "probeMode")
@@ -1659,22 +1667,32 @@ enum AppMaintenanceState: Equatable { case running, stopping, ready }
     }
     var hasMultipleNetworkAttachments: Bool { connectedPhysicalLabels.count > 1 || currentDescriptors.count > 1 }
     var usingWiredCampusRoute: Bool { authenticationRoute?.descriptor?.kind == "ethernet" }
-    var networkRemembered: Bool { memoryLevel == .medium || memoryLevel == .strong }
-    var prefersRememberedTeaching: Bool {
-        area == .automatic && authenticationRoute != nil && networkRemembered
-            && memory?.records.contains(where: {
-                $0.id == memoryMatch.record && $0.area == "teaching" && $0.proofTeaching
-            }) == true
+    var networkRemembered: Bool {
+        let level = memoryLevel
+        return level == .medium || level == .strong
+    }
+    var rememberedCampusArea: CampusArea? {
+        guard area == .automatic, authenticationRoute != nil,
+              currentDescriptors.count == 1, currentDescriptors[0].isReliable else { return nil }
+        let match = memoryMatch
+        guard match.level == .medium || match.level == .strong,
+              let record = memory?.records.first(where: { $0.id == match.record }),
+              record.proofTeaching else { return nil }
+        if record.area == "teaching" { return .teaching }
+        if record.area == "dormitory", record.proofDormitory { return .dormitory }
+        return nil
     }
     /// Presentation uses the same candidate resolution as a recovery round. It
     /// never grants permission or replaces that round's fresh discovery.
     var currentCampusRouting: CampusRoutingResolution? {
         guard let discovery = lastDiscovery else { return nil }
         let report = campusServiceSelectionReport ?? lastInternetCheck?.base ?? ConnectivityReport(apple: false, microsoft: false)
-        // A manual round can deliberately avoid a historical automatic preference.
-        // Preserve its actual decision while the attachment and evidence still match.
+        let rememberedArea = rememberedCampusArea
+        // Preserve the actual decision only while the attachment, candidate and
+        // fresh evidence still match the displayed context.
         if routingDiagnosticEpoch == networkEpoch, let actual = lastRoutingDiagnostic,
            actual.choice == area, actual.discovery == discovery,
+           actual.rememberedArea == rememberedArea,
            actual.apple == report.appleResult.campusAreaHint,
            actual.microsoft == report.microsoftResult.campusAreaHint {
             return actual.resolution
@@ -1682,7 +1700,7 @@ enum AppMaintenanceState: Equatable { case running, stopping, ready }
         return CampusRoutingResolution.resolve(choice: area,
             report: report,
             discovery: discovery, physicallyBound: requiresPhysicalBinding && authenticationRoute != nil,
-            preferTeaching: prefersRememberedTeaching)
+            rememberedArea: rememberedArea)
     }
     var needsDormitoryRecoveryEligibility: Bool {
         if area != .automatic { return area == .dormitory }
@@ -1808,7 +1826,7 @@ enum AppMaintenanceState: Equatable { case running, stopping, ready }
         let selectedArea = area
         // Independent verification obtains its own fresh hints after transport binding.
         // Old displayed results never choose the protocol for this new operation.
-        let preferTeaching = prefersRememberedTeaching
+        let rememberedArea = rememberedCampusArea
         let physicallyBound = requiresPhysicalBinding && authenticationRoute != nil
         let descriptors = currentDescriptors
         let identity = currentIdentity
@@ -1871,7 +1889,7 @@ enum AppMaintenanceState: Equatable { case running, stopping, ready }
             self.campusServiceSelectionReport = selectionReport
             self.lastDiscovery = discovered
             let resolution = CampusRoutingResolution.resolve(choice: selectedArea, report: selectionReport,
-                discovery: discovered, physicallyBound: physicallyBound, preferTeaching: preferTeaching)
+                discovery: discovered, physicallyBound: physicallyBound, rememberedArea: rememberedArea)
             let scopeChoice: CampusArea
             switch resolution {
             case .selected(let candidate, _): scopeChoice = candidate
@@ -1953,9 +1971,9 @@ enum AppMaintenanceState: Equatable { case running, stopping, ready }
         authenticationSummary = SharedCopy.t("campus.verify.checking")
         refreshRecovery()
         let physicallyBound = requiresPhysicalBinding && authenticationRoute != nil
-        let preferTeaching = prefersRememberedTeaching
+        let rememberedArea = rememberedCampusArea
         let dormitoryHint = report.appleResult.campusAreaHint == .dormitory || report.microsoftResult.campusAreaHint == .dormitory
-        let discoveryArea: CampusArea = context.area == .teaching || (preferTeaching && !dormitoryHint) ? .teaching : .automatic
+        let discoveryArea: CampusArea = context.area == .teaching || (rememberedArea == .teaching && !dormitoryHint) ? .teaching : .automatic
         let discovered = await client.discoverCampus(area: discoveryArea)
         guard !Task.isCancelled, !isMaintaining, !credentialsDeletionInProgress, !sessionReadOnly,
               !sleeping, networkAvailable, policy.owns(operation), context == currentCampusServiceContext,
@@ -1963,7 +1981,7 @@ enum AppMaintenanceState: Equatable { case running, stopping, ready }
         campusServiceSelectionReport = report
         lastDiscovery = discovered
         let resolution = CampusRoutingResolution.resolve(choice: context.area, report: report,
-            discovery: discovered, physicallyBound: physicallyBound, preferTeaching: preferTeaching)
+            discovery: discovered, physicallyBound: physicallyBound, rememberedArea: rememberedArea)
         let choice: CampusArea?
         switch resolution {
         case .selected(let area, _): choice = area
@@ -2334,7 +2352,7 @@ enum AppMaintenanceState: Equatable { case running, stopping, ready }
         if recoveryJournalBlocked, let url = recoveryJournalURL {
             do {
                 if FileManager.default.fileExists(atPath: url.path) { _ = try EventLogFile.quarantine(url) }
-                recoveryJournalBlocked = false; lastRecoveryJournalData = nil
+                recoveryJournalBlocked = false; lastRecoveryJournal = nil
             } catch { errorMessage = SharedCopy.t("error.recoveryJournalBackupFailed"); return }
         }
         pendingRecoverySubmission = false
@@ -2420,6 +2438,7 @@ enum AppMaintenanceState: Equatable { case running, stopping, ready }
             cancelOperations()
         }
         if mode != .recover { clearPriorityRecovery() }
+        sessionAuditDeadline = nil
         partialRecovery.resetConfirmation()
         monitoringMode = mode
         autoReconnect = mode == .recover
@@ -2734,12 +2753,17 @@ enum AppMaintenanceState: Equatable { case running, stopping, ready }
         // Immutable operation inputs; configuration edits invalidate the operation owner.
         let automaticAreaChoice = area == .automatic
         let authenticationArea = area
-        let preferTeaching = operation.kind == .automatic && prefersRememberedTeaching
+        let rememberedArea = rememberedCampusArea
         // A quick success proves only one public endpoint. Resolve an uncertain
         // submission with a complete, read-only round without changing the preference.
         let awaitingSubmissionProof = pendingRecoverySubmission || policy.holds.holds.contains { $0.reason == .uncertain }
         let prioritizedRound = operation.kind == .automatic && !awaitingSubmissionProof && canPrioritizeRecovery
-        let selectedProbeMode: ConnectivityProbeMode = awaitingSubmissionProof ? .complete : (prioritizedRound ? .quick : probeMode)
+        let quickRecovery = operation.kind == .automatic && mayAuthenticate && probeMode == .quick
+            && requiresPhysicalBinding && authenticationRoute != nil && automaticCredentials != nil
+            && (networkRemembered || policy.currentNetworkAuthorized) && !pausedForAutomatic
+        let sessionAudit = quickRecovery && sessionAuditDeadline.map { monotonicNow() >= $0 } == true
+        let selectedProbeMode: ConnectivityProbeMode = awaitingSubmissionProof || sessionAudit
+            ? .complete : (prioritizedRound ? .quick : probeMode)
         let selectedWebsites = customWebsiteTargets
         let selectedWebsiteStrategy = customWebsiteStrategy
         let diagnosticRound = diagnosticRoundContext(operation: operation)
@@ -2774,7 +2798,7 @@ enum AppMaintenanceState: Equatable { case running, stopping, ready }
         guard await prepareTransport(for: operation) else { diagnosticBindingFailed = true; return }
         if !isOnline || operation.kind == .manual { status = SharedCopy.t("status.checking.headline"); engineStatus = "checking" }
         probeOwner = operation
-        let boundSubmissionProof = awaitingSubmissionProof && requiresPhysicalBinding && authenticationRoute != nil
+        let boundSubmissionProof = (awaitingSubmissionProof || sessionAudit) && requiresPhysicalBinding && authenticationRoute != nil
         let internet = await runInternetCheck(mode: selectedProbeMode, targets: selectedWebsites, strategy: selectedWebsiteStrategy,
             prioritizeCampusRecovery: operation.kind == .automatic && mayAuthenticate && requiresPhysicalBinding && authenticationRoute != nil,
             deferWebsites: boundSubmissionProof, diagnosticContext: diagnosticRound.sample,
@@ -2792,9 +2816,24 @@ enum AppMaintenanceState: Equatable { case running, stopping, ready }
         if operation.kind == .automatic && internet.websitesDeferred && internet.completeBasePassed && probeMode == .complete {
             recoveryFullCheckPending = true
         }
-        let partial = operation.kind == .automatic ? internet.hasCampusRecoveryEvidence : internet.hasRecoveryEvidence
+        let boundCampusRedirect = requiresPhysicalBinding && authenticationRoute != nil
+            && (report.appleResult.campusAreaHint != nil || report.microsoftResult.campusAreaHint != nil)
+        let boundAuthenticationRequired = requiresPhysicalBinding && authenticationRoute != nil
+            && (report.appleResult.authenticationRequired || report.microsoftResult.authenticationRequired)
+        let partial = operation.kind == .automatic && boundCampusRedirect
+            ? boundAuthenticationRequired : (operation.kind == .automatic ? internet.hasCampusRecoveryEvidence : internet.hasRecoveryEvidence)
         if operation.kind == .automatic {
-            partialRecovery.observe(partial: partial, transportRecovered: internet.transportRecovered)
+            // Quick monitoring excludes optional websites. A periodic base-only
+            // check must observe both endpoints, including the peer quick mode skips.
+            partialRecovery.observe(partial: partial,
+                transportRecovered: internet.transportRecovered || (sessionAudit && internet.completeBasePassed))
+        }
+        if quickRecovery {
+            if boundCampusRedirect || !report.online || (sessionAudit && !internet.completeBasePassed) {
+                sessionAuditDeadline = monotonicNow()
+            } else if sessionAuditDeadline == nil || internet.completeBasePassed {
+                sessionAuditDeadline = monotonicNow() + (partialRecovery.needsTransportConfirmation ? 0 : 60)
+            }
         }
         let forced = force && operation.kind == .manual && mayAuthenticate
         let partialAutomatic = operation.kind == .automatic && partial && partialRecovery.shouldAttempt && mayAuthenticate
@@ -2848,13 +2887,7 @@ enum AppMaintenanceState: Equatable { case running, stopping, ready }
         }
         let generation = credentialGeneration(for: credentials)
         let manualRound = operation.kind == .manual
-        if !manualRound, requiresPhysicalBinding,
-           authenticationRoute == nil || (!networkRemembered && !policy.currentNetworkAuthorized) {
-            engineStatus = authenticationRoute == nil ? "unconfirmed" : "needsTrust"
-            status = SharedCopy.t("memory.remember")
-            authenticationSummary = SharedCopy.t("memory.notRemembered")
-            return
-        }
+        guard manualRound || admitAutomaticPhysicalRecovery() else { return }
         if !manualRound {
             if pausedForAutomatic {
                 status = SharedCopy.t("status.paused.headline"); detail = strongestHoldMessage
@@ -2888,7 +2921,7 @@ enum AppMaintenanceState: Equatable { case running, stopping, ready }
             // current hint. A fresh dormitory hint still gets its own service check.
             let hasDormitoryHint = report.appleResult.campusAreaHint == .dormitory
                 || report.microsoftResult.campusAreaHint == .dormitory
-            let discoveryArea: CampusArea = preferTeaching && !hasDormitoryHint ? .teaching : authenticationArea
+            let discoveryArea: CampusArea = rememberedArea == .teaching && !hasDormitoryHint ? .teaching : authenticationArea
             lastDiscovery = nil
             confirmedCampusServiceContext = nil
             confirmedCampusServiceDeadline = nil
@@ -2905,7 +2938,7 @@ enum AppMaintenanceState: Equatable { case running, stopping, ready }
         let allowUnsentFallback: Bool
         let routing = CampusRoutingDiagnostic(choice: authenticationArea, report: report, discovery: discovery,
             discoveryChecked: discoveryChecked, physicallyBound: requiresPhysicalBinding && authenticationRoute != nil,
-            preferTeaching: preferTeaching)
+            rememberedArea: rememberedCampusArea)
         lastRoutingDiagnostic = routing
         routingDiagnosticEpoch = networkEpoch
         record(SharedCopy.t("diagnostic.field.clues") + routing.summary)
@@ -2977,13 +3010,16 @@ enum AppMaintenanceState: Equatable { case running, stopping, ready }
         guard !Task.isCancelled, policy.owns(operation) else { return }
         // A forget / revoke while this round was in flight must not be overtaken by its stale plan.
         guard memoryGen == memoryGeneration else { return }
+        // Expiry can occur without a generation change while discovery is awaiting
+        // its replies. Recheck physical permission immediately before submission.
+        guard manualRound || admitAutomaticPhysicalRecovery() else { return }
         status = SharedCopy.t("status.loggingIn.headline"); detail = SharedCopy.t("status.loggingIn.detail")
         engineStatus = "loggingIn"
         let previousSubmissionCooldown = policy.cooldownState
         let previousSubmissionPending = pendingRecoverySubmission
         policy.authenticationAttemptStarted(now: now())
         pendingRecoverySubmission = true
-        guard persistRecoveryJournal() else { refreshRecovery(); return }
+        guard persistRecoveryJournal(requireWrite: true) else { refreshRecovery(); return }
         // Consume one recovery round, including an optional unsent-candidate fallback below.
         // An explicit manual retry remains available, but a persistent site fault never loops logins.
         partialRecovery.noteAttempt()
@@ -3051,7 +3087,7 @@ enum AppMaintenanceState: Equatable { case running, stopping, ready }
                 acceptReport(verification, internet: verificationReport)
                 if verification.online {
                     partialRecovery.observe(partial: verificationReport.hasCampusRecoveryEvidence,
-                                            transportRecovered: verificationReport.transportRecovered)
+                        transportRecovered: verificationReport.transportRecovered || (quickRecovery && verificationReport.completeBasePassed))
                     policy.observeProbe(online: true)
                     failedRound = false
                     setOnline()
@@ -3142,7 +3178,7 @@ enum AppMaintenanceState: Equatable { case running, stopping, ready }
         }
     }
     @discardableResult
-    private func persistRecoveryJournal() -> Bool {
+    private func persistRecoveryJournal(requireWrite: Bool = false) -> Bool {
         guard !isMaintaining else { return true }
         guard !sessionReadOnly else { return true }
         guard !isolated || recoveryJournalURL != nil else { return true }
@@ -3153,16 +3189,31 @@ enum AppMaintenanceState: Equatable { case running, stopping, ready }
         }
         let journal = RecoveryJournal(generation: savedGeneration, holds: policy.holds.holds,
             notBefore: policy.authenticationNotBefore, pendingSubmission: pendingRecoverySubmission)
+        // A credential submission always verifies a durable marker; UI and
+        // monitoring refreshes can skip an unchanged successful checkpoint.
+        guard requireWrite || journal != lastRecoveryJournal else { return true }
         do {
-            let data = try journal.encoded()
-            if data != lastRecoveryJournalData { try journal.write(url); lastRecoveryJournalData = data }
+            try journal.write(url)
+            lastRecoveryJournal = journal
             return true
         } catch {
+            lastRecoveryJournal = nil
             policy.suspendAuthentication(.security)
             errorMessage = SharedCopy.t("error.recoveryJournalWriteFailed")
             return false
         }
     }
+    private func admitAutomaticPhysicalRecovery() -> Bool {
+        guard requiresPhysicalBinding else { return true }
+        guard authenticationRoute != nil, networkRemembered || policy.currentNetworkAuthorized else {
+            engineStatus = authenticationRoute == nil ? "unconfirmed" : "needsTrust"
+            status = SharedCopy.t("memory.remember")
+            authenticationSummary = SharedCopy.t("memory.notRemembered")
+            return false
+        }
+        return true
+    }
+
     private func refreshRecovery() {
         guard !isMaintaining else { return }
         persistRecoveryJournal()
@@ -3184,6 +3235,9 @@ enum AppMaintenanceState: Equatable { case running, stopping, ready }
         else { recoverySummary = SharedCopy.t(busy ? "status.checking.headline" : "status.idle.headline") }
     }
     var recommendedCheckDelay: Int {
+        if monitoringMode == .recover, !sessionReadOnly, probeMode == .quick,
+           let deadline = sessionAuditDeadline, monotonicNow() >= deadline,
+           partialRecovery.needsTransportConfirmation, policy.canRunAutomatic, !sleeping, !pausedForAutomatic { return 2 }
         if let deadline = rapidRecoveryDeadline, now() < deadline, engineStatus == "idle" || engineStatus == "noNetwork",
            policy.canRunAutomatic, !sleeping { return 0 }
         if recoveryFullCheckPending, probeMode == .complete, monitoringMode == .recover, !sessionReadOnly, policy.canRunAutomatic, !sleeping,
@@ -3207,6 +3261,7 @@ enum AppMaintenanceState: Equatable { case running, stopping, ready }
     private func clearPriorityRecovery() {
         rapidRecoveryDeadline = nil
         recoveryFullCheckPending = false
+        sessionAuditDeadline = nil
     }
 
     var currentHealth: ConnectionHealth { health.snapshot(now: now()) }
@@ -3406,6 +3461,9 @@ private extension AppModel {
             "protection reasons=\(recovery.holdReasons.map(\.rawValue).joined(separator: ",")) cooldownSeconds=\(recovery.cooldownRemainingSeconds.map(String.init) ?? "-")",
             SharedCopy.t("diagnostic.field.checkedAt") + (environment.refreshing ? unknown : (lastCheckedAt?.formatted(date: .numeric, time: .standard) ?? SharedCopy.t("connection.neverChecked"))),
             "campus state=\(campus.state) issue=\(campus.issue)"]
+        #if os(macOS)
+        lines.append(wifiRecovery.diagnosticSummary)
+        #endif
         if campus.issue != "none" { lines.append(SharedCopy.t("diagnostic.field.clues") + SharedCopy.t("campus.verify." + campus.issue + "Hint")) }
         if let lastAuthDiagnosticSummary { lines.append(SharedCopy.t("diagnostic.field.authenticationLast") + lastAuthDiagnosticSummary) }
         if !environment.refreshing, let lastRoutingDiagnostic { lines.append(SharedCopy.t("diagnostic.field.clues") + lastRoutingDiagnostic.summary) }

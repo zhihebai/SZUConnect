@@ -48,6 +48,13 @@ enum CampusRedirectTarget {
         areaHint(location, relativeTo: url) != nil
     }
 
+    /// A status/success page can select an entry, but does not request another login.
+    static func authenticationRequired(_ location: String?, relativeTo url: URL) -> Bool {
+        guard areaHint(location, relativeTo: url) != nil, let location,
+              let target = URL(string: location, relativeTo: url)?.absoluteURL else { return false }
+        return !["/a79.htm", "/srun_portal_success", "/srun_portal_success_mobile"].contains(target.path)
+    }
+
     /// Only a typed selection hint survives parsing; no address, query or server data is kept.
     static func areaHint(_ location: String?, relativeTo url: URL) -> CampusPortalHint? {
         guard let location, !location.isEmpty, location.utf8.count <= 2048, !location.contains("\\"),
@@ -69,8 +76,24 @@ enum CampusRedirectTarget {
         case ("http", "172.30.255.42", 801):
             guard ["", "/", "/eportal"].contains(parts.percentEncodedPath) else { return nil }
             return .dormitory
+        case ("http", "172.30.255.42", 80):
+            guard ["/a70.htm", "/a79.htm"].contains(parts.percentEncodedPath),
+                  safeDormitoryQuery(parts.percentEncodedQuery) else { return nil }
+            return .dormitory
         default: return nil
         }
     }
 
+    private static func safeDormitoryQuery(_ query: String?) -> Bool {
+        guard var text = query else { return true }
+        for _ in 0..<4 {
+            guard !text.contains("\\"),
+                  !text.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }) else { return false }
+            guard text.contains("%") else { return true }
+            guard let decoded = text.removingPercentEncoding else { return false }
+            text = decoded
+        }
+        return !text.contains("%") && !text.contains("\\")
+            && !text.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) })
+    }
 }

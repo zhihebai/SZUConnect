@@ -20,6 +20,7 @@ private actor WiredSessionService: ConnectionService {
         let discoveries: [CampusArea]
         let discoveryRoutes: [String?]
         let attempts: [Attempt]
+        let probeModes: [ConnectivityProbeMode]
         var submissions: [Attempt] { attempts.filter(\.submitted) }
     }
     private var binding: CampusPhysicalRoute?
@@ -28,6 +29,11 @@ private actor WiredSessionService: ConnectionService {
     private var discoveries: [CampusArea] = []
     private var discoveryRoutes: [String?] = []
     private var attempts: [Attempt] = []
+    private var probeModes: [ConnectivityProbeMode] = []
+    private var simulatedSession: CampusPortalHint?
+    private var simulatedExpired = false
+    private var simulatedQuickExposesPortal = false
+    private var simulatedAuthenticationRequired = true
     private var reports: [ConnectivityReport] = []
     private var discovery = CampusDiscovery(teaching: .confirmed, dormitory: .confirmed)
     private var replies: [Reply] = []
@@ -55,6 +61,26 @@ private actor WiredSessionService: ConnectionService {
         return true
     }
     func resetConnections() { binding = nil }
+    func simulateSession(_ area: CampusPortalHint, expired: Bool, quickExposesPortal: Bool = false,
+                         authenticationRequired: Bool = true) {
+        simulatedSession = area; simulatedExpired = expired; simulatedQuickExposesPortal = quickExposesPortal
+        simulatedAuthenticationRequired = authenticationRequired
+    }
+    func probe(mode: ConnectivityProbeMode) async -> ConnectivityReport {
+        probeModes.append(mode)
+        guard let simulatedSession else { return await probe() }
+        probes.append(binding?.interfaceName)
+        let second: ConnectivityEndpointResult
+        if mode == .quick && !(simulatedExpired && simulatedQuickExposesPortal) {
+            second = .init(state: .notCompleted, elapsed: 0)
+        } else if simulatedExpired {
+            second = .init(state: .redirect, elapsed: 0, campusAreaHint: simulatedSession,
+                           authenticationRequired: simulatedAuthenticationRequired)
+        } else { second = .init(state: .success, elapsed: 0) }
+        let report = ConnectivityReport(appleResult: .init(state: .success, elapsed: 0), microsoftResult: second, mode: mode)
+        await suspendIfRequested(.probe)
+        return report
+    }
     func probe() async -> ConnectivityReport {
         probes.append(binding?.interfaceName)
         let report = reports.isEmpty ? ConnectivityReport(apple: false, microsoft: false) : reports.removeFirst()
@@ -74,6 +100,7 @@ private actor WiredSessionService: ConnectionService {
         guard !replies.isEmpty else { fatalError("Unexpected authentication attempt") }
         let reply = replies.removeFirst()
         attempts.append(Attempt(area: area, route: binding?.interfaceName, submitted: reply.submitted))
+        if reply.result.outcome == .success { simulatedExpired = false }
         return reply.result
     }
     func confirmedCampusArea(area: CampusArea) async -> CampusArea? {
@@ -84,7 +111,30 @@ private actor WiredSessionService: ConnectionService {
     }
     func snapshot() -> Snapshot {
         Snapshot(bindings: bindings, probes: probes, discoveries: discoveries,
-                 discoveryRoutes: discoveryRoutes, attempts: attempts)
+                 discoveryRoutes: discoveryRoutes, attempts: attempts, probeModes: probeModes)
+    }
+}
+
+private actor WiredSessionWaiter {
+    private var serial = 0
+    private var pending: [Int: (Int, CheckedContinuation<Void, Error>)] = [:]
+    func sleep(_ seconds: Int) async throws {
+        serial += 1
+        let id = serial
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                pending[id] = (seconds, continuation)
+            }
+        } onCancel: { Task { await self.cancel(id) } }
+    }
+    private func cancel(_ id: Int) { pending.removeValue(forKey: id)?.1.resume(throwing: CancellationError()) }
+    func next() -> (id: Int, delay: Int)? {
+        guard let id = pending.keys.min(), let value = pending[id] else { return nil }
+        return (id, value.0)
+    }
+    func release(_ id: Int) {
+        guard let value = pending.removeValue(forKey: id) else { fatalError("Missing fake session monitoring wait") }
+        value.1.resume()
     }
 }
 
@@ -114,8 +164,8 @@ struct WiredSessionRecoveryAppModelTests {
 
     private static func hinted(_ hint: CampusPortalHint, other: CampusPortalHint? = nil) -> ConnectivityReport {
         ConnectivityReport(appleResult: .init(state: other == nil ? .network : .redirect, elapsed: 0.01,
-                                              campusAreaHint: other),
-            microsoftResult: .init(state: .redirect, elapsed: 0.01, campusAreaHint: hint), mode: .complete)
+                                              campusAreaHint: other, authenticationRequired: true),
+            microsoftResult: .init(state: .redirect, elapsed: 0.01, campusAreaHint: hint, authenticationRequired: true), mode: .complete)
     }
     private static func check(_ condition: Bool, _ description: String) {
         guard condition else { fatalError("FAIL: \(description)") }
@@ -154,11 +204,17 @@ struct WiredSessionRecoveryAppModelTests {
     }
     private static func fixture(_ root: URL, service: WiredSessionService, clock: WiredSessionClock,
                                 area: CampusArea = .automatic, readOnly: Bool = false,
-                                hasCredentials: Bool = true) -> AppModel {
+                                hasCredentials: Bool = true, waiter: WiredSessionWaiter? = nil,
+                                websites: [WebsiteTarget] = []) -> AppModel {
+        let sleep: (@Sendable (Int) async throws -> Void)?
+        if let waiter { sleep = { try await waiter.sleep($0) } } else { sleep = nil }
         let model = AppModel(client: service, isolated: true, readOnly: readOnly, now: { clock.date },
+            monotonicNow: { clock.date.timeIntervalSince1970 },
             recoveryStore: root.appendingPathComponent("recovery.json"),
             isolatedCredentials: hasCredentials ? Credentials(account: "wired-session-fixture-account", password: "wired-session-fixture-password") : nil,
-            memoryStore: root.appendingPathComponent("network-memory.json"))
+            initialWebsiteTargets: websites,
+            memoryStore: root.appendingPathComponent("network-memory.json"),
+            runAutomaticLoopInIsolation: waiter != nil, loopSleep: sleep)
         model.area = area
         model.setProbeMode(.complete)
         model.setMonitoringMode(.recover)
@@ -198,17 +254,270 @@ struct WiredSessionRecoveryAppModelTests {
         check(CampusRoutingResolution.resolve(choice: .automatic, report: offline, discovery: both, physicallyBound: true)
               == .needsSelection, "Two reachable services without a physical hint never default to dormitory submission")
         check(CampusRoutingResolution.resolve(choice: .automatic, report: offline, discovery: both,
-            physicallyBound: true, preferTeaching: true) == .selected(.teaching, allowUnsentFallback: false),
+            physicallyBound: true, rememberedArea: .teaching) == .selected(.teaching, allowUnsentFallback: false),
               "A remembered teaching candidate remains usable without a conflicting current hint")
         check(CampusRoutingResolution.resolve(choice: .automatic, report: dormitoryHint, discovery: both,
-            physicallyBound: true, preferTeaching: true) == .selected(.dormitory, allowUnsentFallback: false),
+            physicallyBound: true, rememberedArea: .teaching) == .selected(.dormitory, allowUnsentFallback: false),
               "Fresh applicable physical hints take priority over a remembered teaching candidate")
         check(CampusRoutingResolution.resolve(choice: .automatic, report: conflicting, discovery: both,
-            physicallyBound: true, preferTeaching: true) == .conflictingHints,
+            physicallyBound: true, rememberedArea: .teaching) == .conflictingHints,
               "Remembered teaching preference cannot hide conflicting current physical hints")
+        check(CampusRoutingResolution.resolve(choice: .automatic, report: offline, discovery: both,
+            physicallyBound: true, rememberedArea: .dormitory) == .selected(.dormitory, allowUnsentFallback: false),
+              "A verified remembered dormitory entry resolves dual reachability without a new user choice")
+        check(CampusRoutingResolution.resolve(choice: .automatic, report: teachingHint, discovery: both,
+            physicallyBound: true, rememberedArea: .dormitory) == .selected(.teaching, allowUnsentFallback: false),
+              "A fresh teaching hint supersedes the historical dormitory candidate")
+        check(CampusRoutingResolution.resolve(choice: .automatic, report: conflicting, discovery: both,
+            physicallyBound: true, rememberedArea: .dormitory) == .conflictingHints,
+              "A remembered dormitory candidate cannot conceal conflicting fresh hints")
+        for unconfirmed in [CampusDiscovery(teaching: .confirmed, dormitory: .unconfirmed), noIdentity] {
+            check(CampusRoutingResolution.resolve(choice: .automatic, report: offline, discovery: unconfirmed,
+                physicallyBound: true, rememberedArea: .dormitory) == .unconfirmed,
+                  "Remembered dormitory recovery requires fresh applicable proofs and cannot fall through to teaching")
+        }
+        check(CampusRoutingResolution.resolve(choice: .automatic, report: offline,
+            discovery: CampusDiscovery(teaching: .confirmed, dormitory: .confirmed, teachingClientBound: true),
+            physicallyBound: true, rememberedArea: .dormitory) == .selected(.teaching, allowUnsentFallback: false),
+              "A fresh source-bound controller takes precedence over a remembered dormitory entry")
         for choice in [CampusArea.teaching, .dormitory] {
             check(CampusRoutingResolution.resolve(choice: choice, report: conflicting, discovery: both, physicallyBound: true)
                   == .selected(choice, allowUnsentFallback: false), "An explicit \(choice.rawValue) choice retains priority over redirect hints")
+        }
+
+        // A remembered dormitory entry is usable even after a session expires
+        // without exposing a redirect. The remembered entry is not fresh proof.
+        for dormitoryProof in [false, true] {
+            let root = try folder(); defer { try? FileManager.default.removeItem(at: root) }
+            let store = root.appendingPathComponent("network-memory.json")
+            _ = try seed(store, area: "dormitory", dormitoryProof: dormitoryProof)
+            let service = WiredSessionService(), clock = WiredSessionClock()
+            let model = fixture(root, service: service, clock: clock)
+            check(model.rememberedCampusArea == (dormitoryProof ? .dormitory : nil),
+                  "Dormitory candidate requires the matched record's complete saved proof scope")
+            await service.configure(reports: [offline, offline, online], replies: [accepted])
+            await model.runAutomaticCycle()
+            check(await service.snapshot().submissions.isEmpty,
+                  "A remembered entry does not skip the first failed-probe confirmation")
+            await model.runAutomaticCycle()
+            let snapshot = await service.snapshot()
+            check(dormitoryProof ? snapshot.submissions.map(\.area) == [.dormitory] && model.isOnline
+                                 : snapshot.attempts.isEmpty && model.entrySelectionNeeded,
+                  "Only a qualified dormitory memory resolves and recovers the unchanged attachment automatically")
+            if dormitoryProof {
+                check(snapshot.discoveryRoutes == ["en12"] && snapshot.attempts.first?.route == "en12",
+                      "Remembered dormitory proof and one submission stay on the current bound physical route")
+                check(model.diagnosticSummary.contains("source=rememberedDormitory")
+                      && !model.currentNetworkAuthorized,
+                      "Candidate diagnostics identify the dormitory memory without inventing current trust")
+            }
+        }
+
+        for outcome in [LoginOutcome.rejected, .uncertain, .security] {
+            let root = try folder(); defer { try? FileManager.default.removeItem(at: root) }
+            _ = try seed(root.appendingPathComponent("network-memory.json"))
+            let service = WiredSessionService(), clock = WiredSessionClock()
+            let model = fixture(root, service: service, clock: clock)
+            let result = outcome == .rejected
+                ? LoginAttempt(outcome: outcome, rejection: .password, error: .rejected)
+                : LoginAttempt(outcome: outcome)
+            await service.configure(reports: [offline, offline], replies: [
+                .init(result: result, submitted: outcome != .security)
+            ])
+            await recover(model)
+            check(await service.snapshot().attempts.map(\.area) == [.dormitory] && !model.holds.isEmpty,
+                  "\(outcome): remembered dormitory recovery retains protective holds after one attempt")
+            clock.advance(300)
+            await service.configure(reports: [offline, offline])
+            await recover(model)
+            check(await service.snapshot().attempts.count == 1,
+                  "\(outcome): remembered preference and elapsed time cannot bypass a protective hold")
+        }
+
+        for rememberedArea in [CampusArea.teaching, .dormitory] {
+            let root = try folder(); defer { try? FileManager.default.removeItem(at: root) }
+            _ = try seed(root.appendingPathComponent("network-memory.json"), area: rememberedArea.rawValue)
+            let service = WiredSessionService(), clock = WiredSessionClock()
+            await service.configure(reports: [offline, online], replies: [accepted])
+            let model = fixture(root, service: service, clock: clock)
+            model.connect()
+            try await waitUntil("manual remembered entry") { !model.busy }
+            let snapshot = await service.snapshot()
+            check(snapshot.submissions.map(\.area) == [rememberedArea] && model.isOnline,
+                  "Manual automatic-area login uses the same remembered \(rememberedArea.rawValue) candidate")
+            check(!model.entrySelectionNeeded && model.currentNetworkAuthorized,
+                  "Only the accepted manual login grants session trust after fresh service proof")
+        }
+
+        // A public allowlist may keep Apple reachable after the campus session
+        // expires. Quick mode must periodically observe the endpoint it skips.
+        for rememberedArea in [CampusArea.teaching, .dormitory] {
+            let root = try folder(); defer { try? FileManager.default.removeItem(at: root) }
+            _ = try seed(root.appendingPathComponent("network-memory.json"), area: rememberedArea.rawValue)
+            let service = WiredSessionService(), clock = WiredSessionClock()
+            let website = WebsiteTarget(id: "session-audit-site", url: "https://session.fixture.invalid/", enabled: true)
+            await service.configure(reports: [], replies: Array(repeating: accepted, count: 3))
+            let hint: CampusPortalHint = rememberedArea == .teaching ? .teaching : .dormitory
+            await service.simulateSession(hint, expired: false)
+            let model = fixture(root, service: service, clock: clock, websites: [website])
+            model.setProbeMode(.quick)
+            await model.runAutomaticCycle()
+            let initial = await service.snapshot()
+            check(model.isOnline && initial.probeModes == [.quick],
+                  "Healthy quick monitoring starts with the user's chosen scope")
+            for episode in 1...3 {
+                clock.advance(100)
+                await service.simulateSession(hint, expired: true)
+                await model.runAutomaticCycle()
+                let first = await service.snapshot()
+                check(first.probeModes.last == .complete && first.submissions.count == episode - 1,
+                      "\(rememberedArea.rawValue) episode \(episode): a due base audit reveals the skipped campus redirect without submitting")
+                await model.runAutomaticCycle()
+                let recovered = await service.snapshot()
+                check(recovered.submissions.map(\.area) == Array(repeating: rememberedArea, count: episode)
+                      && model.isOnline && model.cooldownRemaining != nil,
+                      "\(rememberedArea.rawValue) episode \(episode): two fresh observations allow one bound login and retain cooldown")
+                check(model.probeMode == .quick && model.customWebsiteTargets == [website]
+                      && model.lastInternetCheck?.websitesDeferred == true && model.lastInternetCheck?.includedCount == 0,
+                      "Base audits preserve quick mode and configured websites without requesting optional targets")
+                check(model.recommendedCheckDelay == 2,
+                      "A verified recovery promptly schedules the second read-only base confirmation")
+                await model.runAutomaticCycle()
+                let confirmed = await service.snapshot()
+                check(!model.partialRecoveryAttempted && confirmed.submissions.count == episode,
+                      "Two complete base confirmations rearm future session recovery without another credential submission")
+                await model.runAutomaticCycle()
+                check((await service.snapshot()).probeModes.last == .quick,
+                      "A healthy audit returns later monitoring to quick mode")
+            }
+        }
+
+        do {
+            let root = try folder(); defer { try? FileManager.default.removeItem(at: root) }
+            _ = try seed(root.appendingPathComponent("network-memory.json"))
+            let service = WiredSessionService(), clock = WiredSessionClock()
+            await service.configure(reports: [], replies: [accepted])
+            await service.simulateSession(.dormitory, expired: true, quickExposesPortal: true)
+            let model = fixture(root, service: service, clock: clock)
+            model.setProbeMode(.quick)
+            await recover(model)
+            let snapshot = await service.snapshot()
+            check(snapshot.submissions.map(\.area) == [.dormitory] && model.isOnline,
+                  "A quick probe's genuine campus redirect cannot be hidden by its passing public peer")
+            check(Array(snapshot.probeModes.prefix(2)) == [.quick, .complete] && model.probeMode == .quick,
+                  "Observed portal evidence triggers confirmation without waiting for the periodic audit deadline")
+        }
+
+        for condition in ["paused", "readOnly", "missingCredentials"] {
+            let root = try folder(); defer { try? FileManager.default.removeItem(at: root) }
+            _ = try seed(root.appendingPathComponent("network-memory.json"))
+            let service = WiredSessionService(), clock = WiredSessionClock()
+            await service.simulateSession(.dormitory, expired: false)
+            let model = fixture(root, service: service, clock: clock, readOnly: condition == "readOnly",
+                                hasCredentials: condition != "missingCredentials")
+            model.setProbeMode(.quick)
+            await model.runAutomaticCycle()
+            if condition == "paused" { model.pauseAutomaticRecovery() }
+            clock.advance(100)
+            await service.simulateSession(.dormitory, expired: true, quickExposesPortal: true)
+            await recover(model)
+            check((await service.snapshot()).attempts.isEmpty,
+                  "Periodic session checks and portal hints cannot bypass \(condition)")
+        }
+
+        for hint in [CampusPortalHint.teaching, .dormitory] {
+            let root = try folder(); defer { try? FileManager.default.removeItem(at: root) }
+            _ = try seed(root.appendingPathComponent("network-memory.json"), area: hint.rawValue)
+            let service = WiredSessionService(), clock = WiredSessionClock()
+            await service.simulateSession(hint, expired: true, quickExposesPortal: true, authenticationRequired: false)
+            let model = fixture(root, service: service, clock: clock)
+            model.setProbeMode(.quick)
+            await recover(model)
+            clock.advance(100); await recover(model)
+            check((await service.snapshot()).attempts.isEmpty,
+                  "A \(hint.rawValue) status-page hint with a passing public endpoint cannot request automatic login")
+        }
+
+        for rememberedArea in [CampusArea.teaching, .dormitory] {
+            let root = try folder(); defer { try? FileManager.default.removeItem(at: root) }
+            _ = try seed(root.appendingPathComponent("network-memory.json"), area: rememberedArea.rawValue)
+            let service = WiredSessionService(), clock = WiredSessionClock()
+            let model = fixture(root, service: service, clock: clock)
+            await service.configure(reports: [offline, offline, online],
+                discovery: CampusDiscovery(teaching: .confirmed, dormitory: .confirmed, teachingClientBound: true),
+                replies: [accepted])
+            await model.runAutomaticCycle()
+            await service.pauseNext(.discovery)
+            let task = Task { await model.runAutomaticCycle() }
+            try await waitUntil("memory expiry during discovery") { await service.isWaiting(.discovery) }
+            clock.advance(NetworkMemory.expiry + 1)
+            await service.release(.discovery); await task.value
+            check((await service.snapshot()).attempts.isEmpty && !model.networkRemembered,
+                  "A \(rememberedArea.rawValue) memory expiring during fresh discovery cannot authorize a late submission")
+        }
+
+        for boundary in ["cancel", "forget", "observe", "pause", "change"] {
+            let root = try folder(); defer { try? FileManager.default.removeItem(at: root) }
+            _ = try seed(root.appendingPathComponent("network-memory.json"))
+            let service = WiredSessionService(), clock = WiredSessionClock()
+            await service.simulateSession(.dormitory, expired: false)
+            let model = fixture(root, service: service, clock: clock)
+            model.setProbeMode(.quick)
+            await model.runAutomaticCycle()
+            clock.advance(100)
+            await service.simulateSession(.dormitory, expired: true)
+            await model.runAutomaticCycle()
+            await service.pauseNext(.discovery)
+            let task = Task { await model.runAutomaticCycle() }
+            try await waitUntil("in-flight session audit proof") { await service.isWaiting(.discovery) }
+            switch boundary {
+            case "cancel": model.cancelCurrentOperation()
+            case "forget": model.forgetCurrentNetwork()
+            case "observe": model.setMonitoringMode(.observe)
+            case "pause": model.pauseAutomaticRecovery()
+            default: attach(model, descriptor: otherDescriptor, lease: "session-audit-changed")
+            }
+            await service.release(.discovery); await task.value
+            check((await service.snapshot()).attempts.isEmpty,
+                  "A delayed session-audit proof cannot authenticate after \(boundary)")
+        }
+
+        // Drive the actual monitoring loop with a virtual waiter. Session loss is
+        // scripted after a healthy round, without another physical observation.
+        for rememberedArea in [CampusArea.teaching, .dormitory] {
+            let root = try folder(); defer { try? FileManager.default.removeItem(at: root) }
+            _ = try seed(root.appendingPathComponent("network-memory.json"), area: rememberedArea.rawValue)
+            let service = WiredSessionService(), clock = WiredSessionClock(), waiter = WiredSessionWaiter()
+            await service.configure(reports: [online, offline, offline, online], replies: [accepted])
+            let model = fixture(root, service: service, clock: clock, waiter: waiter)
+            var previousWait = 0
+            for round in 1...3 {
+                try await waitUntil("scheduled session round") { await waiter.next().map { $0.id > previousWait } ?? false }
+                guard let next = await waiter.next() else { fatalError("Missing scheduled fake wait") }
+                previousWait = next.id
+                clock.advance(TimeInterval(next.delay)); await waiter.release(next.id)
+                try await waitUntil("scheduled session round completion") {
+                    let pending = await waiter.next()
+                    return !model.busy && (pending.map { $0.id > previousWait } ?? false)
+                }
+                let snapshot = await service.snapshot()
+                if round == 1 {
+                    check(model.isOnline && snapshot.attempts.isEmpty,
+                          "Scheduled \(rememberedArea.rawValue) monitoring starts online without authentication")
+                } else if round == 2 {
+                    check(snapshot.attempts.isEmpty,
+                          "One scheduled session failure remains a read-only confirmation round")
+                } else {
+                    check(snapshot.submissions.map(\.area) == [rememberedArea] && model.isOnline,
+                          "Scheduled \(rememberedArea.rawValue) session recovery runs without a link event or user action")
+                    check(snapshot.probes.allSatisfy { $0 == "en12" } && snapshot.discoveryRoutes == ["en12", "en12"],
+                          "Scheduled recovery obtains new bound campus proof rather than reusing its healthy-round proof")
+                    check(model.nextCheckAt != nil && !model.currentNetworkAuthorized,
+                          "Successful automatic session recovery rearms monitoring without inventing session trust")
+                }
+            }
+            check(await model.prepareForAppMaintenance(),
+                  "The simulated scheduled recovery loop cancels and drains cleanly")
         }
 
         // A still-connected wired link can lose its authenticated session. No path event,
@@ -334,11 +643,11 @@ struct WiredSessionRecoveryAppModelTests {
                   "\(variant): an explicit protocol is not overridden by probe conflicts")
         }
 
-        // Dual reachability alone previously caused a guessed dormitory request.
-        // Stay before the journal/cooldown boundary and offer the actual area control.
+        // A remembered network with no stored entry still cannot choose a protocol
+        // from dual reachability alone. Keep the actual selection action available.
         do {
             let root = try folder(); defer { try? FileManager.default.removeItem(at: root) }
-            _ = try seed(root.appendingPathComponent("network-memory.json"))
+            _ = try seed(root.appendingPathComponent("network-memory.json"), area: "")
             let service = WiredSessionService(), clock = WiredSessionClock()
             let model = fixture(root, service: service, clock: clock)
             await service.configure(reports: [offline, offline, offline])
@@ -362,7 +671,7 @@ struct WiredSessionRecoveryAppModelTests {
 
         do {
             let root = try folder(); defer { try? FileManager.default.removeItem(at: root) }
-            _ = try seed(root.appendingPathComponent("network-memory.json"))
+            _ = try seed(root.appendingPathComponent("network-memory.json"), area: "")
             let service = WiredSessionService(), clock = WiredSessionClock()
             let model = fixture(root, service: service, clock: clock)
             let partial = ConnectivityReport(appleResult: .init(state: .success, elapsed: 0.01),

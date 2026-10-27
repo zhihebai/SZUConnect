@@ -243,25 +243,33 @@ struct KnownNetworkAutomationAppModelTests {
                   "\(variant): fresh probes and campus proof recover automatically on the known physical network")
         }
 
-        // A known secondary is valid only when its exact physical route is bound.
-        // Reordering candidate enumeration cannot silently send on the unknown system primary.
-        for reverse in [false, true] {
+        // A reliable system primary wins without borrowing a remembered peer's proof.
+        // Without a primary, a known secondary remains a deterministic fallback.
+        for (hasPrimary, reverse) in [(true, false), (true, true), (false, false), (false, true)] {
             let root = try folder(); defer { try? FileManager.default.removeItem(at: root) }
             let store = root.appendingPathComponent("network-memory.json")
             _ = try seed(store, wired: false)
             let service = KnownNetworkService(), clock = KnownNetworkClock()
             let model = fixture(store: store, service: service, clock: clock)
-            let candidates = [route(unknown, name: "en12", primary: true), route(wifi, name: "en0", primary: false)]
+            let candidates = [route(unknown, name: "en12", primary: hasPrimary), route(wifi, name: "en0", primary: false)]
             model.applyEnvironmentObservation(observation(reverse ? Array(candidates.reversed()) : candidates))
-            check(model.networkRemembered && !model.currentNetworkAuthorized,
-                  "Known secondary \(reverse): memory recognition requires no session-trust substitution")
+            check(model.networkRemembered == !hasPrimary && !model.currentNetworkAuthorized,
+                  "Known secondary primary=\(hasPrimary) reverse=\(reverse): only the selected attachment can supply memory")
             await recover(model)
             let snapshot = await service.snapshot()
-            check(snapshot.attempts.count == 1 && snapshot.attempts.first?.route == "en0",
-                  "Known secondary \(reverse): credentials use the remembered Wi-Fi while the system primary stays unknown")
-            check(!snapshot.bindings.isEmpty && snapshot.bindings.allSatisfy { $0 == "en0" }
-                  && snapshot.probes.allSatisfy { $0 == "en0" } && snapshot.discoveryRoutes == ["en0"],
-                  "Known secondary \(reverse): probe and campus proof cannot borrow a different interface's memory")
+            if hasPrimary {
+                check(snapshot.attempts.isEmpty,
+                      "An unknown system primary cannot inherit credentials admission from its remembered Wi-Fi peer")
+                check(!snapshot.bindings.isEmpty && snapshot.bindings.allSatisfy { $0 == "en12" }
+                      && snapshot.probes.allSatisfy { $0 == "en12" } && snapshot.discoveryRoutes.allSatisfy { $0 == "en12" },
+                      "Reordered candidates retain the unknown primary's independent probe and service scope")
+            } else {
+                check(snapshot.attempts.count == 1 && snapshot.attempts.first?.route == "en0",
+                      "Without a primary, fallback credentials use only the remembered physical Wi-Fi")
+                check(!snapshot.bindings.isEmpty && snapshot.bindings.allSatisfy { $0 == "en0" }
+                      && snapshot.probes.allSatisfy { $0 == "en0" } && snapshot.discoveryRoutes == ["en0"],
+                      "Fallback probes and campus proof retain the same remembered physical binding")
+            }
         }
 
         // No physical proof, a changed gateway, missing memory, and a revoked record

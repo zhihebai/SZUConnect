@@ -526,7 +526,7 @@ struct PortalTransportTests {
             let meter = LeaseCaptureMeter(), session = TypedFailureFixtureSession(), fixture = typedClient(meter, session)
             await session.configure("/eportal", failures: [failure, failure, failure])
             _ = await fixture.setExpectedPhysicalRoute(meter.route)
-            let discovery = await fixture.discoverCampus(area: .automatic)
+            let discovery = await fixture.discoverCampus(area: .dormitory)
             let requests = await session.snapshot()
             check(discovery.teachingConfirmed && !discovery.dormitoryConfirmed && discovery.issue == issue,
                   "A typed dormitory \(failure.diagnostic.reason.rawValue) retains its own issue and only the separately acquired HTTPS proof")
@@ -587,6 +587,14 @@ struct PortalTransportTests {
         }
         do {
             let meter = LeaseCaptureMeter(), session = BoundClientFixtureSession(), fixture = boundClient(meter, session)
+            _ = await fixture.setExpectedPhysicalRoute(meter.route)
+            let discovery = await fixture.discoverCampus(area: .dormitory)
+            let requests = await session.snapshot()
+            check(discovery.teachingConfirmed && discovery.dormitoryConfirmed && requests.map(\.path) == ["/srun_portal_pc", "/eportal"],
+                  "An explicit dormitory check still obtains both current proofs despite a bound teaching CONFIG")
+        }
+        do {
+            let meter = LeaseCaptureMeter(), session = BoundClientFixtureSession(), fixture = boundClient(meter, session)
             await session.configure(page: Data("<title>Shenzhen University srun login</title><input name='ac_id' value='12'>".utf8))
             _ = await fixture.setExpectedPhysicalRoute(meter.route)
             let attempt = await fixture.attemptLogin(credentials: credentials, area: .teaching, requireBoundClientConfiguration: false)
@@ -614,6 +622,9 @@ struct PortalTransportTests {
             if variant == "missingIdentity" || variant == "tlsFailure" {
                 check(!discovery.teachingConfirmed && !discovery.dormitoryConfirmed && requests.count == 1,
                       "Missing campus identity or TLS failure never reaches plaintext dormitory discovery")
+            } else if variant == "matching" {
+                check(discovery.teachingConfirmed && discovery.dormitory == .notChecked && requests.count == 1,
+                      "An automatic source-bound teaching candidate skips the unrelated dormitory request")
             } else {
                 check(discovery.teachingConfirmed && discovery.dormitoryConfirmed,
                       "Generic dual-service availability is kept separate from client-bound applicability")
@@ -623,7 +634,7 @@ struct PortalTransportTests {
             let meter = LeaseCaptureMeter(), session = BoundClientFixtureSession(), fixture = boundClient(meter, session)
             _ = await fixture.setExpectedPhysicalRoute(meter.route)
             await session.invalidateOnDormitory { meter.invalidate() }
-            let discovery = await fixture.discoverCampus(area: .automatic)
+            let discovery = await fixture.discoverCampus(area: .dormitory)
             check(!discovery.teachingConfirmed && !discovery.dormitoryConfirmed && !discovery.teachingClientBound,
                   "Lease invalidation after a bound HTTPS page discards its client CONFIG and every other proof")
         }
@@ -842,6 +853,19 @@ struct PortalTransportTests {
         check(OfflineProtocol.snapshot().starts.allSatisfy { $0 == apple || $0 == microsoft },
               "Quick portal recognition never follows or requests the Location destination")
 
+        for page in ["a70.htm", "a79.htm"] {
+            OfflineProtocol.reset([apple: .hang, microsoft: .body(Data(), status: 302,
+                headers: ["Location": "http://172.30.255.42/" + page + "?wlanuserip=192.0.2.7"])])
+            let redirect = await portalQuickClient.probe(mode: .quick)
+            check(!redirect.online && redirect.microsoftResult.campusAreaHint == .dormitory,
+                  "A fixed dormitory browser page supplies only a quick-probe candidate")
+            check(redirect.microsoftResult.authenticationRequired == (page == "a70.htm"),
+                  "The dormitory login page requests authentication; its status page supplies only an entry hint")
+            try await OfflineProtocol.waitForIdle()
+            check(OfflineProtocol.snapshot().starts.allSatisfy { $0 == apple || $0 == microsoft },
+                  "Dormitory redirect hints never request or follow the portal destination")
+        }
+
         let teachingPortalOrigins = ["http://net.szu.edu.cn", "http://net.szu.edu.cn:80",
                                      "https://net.szu.edu.cn", "https://net.szu.edu.cn:443"]
         let teachingPortalPaths = ["", "/", "/srun_portal_pc", "/srun_portal_phone", "/srun_portal_success", "/index_1.html"]
@@ -858,8 +882,16 @@ struct PortalTransportTests {
             ("https://net.szu.edu.cn/srun_portal_success_mobile?ac_id=6&theme=pro", .teaching),
             ("http://net.szu.edu.cn:80/srun_portal_success_mobile", .teaching),
             ("http://172.30.255.42:801", .dormitory), ("http://172.30.255.42:801/", .dormitory),
-            ("http://172.30.255.42:801/eportal?offline=1", .dormitory)]
+            ("http://172.30.255.42:801/eportal?offline=1", .dormitory),
+            ("http://172.30.255.42/a70.htm?wlanuserip=192.0.2.7", .dormitory),
+            ("http://172.30.255.42:80/a79.htm", .dormitory)]
         let probeOrigin = URL(string: "http://www.msftconnecttest.com/connecttest.txt")!
+        for path in ["/srun_portal_success", "/srun_portal_success_mobile"] {
+            check(!CampusRedirectTarget.authenticationRequired("https://net.szu.edu.cn" + path, relativeTo: probeOrigin),
+                  "A teaching success-page hint is not evidence that authentication is required")
+        }
+        check(CampusRedirectTarget.authenticationRequired("https://net.szu.edu.cn/srun_portal_pc", relativeTo: probeOrigin),
+              "A recognized teaching login page can request fresh authentication checks")
         for (location, area) in fixedPortalLocations {
             check(CampusRedirectTarget.matches(location, relativeTo: probeOrigin),
                   "Only fixed portal pages and protocol ports provide redirect selection hints")
@@ -892,6 +924,11 @@ struct PortalTransportTests {
             "https://net.szu.edu.cn/a/../srun_portal_pc", "https://net.szu.edu.cn/%2e%2e/srun_portal_pc",
             "https://net.szu.edu.cn/\\srun_portal_pc", "https://net.szu.edu.cn/srun_portal_pc\n",
             "http://172.30.255.42:801/%65portal", "http://172.30.255.42:801/a/../eportal",
+            "https://172.30.255.42/a70.htm", "http://172.30.255.42:801/a70.htm",
+            "http://172.30.255.42/a70.htm/", "http://172.30.255.42/a70.htm#fixture",
+            "http://172.30.255.42/%6170.htm", "http://172.30.255.42/a/../a70.htm",
+            "http://172.30.255.42/a70.htm?x=%0a", "http://172.30.255.42/a70.htm?x=%255c",
+            "http://172.30.255.42/a70.htm?x=%GG", "http://172.30.255.42/login", "http://172.30.255.42/logout",
             "https://net.szu.edu.cn/srun_portal_pc?" + String(repeating: "x", count: 2048)]
         check(!CampusRedirectTarget.matches(nil, relativeTo: probeOrigin), "Missing Location cannot shorten a quick probe")
         for location in rejectedPortalLocations {
@@ -903,11 +940,11 @@ struct PortalTransportTests {
         for state in [ConnectivityEndpointState.success, .timeout, .dns, .tls, .unexpectedResponse,
                       .network, .cancelled, .notCompleted] {
             let invalidHint = ConnectivityEndpointResult(state: state, elapsed: 0, campusRedirect: true,
-                campusAreaHint: .teaching)
-            check(!invalidHint.campusRedirect && invalidHint.campusAreaHint == nil,
+                campusAreaHint: .teaching, authenticationRequired: true)
+            check(!invalidHint.campusRedirect && invalidHint.campusAreaHint == nil && !invalidHint.authenticationRequired,
                   "Non-redirect states cannot retain a recovery or area hint")
         }
-        let typedRedirect = ConnectivityEndpointResult(state: .redirect, elapsed: 0, campusAreaHint: .teaching)
+        let typedRedirect = ConnectivityEndpointResult(state: .redirect, elapsed: 0, campusAreaHint: .teaching, authenticationRequired: true)
         check(typedRedirect.campusRedirect && typedRedirect.campusAreaHint == .teaching,
               "Typed redirect construction preserves the compatible boolean recovery signal")
         let legacyRedirect = ConnectivityEndpointResult(state: .redirect, elapsed: 0, campusRedirect: true)

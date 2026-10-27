@@ -101,12 +101,14 @@ struct ConnectivityEndpointResult: Sendable {
     let campusRedirect: Bool
     /// In-memory selection hint only. A separate fresh campus proof is still required.
     let campusAreaHint: CampusPortalHint?
+    let authenticationRequired: Bool
     init(state: ConnectivityEndpointState, elapsed: TimeInterval, campusRedirect: Bool = false,
-         campusAreaHint: CampusPortalHint? = nil) {
+         campusAreaHint: CampusPortalHint? = nil, authenticationRequired: Bool = false) {
         self.state = state
         self.elapsed = elapsed
         self.campusAreaHint = state == .redirect ? campusAreaHint : nil
         self.campusRedirect = state == .redirect && (campusRedirect || campusAreaHint != nil)
+        self.authenticationRequired = state == .redirect && campusAreaHint != nil && authenticationRequired
     }
     var succeeded: Bool { state == .success }
     var summary: String {
@@ -718,6 +720,7 @@ actor PortalClient {
         let started = ContinuousClock.now
         let state: ConnectivityEndpointState
         var campusAreaHint: CampusPortalHint? = nil
+        var authenticationRequired = false
         do {
             try Task.checkCancellation()
             let (data, response) = try await get(
@@ -728,9 +731,10 @@ actor PortalClient {
             state = success ? .success : .unexpectedResponse
         } catch is CancellationError {
             state = .cancelled
-        } catch ProbeRedirect.campus(let hint) {
+        } catch ProbeRedirect.campus(let hint, let required) {
             state = .redirect
             campusAreaHint = hint
+            authenticationRequired = required
         } catch let error as PortalError {
             switch error {
             case .timeout: state = .timeout
@@ -743,7 +747,8 @@ actor PortalClient {
         } catch { state = .network }
         let duration = started.duration(to: .now).components
         let elapsed = Double(duration.seconds) + Double(duration.attoseconds) / 1e18
-        return ConnectivityEndpointResult(state: state, elapsed: max(0, elapsed), campusAreaHint: campusAreaHint)
+        return ConnectivityEndpointResult(state: state, elapsed: max(0, elapsed), campusAreaHint: campusAreaHint,
+                                          authenticationRequired: authenticationRequired)
     }
 
     /// Read-only, credential-free and bounded; identity is never cached across paths.
@@ -783,7 +788,7 @@ actor PortalClient {
     }
 
     private enum RequestPurpose { case authentication, authenticationDiscovery, discovery, probe }
-    private enum ProbeRedirect: Error { case campus(CampusPortalHint) }
+    private enum ProbeRedirect: Error { case campus(CampusPortalHint, authenticationRequired: Bool) }
 
     /// Every asynchronous transport boundary gets exactly one fresh post-await lease check,
     /// whether it returned a reply or an error. Parsing afterwards cannot suspend the actor.
@@ -800,7 +805,8 @@ actor PortalClient {
         guard response.url == url else { throw PortalError.redirect }
         if (300..<400).contains(response.statusCode) {
             if isProbe, let hint = CampusRedirectTarget.areaHint(response.value(forHTTPHeaderField: "Location"), relativeTo: url) {
-                throw ProbeRedirect.campus(hint)
+                throw ProbeRedirect.campus(hint, authenticationRequired:
+                    CampusRedirectTarget.authenticationRequired(response.value(forHTTPHeaderField: "Location"), relativeTo: url))
             }
             throw PortalError.redirect
         }
@@ -1012,7 +1018,9 @@ extension PortalClient {
         }
         guard (try? checkGeneration(generation)) != nil else { return result }
         result.teaching = .confirmed
-        if area == .teaching || Task.isCancelled { return result }
+        // A fresh source-bound CONFIG already identifies the automatic teaching
+        // candidate. Explicit dormitory checks still obtain both service proofs.
+        if area == .teaching || (area == .automatic && result.teachingClientBound) || Task.isCancelled { return result }
         do {
             let (data, response) = try await idempotentGet(base: "http://172.30.255.42:801", path: "/eportal", purpose: .discovery, generation: generation)
             if let url = response.url,
