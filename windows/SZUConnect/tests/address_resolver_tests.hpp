@@ -94,6 +94,20 @@ inline void address_resolver_tests(Harness& t) {
             "a late positive response cannot resurrect an address invalidated by a newer zero-TTL result");
     }
     t.begin("bounded-encrypted-address-resolution");
+    {
+        addresstest::Fixture f;
+        (void)f.get(); f.time += 121;
+        auto hooks=f.hooks();
+        hooks.encrypted=[&](std::string_view,const Route&,int budget) -> ResolvedAddresses {
+            ++f.encrypted_calls; f.encrypted_budget=budget;
+            if(budget<1800) {f.time+=budget/1000.0;throw Error(Failure::timeout);}
+            f.time+=1.8;return {{"192.0.2.81"},60};
+        };
+        std::vector<std::string> result;
+        try {result=f.resolver.resolve("net.szu.edu.cn",f.route,4200,hooks);}catch(const Error&){}
+        t.check(result==std::vector<std::string>{"192.0.2.81"},
+            "encrypted resolution keeps enough of the shared deadline to finish before a retained candidate is needed");
+    }
     for (const auto host : {"net.szu.edu.cn", "www.apple.com"}) for (const double completion_cost : {0.15, 0.35, 0.8}) {
         addresstest::Fixture f;
         (void)f.get(host); f.time += 121;

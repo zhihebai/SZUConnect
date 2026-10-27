@@ -117,8 +117,8 @@ std::vector<std::string> AddressResolver::resolve(std::string_view host, const R
         if (auto addresses = retained(*previous, hooks.now(), false)) return accept(std::move(*addresses));
     try {
         const int available = remaining();
-        // Leave room for timeout completion, a fresh binding check and the retained candidate.
-        const int reserved = previous && https_target(host) ? std::max(100, available / 2) : 0;
+        // Keep most of the deadline for a fresh answer; native cleanup is independently bounded.
+        const int reserved = previous && https_target(host) ? std::clamp(available / 3, 100, 1000) : 0;
         const int budget = available - reserved;
         if (budget <= 0) throw Error(Failure::timeout);
         auto answer = hooks.encrypted(host, route, budget);
