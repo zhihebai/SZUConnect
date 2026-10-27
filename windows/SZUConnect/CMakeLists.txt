@@ -2,7 +2,7 @@
 #   Windows:  cmake --preset windows-x64 && cmake --build --preset windows-release && ctest --preset windows-release
 #   Any OS:   cmake --preset core-only && cmake --build --preset core && ctest --preset core   (portable core tests only)
 cmake_minimum_required(VERSION 3.21)
-project(SZUConnect VERSION 1.0.0.34 DESCRIPTION "SZUConnect campus network helper (unofficial)" LANGUAGES C CXX)
+project(SZUConnect VERSION 1.1.0.35 DESCRIPTION "SZUConnect campus network helper (unofficial)" LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
