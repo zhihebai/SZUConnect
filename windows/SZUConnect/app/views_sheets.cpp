@@ -7,6 +7,7 @@
 #include "installation.hpp"
 #include "license_documents.hpp"
 #include "views.hpp"
+#include <shellapi.h>
 
 namespace szu::app {
 namespace {
@@ -432,6 +433,29 @@ void manual_proxy_rules(Builder& b, ViewContext& ctx) {
     }
 }
 
+}  // namespace
+
+void build_egress_notice(Builder& b, ViewContext& ctx, const std::string& id) {
+    const auto& net = ctx.app.network();
+    const auto status = ctx.app.physical_egress_status();
+    if (!net.tunnel_known || !net.path.tunnel || status == "unknown" || status == "normal") return;
+    const bool forwarding = status == "forwarding" || status == "forwardingAndWeakHostSend";
+    b.card_begin("surfaceMuted", "border", tokens::kSpaceM, tokens::kRadiusMedium);
+    b.title_row(id, "info", T(forwarding ? "env.sharing.title" : "env.sharing.bindingTitle"), TextStyle::callout_strong, "warning",
+        T("info.networkSharing.title"), [&ctx] { ctx.open("info:networkSharing"); });
+    b.gap(tokens::kSpaceS);
+    b.text(T(forwarding ? "env.sharing.detail" : "env.sharing.bindingDetail"), TextStyle::callout, "textSecondary", Role::status, id + ".detail");
+    if (forwarding) {
+        b.gap(tokens::kSpaceS);
+        b.button(id + ".settings", T("env.sharing.open"), ButtonStyle::secondary, [&ctx] {
+            if (!ctx.app.offline_smoke()) ShellExecuteW(ctx.hwnd, L"open", L"ms-settings:network-mobilehotspot", nullptr, nullptr, SW_SHOWNORMAL);
+        });
+    }
+    b.card_end();
+    b.gap(tokens::kSpaceM);
+}
+
+namespace {
 void network_sheet(Builder& b, ViewContext& ctx, const EngineSnapshot& snap, bool inline_content = false) {
     AppController& app = ctx.app;
     const auto& net = app.network();
@@ -481,6 +505,7 @@ void network_sheet(Builder& b, ViewContext& ctx, const EngineSnapshot& snap, boo
             app.environment_refresh_incomplete() ? "warning" : "textSecondary", Role::status, "network.refresh.feedback");
     }
     b.card_end();
+    build_egress_notice(b, ctx, "network.egress");
     if (!inline_content) close_button(b, ctx);
 }
 
@@ -1016,6 +1041,7 @@ void build_proxy_assistant(Builder& b, ViewContext& ctx, const EngineSnapshot& s
     const bool writable = !app.read_only() && !snap.busy;
     b.text(T("proxyAssistant.intro"), TextStyle::callout, "textSecondary", Role::text, "proxy.intro");
     b.gap(tokens::kSpaceM);
+    build_egress_notice(b, ctx, "proxy.egress");
     b.card_begin("surface", "border", tokens::kSpaceM, tokens::kRadiusLarge);
     const char* names[]{"verge", "mihomo", "singbox"};
     const auto select_client = [&ctx](int client) {

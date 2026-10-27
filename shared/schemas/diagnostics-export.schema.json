@@ -100,6 +100,7 @@
         "connection": {"enum": ["wifi", "ethernet", "multiple", "tunnelHidden", "none", "unknown"]},
         "systemProxy": {"enum": ["on", "off", "unknown"]},
         "tun": {"enum": ["detected", "notDetected", "unknown"]},
+        "physicalEgress": {"enum": ["normal", "forwarding", "weakHostSend", "forwardingAndWeakHostSend", "unknown"]},
         "refreshing": {"type": "boolean"}
       }
     },

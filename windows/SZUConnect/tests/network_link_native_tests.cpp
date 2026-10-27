@@ -3,6 +3,7 @@
 #include "szu/win/network_link_testing.hpp"
 #include "controller.hpp"
 #include "wifi_runtime_tests.hpp"
+#include "shared_copy.hpp"
 
 #include <atomic>
 #include <cstdio>
@@ -232,7 +233,64 @@ void recovery_pipeline(const win::NetworkSnapshot& disconnected, bool read_only,
 }
 }
 
+void verify_physical_egress() {
+    physical::Route route; route.identity = "fixture-egress"; route.interface_index = 7; route.interface_luid = 70;
+    route.interface_key = "fixture-egress-interface"; route.source_ipv4 = "192.0.2.7"; route.addresses = {route.source_ipv4};
+    route.dns_servers = {"192.0.2.53"}; route.gateway_ipv4 = "192.0.2.1";
+    route.descriptor = {"ethernet", {{"gw", "02:00:00:00:00:07"}, {"gwip", "192.0.2.1"}, {"net", "192.0.2.0/24"}}};
+    for (const bool forwarding : {false, true}) for (const bool weak : {false, true}) {
+        win::NetworkSnapshot network; network.path.requires_physical_binding = network.path.link_active = network.path.usable = true;
+        network.path.tunnel = network.tunnel.tunnel = network.tunnel_known = true; network.access = "ethernet";
+        network.path.physical_candidates = {route}; network.path.descriptors = {route.descriptor}; network.path.identity = route.identity;
+        int reads = 0;
+        win::collect_physical_egress_for_testing(network, [&](MIB_IPINTERFACE_ROW& row) -> NETIO_STATUS {
+            ++reads;
+            check(row.Family == AF_INET && row.InterfaceIndex == 7 && row.InterfaceLuid.Value == 70,
+                "egress reader receives the exact captured IPv4 physical interface");
+            row.ForwardingEnabled = forwarding; row.WeakHostSend = weak; return NO_ERROR;
+        });
+        const std::string expected = forwarding ? (weak ? "forwardingAndWeakHostSend" : "forwarding") : (weak ? "weakHostSend" : "normal");
+        check(reads == 2 && win::physical_egress_status(network, route) == expected && network.path.physical_candidates.front() == route,
+            "two consistent read-only SDK flag samples preserve the original route and its memory descriptor");
+        auto services = std::make_unique<ProjectionRuntime>(network); auto* fake = services.get();
+        AppController app(nullptr, RuntimeMode::observeOnly, std::move(services)); app.start();
+        const auto state = app.snapshot(); const auto files = fake->files; const auto due = app.next_check();
+        const auto report = json::parse(app.diagnostic_export_text()); const auto copied = app.diagnostic_summary_text();
+        check(report && report->find("environment")->string_at("physicalEgress") == expected &&
+            app.physical_egress_status() == expected && copied.find(copy::text("env.egress." + expected)) != std::string::npos,
+            "native flag collection reaches Controller, copied summary and JSON as the same anonymous enum");
+        check(fake->files == files && app.next_check() == due && app.snapshot().epoch == state.epoch &&
+            app.snapshot().remembered == state.remembered && fake->evidence().fake_auth_submissions == 0 &&
+            fake->evidence().fake_wifi_calls == 0, "egress diagnostics do not mutate data, trust, scheduling or network state");
+        app.on_network_signal();
+        const auto pending = json::parse(app.diagnostic_export_text());
+        check(pending->find("environment")->string_at("physicalEgress") == "unknown" && app.physical_egress_status() == "unknown",
+            "network invalidation never reports old egress flags as current");
+        app.shutdown();
+    }
+    for (const std::string failure : {"unreadable", "changed", "wrong-family", "wrong-index", "wrong-luid"}) {
+        win::NetworkSnapshot network; network.path.physical_candidates = {route}; int reads = 0;
+        win::collect_physical_egress_for_testing(network, [&](MIB_IPINTERFACE_ROW& row) -> NETIO_STATUS {
+            ++reads;
+            if (failure == "unreadable") return ERROR_ACCESS_DENIED;
+            row.ForwardingEnabled = failure == "changed" && reads == 2;
+            if (failure == "wrong-family") row.Family = AF_INET6;
+            if (failure == "wrong-index") ++row.InterfaceIndex;
+            if (failure == "wrong-luid") ++row.InterfaceLuid.Value;
+            return NO_ERROR;
+        });
+        check(win::physical_egress_status(network, route) == "unknown", "unreadable, changed or mismatched interface flags remain unknown");
+    }
+    win::NetworkSnapshot multiple; auto other = route; other.identity = "fixture-other"; other.interface_index = 9; other.interface_luid = 90;
+    multiple.path.physical_candidates = {route, other}; multiple.physical_egress = {{route, "normal"}, {other, "forwarding"}};
+    check(win::physical_egress_status(multiple, route) == "normal" && win::physical_egress_status(multiple, other) == "forwarding" &&
+        win::physical_egress_status(multiple, std::nullopt) == "unknown", "multiple interfaces do not blend forwarding flags or guess an authentication route");
+    route.source_ipv4 = "192.0.2.8";
+    check(win::physical_egress_status(multiple, route) == "unknown", "a changed physical binding cannot borrow flags from a previous snapshot");
+}
+
 int main() {
+    verify_physical_egress();
     for (const std::string kind : {"filter", "endpoint", "tunnel-medium", "loopback-access", "disconnected", "not-media-connected", "down"}) {
         NativeAttachment fixture;
         if (kind == "filter") fixture.state.InterfaceAndOperStatusFlags.FilterInterface = 1;

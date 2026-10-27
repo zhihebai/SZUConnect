@@ -336,6 +336,7 @@ bool AppController::run_engine(std::function<void()> job, bool automatic) {
     context.environment.refreshing = network_refresh_pending_ || !diagnostic_network_fresh_;
     if (!context.environment.refreshing) {
         context.environment.connection = network_.access;
+        context.environment.physical_egress = physical_egress_status();
         context.environment.system_proxy = proxy_.state;
         context.environment.tun = network_.tunnel_known ? (network_.path.tunnel ? "detected" : "notDetected") : "unknown";
     }
@@ -385,6 +386,7 @@ void AppController::seal_fresh_report_environment(const win::NetworkSnapshot& ne
     auto& environment = active_report_context_->environment;
     environment.refreshing = false;
     environment.connection = network.access;
+    environment.physical_egress = win::physical_egress_status(network, engine_->snapshot().authentication_route);
     environment.tun = network.tunnel_known ? (network.path.tunnel ? "detected" : "notDetected") : "unknown";
     // The fresh attachment capture did not reread Windows proxy settings.
     environment.system_proxy = "unknown";
@@ -411,6 +413,7 @@ AppController::FailureCapture AppController::capture_failure_context(bool automa
     c.environment.refreshing = network_refresh_pending_ || !diagnostic_network_fresh_;
     if (!c.environment.refreshing) {
         c.environment.connection = network_.access; c.environment.system_proxy = proxy_.state;
+        c.environment.physical_egress = physical_egress_status();
         c.environment.tun = network_.tunnel_known ? (network_.path.tunnel ? "detected" : "notDetected") : "unknown";
         if (network_.path.requires_physical_binding) {
             c.physical_network = physical::anonymous_diagnostics(network_.physical_diagnostics);
@@ -1789,6 +1792,12 @@ bool AppController::is_failure_event(const std::string& text) const {
     return false;
 }
 
+std::string AppController::physical_egress_status() const {
+    const auto state = snapshot();
+    if (!diagnostic_network_fresh_ || network_refresh_pending_ || state.sleeping || shutting_down_) return "unknown";
+    return win::physical_egress_status(network_, state.authentication_route);
+}
+
 records::ExportContext AppController::export_context() const {
     records::ExportContext context;
     context.version = kVersion;
@@ -1804,6 +1813,7 @@ records::ExportContext AppController::export_context() const {
     environment.refreshing = !current_environment;
     if (current_environment) {
         environment.connection = network_.access;
+        environment.physical_egress = physical_egress_status();
         environment.system_proxy = proxy_.state;
         environment.tun = network_.tunnel_known ? (network_.tunnel.tunnel ? "detected" : "notDetected") : "unknown";
     }

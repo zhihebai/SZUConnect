@@ -520,6 +520,7 @@ void connection_page(Builder& b, ViewContext& ctx, const EngineSnapshot& snap, c
     b.card_end();
     b.gap(16);
 
+    build_egress_notice(b, ctx, "home.egress");
     if (app.should_suggest_proxy_assistant()) {
         b.card_begin("surface", "border", 16, 14);
         b.icon_row("info", "warning", T("proxyAssistant.offline.title"), TextStyle::callout_strong, "textPrimary", 18);

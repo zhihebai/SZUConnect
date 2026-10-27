@@ -12,6 +12,7 @@ public:
         result.access = changed ? "multiple" : "ethernet";
         result.tunnel_known = true;
         result.tunnel.tunnel = result.path.tunnel = !changed;
+        result.physical_egress = {{route(), changed ? "normal" : egress}};
         result.adapter_names = {"Fixture private adapter"};
         result.path.interfaces = "fixture-private-interface-guid";
         return result;
@@ -24,6 +25,7 @@ public:
         return result;
     }
     int captures = 0, proxy_reads = 0;
+    std::string egress = "forwarding";
 };
 }
 
@@ -52,6 +54,7 @@ template<class Check> void run_diagnostic_context_runtime_tests(Check& check) {
             "JSON retains internal build metadata while public copied summary shows only the product version");
         check(environment && environment->string_at("connection") == "ethernet" && environment->string_at("systemProxy") == "on" &&
             environment->string_at("tun") == "detected" && environment->bool_at("refreshing") == false &&
+            environment->string_at("physicalEgress") == "forwarding" && copied.find(copy::text("env.egress.forwarding")) != std::string::npos &&
             copied.find(copy::format("records.diagnostics.environment", {{"access", std::string(copy::text("env.access.ethernet"))},
                 {"proxy", std::string(copy::text("env.proxy.on"))}, {"tunnel", std::string(copy::text("env.tunnel.detected"))}})) != std::string::npos,
             "collected physical connection, proxy and TUN context reach Controller JSON and copied text as fixed enums");
@@ -73,10 +76,18 @@ template<class Check> void run_diagnostic_context_runtime_tests(Check& check) {
             app.snapshot().trusted == before.trusted && app.next_check() == due &&
             fake->probes == 0 && fake->system_probes == 0 && fake->discoveries == 0 && fake->evidence().fake_auth_submissions == 0,
             "diagnostic snapshot adds no reads, network requests, credentials, raw network fields, grants or scheduling changes");
+        fake->egress = "normal"; app.refresh_environment();
+        const auto sharing_changed = json::parse(app.diagnostic_export_text());
+        check(sharing_changed && sharing_changed->find("environment")->string_at("physicalEgress") == "normal" &&
+            app.snapshot().epoch == before.epoch && app.snapshot().remembered == before.remembered &&
+            app.snapshot().trusted == before.trusted && app.snapshot().holds.size() == before.holds.size() &&
+            fake->files == files && fake->evidence().fake_auth_submissions == 0,
+            "a forwarding-only settings refresh updates diagnostics without changing network identity, memory, trust or protections");
         app.on_network_signal();
         const auto pending = json::parse(app.diagnostic_export_text());
         check(pending && pending->find("environment")->bool_at("refreshing") == true &&
             pending->find("environment")->string_at("connection") == "unknown" &&
+            pending->find("environment")->string_at("physicalEgress") == "unknown" &&
             pending->find("environment")->string_at("systemProxy") == "unknown" && pending->find("environment")->string_at("tun") == "unknown" &&
             pending->find("recovery")->bool_at("networkAvailable") == false &&
             pending->find("recovery")->bool_at("networkRemembered") == false && pending->find("recovery")->bool_at("sessionTrusted") == false &&
@@ -88,6 +99,7 @@ template<class Check> void run_diagnostic_context_runtime_tests(Check& check) {
         const auto replaced = json::parse(app.diagnostic_export_text());
         check(replaced && replaced->find("environment")->bool_at("refreshing") == false &&
             replaced->find("environment")->string_at("connection") == "multiple" &&
+            replaced->find("environment")->string_at("physicalEgress") == "normal" &&
             replaced->find("environment")->string_at("systemProxy") == "off" && replaced->find("environment")->string_at("tun") == "notDetected" &&
             replaced->find("recovery")->bool_at("networkRemembered") == false,
             "replacement snapshot exports the new anonymous connection without borrowing the previous network memory");

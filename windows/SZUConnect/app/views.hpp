@@ -111,6 +111,7 @@ void build_home_section_header(Builder& b, ViewContext& ctx, const std::string& 
 void build_inline_guard(Builder& b, ViewContext& ctx, const EngineSnapshot& snap);
 void build_network_comparison(Builder& b, ViewContext& ctx, const EngineSnapshot& snap);
 void build_network_details(Builder& b, ViewContext& ctx, const EngineSnapshot& snap);
+void build_egress_notice(Builder& b, ViewContext& ctx, const std::string& id);
 void build_website_strategy(Builder& b, ViewContext& ctx, const EngineSnapshot& snap);
 void build_overlay(Builder& b, ViewContext& ctx, const std::string& name, const EngineSnapshot& snap, const status::Presentation& p);
 void build_account_deletion_actions(Builder& b, ViewContext& ctx);

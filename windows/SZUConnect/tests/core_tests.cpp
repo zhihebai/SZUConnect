@@ -1095,6 +1095,7 @@ void records_tests(Harness& t) {
         !records::diagnostics_export(ctx, health, log).find("recovery"), "older diagnostic contexts omit optional environment and recovery");
     records::DiagnosticEnvironment environment;
     environment.connection = "ethernet"; environment.system_proxy = "on"; environment.tun = "detected";
+    environment.physical_egress = "forwarding";
     ctx.environment = environment;
     records::DiagnosticRecovery recovery;
     recovery.state = "paused"; recovery.paused = recovery.network_available = recovery.network_remembered = true;
@@ -1104,6 +1105,7 @@ void records_tests(Harness& t) {
     auto report = records::diagnostics_export(ctx, health, log);
     t.check(report.find("environment")->string_at("connection") == "ethernet" &&
         report.find("environment")->string_at("systemProxy") == "on" && report.find("environment")->string_at("tun") == "detected" &&
+        report.find("environment")->string_at("physicalEgress") == "forwarding" &&
         report.find("recovery")->find("holdReasons")->size() == 2 &&
         report.find("recovery")->find("holdReasons")->items()[0].as_string() == "userPaused" &&
         report.find("recovery")->number_at("cooldownRemainingSeconds") == 13,
@@ -1114,12 +1116,13 @@ void records_tests(Harness& t) {
         copied.find(std::string(copy::text("records.diagnostics.protection.userPaused"))) != std::string::npos &&
         copied.find(copy::format("records.diagnostics.cooldown", {{"seconds", "13"}})) != std::string::npos,
         "copied diagnostics describe the same anonymous environment, protections and cooldown");
-    ctx.environment->connection = ctx.environment->system_proxy = ctx.environment->tun = "fixture-private-name-192.0.2.7";
+    ctx.environment->connection = ctx.environment->system_proxy = ctx.environment->tun = ctx.environment->physical_egress = "fixture-private-name-192.0.2.7";
     ctx.recovery->state = "fixture-private-scope";
     ctx.recovery->cooldown_remaining = 1e100;
     report = records::diagnostics_export(ctx, health, log);
     t.check(report.find("environment")->string_at("connection") == "unknown" &&
         report.find("environment")->string_at("systemProxy") == "unknown" && report.find("environment")->string_at("tun") == "unknown" &&
+        report.find("environment")->string_at("physicalEgress") == "unknown" &&
         report.find("recovery")->string_at("state") == "unknown" && report.find("recovery")->number_at("cooldownRemainingSeconds") == 86400 &&
         json::serialize(report).find("fixture-private") == std::string::npos &&
         records::diagnostics_summary_text(ctx, health).find("fixture-private") == std::string::npos,

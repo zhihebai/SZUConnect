@@ -397,6 +397,8 @@ DiagnosticEnvironment sample_environment(const DiagnosticEnvironment& input) {
         if (sample_token(input.connection, {"wifi", "ethernet", "multiple", "tunnelHidden", "none", "unknown"})) safe.connection = input.connection;
         if (sample_token(input.system_proxy, {"on", "off", "unknown"})) safe.system_proxy = input.system_proxy;
         if (sample_token(input.tun, {"detected", "notDetected", "unknown"})) safe.tun = input.tun;
+        if (sample_token(input.physical_egress, {"normal", "forwarding", "weakHostSend", "forwardingAndWeakHostSend", "unknown"}))
+            safe.physical_egress = input.physical_egress;
     }
     return safe;
 }
@@ -434,6 +436,7 @@ json::Value context_json(const SampleContext& c) {
     environment.set("connection", json::Value::string(c.environment.connection));
     environment.set("systemProxy", json::Value::string(c.environment.system_proxy));
     environment.set("tun", json::Value::string(c.environment.tun));
+    environment.set("physicalEgress", json::Value::string(c.environment.physical_egress));
     environment.set("refreshing", json::Value::boolean(c.environment.refreshing));
     value.set("environment", std::move(environment));
     return value;
@@ -453,6 +456,7 @@ std::optional<SampleContext> context_from_json(const json::Value* value) {
     context.environment.connection = environment->string_at("connection").value_or("unknown");
     context.environment.system_proxy = environment->string_at("systemProxy").value_or("unknown");
     context.environment.tun = environment->string_at("tun").value_or("unknown");
+    context.environment.physical_egress = environment->string_at("physicalEgress").value_or("unknown");
     context.environment.refreshing = environment->bool_at("refreshing").value_or(false);
     return sample_context(context);
 }
@@ -511,6 +515,7 @@ json::Value failure_context_json(const FailureContext& c, bool timestamps) {
     environment.set("connection", json::Value::string(c.environment.connection));
     environment.set("systemProxy", json::Value::string(c.environment.system_proxy));
     environment.set("tun", json::Value::string(c.environment.tun));
+    environment.set("physicalEgress", json::Value::string(c.environment.physical_egress));
     environment.set("refreshing", json::Value::boolean(c.environment.refreshing)); value.set("environment", std::move(environment));
     auto campus = json::Value::object(); campus.set("state", json::Value::string(c.campus_state));
     campus.set("issue", json::Value::string(std::string(failure_issue_token(c.campus_issue)))); value.set("campusVerification", std::move(campus));
@@ -546,6 +551,7 @@ std::optional<FailureContext> failure_context_from_json(const json::Value* value
     c.area = value->string_at("area").value_or(""); c.status = value->string_at("status").value_or("");
     c.environment = {environment->string_at("connection").value_or("unknown"), environment->string_at("systemProxy").value_or("unknown"),
         environment->string_at("tun").value_or("unknown"), environment->bool_at("refreshing").value_or(false)};
+    c.environment.physical_egress = environment->string_at("physicalEgress").value_or("unknown");
     c.campus_state = campus->string_at("state").value_or("notChecked");
     const auto issue = campus->string_at("issue").value_or("none");
     for (const auto candidate : {CampusVerificationIssue::none, CampusVerificationIssue::dnsTimeout, CampusVerificationIssue::dns, CampusVerificationIssue::dnsTls,
@@ -765,6 +771,7 @@ DiagnosticEnvironment anonymous_environment(const DiagnosticEnvironment& input) 
         safe.connection = fixed_token(input.connection, {"wifi", "ethernet", "multiple", "tunnelHidden", "none", "unknown"});
         safe.system_proxy = fixed_token(input.system_proxy, {"on", "off", "unknown"});
         safe.tun = fixed_token(input.tun, {"detected", "notDetected", "unknown"});
+        safe.physical_egress = fixed_token(input.physical_egress, {"normal", "forwarding", "weakHostSend", "forwardingAndWeakHostSend", "unknown"});
     }
     return safe;
 }
@@ -830,6 +837,7 @@ json::Value diagnostics_export(const ExportContext& c, const HealthLog& health, 
         environment.set("connection", json::Value::string(safe.connection));
         environment.set("systemProxy", json::Value::string(safe.system_proxy));
         environment.set("tun", json::Value::string(safe.tun));
+        environment.set("physicalEgress", json::Value::string(safe.physical_egress));
         environment.set("refreshing", json::Value::boolean(safe.refreshing));
         root.set("environment", std::move(environment));
     }
@@ -895,6 +903,8 @@ std::string diagnostics_summary_text(const ExportContext& c, const HealthLog& he
             {"access", std::string(copy::text("env.access." + safe.connection))},
             {"proxy", std::string(copy::text("env.proxy." + safe.system_proxy))},
             {"tunnel", std::string(copy::text("env.tunnel." + safe.tun))}});
+        text += "\n" + copy::format("records.diagnostics.physicalEgress", {
+            {"state", std::string(copy::text("env.egress." + safe.physical_egress))}});
     }
     if (c.recovery) {
         const auto& recovery = *c.recovery;

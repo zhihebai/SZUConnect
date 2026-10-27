@@ -71,4 +71,6 @@ Windows CMake 使用固定 libcurl 源码、静态运行库和 Schannel，不附
 
 关联 DNS 每批发送前核验一次完整绑定，每个套接字仍绑定源地址及接口；收到答复后再次核验。HTTP 连接建立、发送前及返回后仍完整检查。等待响应期间，每次进度回调检查取消与截止时间，完整路由检查间隔不少于 250 毫秒；绑定操作一旦失效立即停止。
 
+Windows 网络共享会启用接口转发；物理出口启用转发或弱主机发送时，TUN 可能重新接管已绑定的连接。应用只读双采样所选接口的相关标志，给出兼容性提示。标志不参与物理租约、网络记忆或认证资格判断，也不自动修改。未读到、两次不一致或绑定已变化时显示未知。匿名报告仅保留固定状态枚举。
+
 参考接口：[源接口绑定](https://learn.microsoft.com/en-us/windows/win32/winsock/ipproto-ip-socket-options) · [网卡状态](https://learn.microsoft.com/en-us/windows/win32/api/netioapi/ns-netioapi-mib_if_row2) · [套接字回调](https://curl.se/libcurl/c/CURLOPT_OPENSOCKETFUNCTION.html) · [发送前回调](https://curl.se/libcurl/c/CURLOPT_PREREQFUNCTION.html)

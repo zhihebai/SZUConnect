@@ -5,6 +5,7 @@
 #include "r11_presentation_runtime_tests.hpp"
 #include "memory_management_runtime_tests.hpp"
 #include "crash_export_runtime_tests.hpp"
+#include "campus_verification_runtime_tests.hpp"
 #include "shared_tokens.hpp"
 #include "shared_copy.hpp"
 
@@ -545,6 +546,52 @@ void exercise_home(HWND window, Canvas& canvas, float dpi, float width, float te
     verify_home_disclosures(window, canvas, width, height, mode);
 }
 
+void verify_egress_notice(HWND window, Canvas& canvas, float width, RuntimeMode mode, bool all_states) {
+    class Fake final : public campusverificationruntime::Fake {
+    public:
+        std::string egress = "forwarding";
+        bool tun = true;
+        szu::win::NetworkSnapshot capture_network() override {
+            auto result = campusverificationruntime::Fake::capture_network();
+            result.path.tunnel = result.tunnel.tunnel = tun;
+            result.physical_egress = {{route(), egress}};
+            return result;
+        }
+    };
+    for (const std::string state : {"normal", "unknown", "forwarding", "weakHostSend", "forwardingAndWeakHostSend"})
+        for (const bool tun : {false, true}) {
+        if (!all_states && (!tun || state != "forwarding")) continue;
+        auto services = std::make_unique<Fake>(); auto* fake = services.get(); fake->egress = state; fake->tun = tun;
+        AppController app(nullptr, mode, std::move(services)); app.start();
+        const auto files = fake->files; const auto due = app.next_check(); const auto before = app.snapshot();
+        FixtureHost host; host.window = window; host.scene.layers[0].viewport = D2D1::RectF(0, 0, width, 1200);
+        UiState ui; std::string opened;
+        ViewContext context{app, ui, window, [] {}, [&](const std::string& name) { opened = name; }, [] {}, [](const std::string&) {}};
+        Builder builder(host.scene, canvas, 0, tokens::kSpaceL, width - 2 * tokens::kSpaceL, tokens::kSpaceL);
+        build_egress_notice(builder, context, "fixture.egress"); host.scene.layers[0].content_height = builder.y() + tokens::kSpaceL;
+        const bool visible = tun && state != "normal" && state != "unknown";
+        check((host.scene.find("fixture.egress.detail") != nullptr) == visible,
+            "TUN compatibility notice appears only for current known conflicting physical flags");
+        if (visible) {
+            const auto* info = host.scene.find("fixture.egress.info");
+            check(info && info->action && info->enabled, "sharing explanation is accessible without changing a setting");
+            if (info && info->action) info->action();
+            check(opened == "info:networkSharing", "sharing explanation opens its own plain-language information bubble");
+            check((host.scene.find("fixture.egress.settings") != nullptr) == (state != "weakHostSend"),
+                "mobile hotspot shortcut is offered only when physical forwarding was actually read");
+            verify_bounds(canvas, host.scene, width, 1200);
+            check(canvas.begin(), "begin TUN sharing notice native paint");
+            paint(canvas, make_palette(false, false), host.scene, {}, width, 1200, 0);
+            check(canvas.end(), "TUN sharing notice paints with DirectWrite at narrow width and configured text size");
+        }
+        check(fake->files == files && app.next_check() == due && app.snapshot().epoch == before.epoch &&
+            app.snapshot().remembered == before.remembered && fake->probes == 0 && fake->discoveries == 0 &&
+            fake->evidence().fake_auth_submissions == 0 && fake->evidence().fake_wifi_calls == 0,
+            "notice construction and explanation do not submit, join, mutate memory or accelerate recovery");
+        app.shutdown();
+    }
+}
+
 void exercise(HWND window, Canvas& canvas, float dpi, float width, float text_scale, RuntimeMode mode) {
     constexpr float height = 1200;
     const auto pixel_width = static_cast<UINT>(std::ceil(width * dpi / 96));
@@ -666,7 +713,7 @@ int main(int argc, char** argv) {
     const std::string scope = argc == 1 ? "all" : argv[1];
     const bool home_only = scope == "--home-view-only" || scope == "--normal-home-view-only" || scope == "--observe-home-view-only";
     if (argc == 2 && scope != "--paragraph-layout-only" && scope != "--view-only" &&
-        scope != "--normal-view-only" && scope != "--observe-view-only" && scope != "--hero-website-chips-only" && !home_only) return 2;
+        scope != "--normal-view-only" && scope != "--observe-view-only" && scope != "--hero-website-chips-only" && scope != "--egress-notice-only" && !home_only) return 2;
     const auto started = std::chrono::steady_clock::now();
     std::setvbuf(stdout, nullptr, _IONBF, 0);
     const HRESULT com = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
@@ -683,7 +730,7 @@ int main(int argc, char** argv) {
             verify_layout_cache(canvas);
             verify_continuous_paragraph_widths(canvas);
         }
-        if (ready && scope != "--paragraph-layout-only" && scope != "--observe-view-only" && scope != "--hero-website-chips-only" && !home_only) {
+        if (ready && scope != "--paragraph-layout-only" && scope != "--observe-view-only" && scope != "--hero-website-chips-only" && scope != "--egress-notice-only" && !home_only) {
             verify_full_history_ribbon(window, canvas);
             verify_automatic_entry_feedback(window, canvas);
             verify_r11_memory_actions(window, canvas);
@@ -698,6 +745,15 @@ int main(int argc, char** argv) {
             for (const float dpi : {120.0f, 144.0f, 168.0f, 192.0f})
                 for (const float width : {480.0f, 500.0f})
                     for (const float text_scale : {1.0f, 1.5f}) {
+                        if (scope == "all" || scope == "--egress-notice-only") {
+                            constexpr float height = 1200;
+                            const auto pixel_width = static_cast<UINT>(std::ceil(width * dpi / 96));
+                            const auto pixel_height = static_cast<UINT>(std::ceil(height * dpi / 96));
+                            SetWindowPos(window, nullptr, 0, 0, static_cast<int>(pixel_width), static_cast<int>(pixel_height), SWP_NOMOVE | SWP_NOACTIVATE | SWP_NOZORDER);
+                            canvas.set_dpi(dpi); canvas.resize(pixel_width, pixel_height); canvas.set_text_scale(text_scale);
+                            verify_egress_notice(window, canvas, width, mode, dpi == 120 && width == 500 && text_scale == 1);
+                        }
+                        if (scope == "--egress-notice-only") continue;
                         if (!home_only) exercise(window, canvas, dpi, width, text_scale, mode);
                         if (home_only || scope == "all" || scope == "--view-only")
                             exercise_home(window, canvas, dpi, width, text_scale, mode);

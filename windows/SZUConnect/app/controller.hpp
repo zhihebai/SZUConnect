@@ -87,6 +87,7 @@ public:
     bool is_failure_event(const std::string& text) const;
     const records::HealthLog& health() const { return health_; }
     const win::NetworkSnapshot& network() const { return network_; }
+    std::string physical_egress_status() const;
     const proxy::Summary& proxy_summary() const { return proxy_; }
     CompatState compat() const;
     std::optional<InternetCheckReport> internet_report() const { return internet_service_.latest(); }
