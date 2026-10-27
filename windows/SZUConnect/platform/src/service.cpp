@@ -261,7 +261,7 @@ CampusDiscovery WinHttpService::discover(CampusArea area, const CancelToken& tok
     discovery.teaching_client_bound = page_config.configuration.value && operation->binding->route &&
         page_config.configuration.value->ip == operation->binding->route->source_ipv4;
     if (!current(*operation)) return {};
-    if (area == CampusArea::teaching) return discovery;
+    if (area == CampusArea::teaching || (area == CampusArea::automatic && discovery.teaching_client_bound)) return discovery;
     HttpRequest dorm;
     dorm.url = "http://172.30.255.42:801/eportal";
     dorm.timeout_ms = kProbeTimeoutMs;
@@ -301,7 +301,7 @@ LoginAttempt WinHttpService::teaching(const Credentials& credentials, Scope& ope
         request.allow_cookies = true;
         HttpResponse r = this->get(*fixed, request, operation, token);
         if (retry && !token.cancelled() && wire::is_transient(portal_error(r))) {
-            // Only pre-submission credential-free pages/challenges are retried.
+            // Retry pages and challenge requests only, never the login request.
             if (!token.wait_for(0.8)) r = this->get(*fixed, request, operation, token);
         }
         return r;

@@ -30,7 +30,7 @@ struct Service final : ConnectionService {
     std::vector<ProbeMode> probe_modes;
     std::vector<bool> deferred_website_scopes;
     std::function<void()> during_probe, during_discovery, during_attempt;
-    bool binding_available = true, fixture_credentials = true;
+    bool binding_available = true, fixture_credentials = true, cancel_quick_peer = false;
     bool set_expected_physical_route(const std::optional<physical::Route>& value) override { bound = value; return binding_available; }
     ConnectivityReport probe(ProbeMode mode, const CancelToken&) override {
         probe_modes.push_back(mode);
@@ -38,6 +38,11 @@ struct Service final : ConnectionService {
         auto result = response;
         if (!reports.empty()) { result = reports.front(); reports.pop_front(); }
         result.mode = mode;
+        if (cancel_quick_peer && mode == ProbeMode::quick && result.apple.succeeded()) {
+            result.microsoft.state = EndpointState::notCompleted;
+            result.microsoft.campus_area_hint.reset();
+            result.microsoft.authentication_required = false;
+        }
         if (during_probe) during_probe();
         return result;
     }
@@ -188,7 +193,7 @@ inline void wired_session_recovery_tests(Harness& t) {
         f.service.response = hint(CampusPortalHint::dormitory, CampusPortalHint::teaching);
         f.round(); f.round();
         t.check(f.service.submissions.empty() && f.service.attempts.empty() && f.engine->snapshot().conflicting_campus_hints &&
-            f.service.discoveries == std::vector<CampusArea>{CampusArea::automatic},
+            f.service.discoveries == std::vector<CampusArea>{CampusArea::dormitory},
             "current hint conflicts outrank remembered teaching preference and historical dormitory proof without any submission");
     }
     for (const std::string condition : {"conflict", "identity", "unknown", "credentials", "readOnly"}) {

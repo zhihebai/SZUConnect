@@ -344,7 +344,7 @@ double dns_response_ttl(const Packet& packet, std::string_view host, std::uint16
     return minimum;
 }
 
-std::vector<std::string> dns_exchange(std::string_view host, std::uint16_t transaction, std::size_t servers,
+ResolvedAddresses dns_exchange_with_ttl(std::string_view host, std::uint16_t transaction, std::size_t servers,
                                     double deadline, const ExchangeHooks& h) {
     if (h.cancelled()) throw Error(Failure::cancelled);
     if (!allowed_host(host) || !servers || servers > 8 || !std::isfinite(deadline)) throw Error(Failure::unavailable);
@@ -361,6 +361,7 @@ std::vector<std::string> dns_exchange(std::string_view host, std::uint16_t trans
         if (attempt < 3 && h.now() >= started + offsets[attempt]) {
             ++attempt;
             const auto sending = pending;
+            if (h.prepare_send) h.prepare_send();
             for (const auto i : sending) {
                 if (h.cancelled()) throw Error(Failure::cancelled);
                 if (h.now() >= deadline) throw Error(Failure::timeout);
@@ -386,12 +387,16 @@ std::vector<std::string> dns_exchange(std::string_view host, std::uint16_t trans
             case Reply::answer:
                 if (h.cancelled()) throw Error(Failure::cancelled);
                 if (h.now() >= deadline) throw Error(Failure::timeout);
-                return answer;
+                return {std::move(answer), dns_response_ttl(e.data, host, transaction)};
             }
         }
         if (pending.empty()) throw Error(invalid ? Failure::invalidResponse : Failure::unavailable);
     }
     if (h.cancelled()) throw Error(Failure::cancelled);
     throw Error(invalid ? Failure::invalidResponse : Failure::timeout);
+}
+std::vector<std::string> dns_exchange(std::string_view host, std::uint16_t transaction, std::size_t servers,
+                                    double deadline, const ExchangeHooks& hooks) {
+    return dns_exchange_with_ttl(host, transaction, servers, deadline, hooks).addresses;
 }
 }  // namespace szu::physical

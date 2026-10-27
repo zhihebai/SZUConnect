@@ -39,13 +39,32 @@ std::optional<std::vector<std::string>> AddressResolver::retained(const Entry& e
     return found->addresses;
 }
 
+std::uint64_t AddressResolver::begin_query() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return next_query_id_++;
+}
 void AddressResolver::remember(std::string_view host, const Route& route, const std::vector<std::string>& addresses,
-                               double now, double ttl) {
+                               double now, double ttl, std::uint64_t query) {
     ttl = std::isfinite(ttl) ? std::clamp(ttl, 0.0, 300.0) : 0;
     // A DNS TTL governs ordinary reuse. HTTPS can additionally try a prior address
     // for at most a day after both resolvers fail, with fresh hostname/chain checks.
     const double retention = https_target(host) ? 86400.0 : ttl;
     std::lock_guard<std::mutex> lock(mutex_);
+    if (query <= evicted_query_floor_) return;
+    const auto revision = std::find_if(revisions_.begin(),revisions_.end(),[&](const Revision& value) {
+        return value.host == host && value.route == route;
+    });
+    if (revision != revisions_.end()) {
+        if (revision->query > query) return;
+        revision->query = query;
+    } else {
+        if (revisions_.size() >= 24) {
+            const auto oldest = std::min_element(revisions_.begin(),revisions_.end(),[](const Revision& a,const Revision& b) {return a.query < b.query;});
+            evicted_query_floor_ = std::max(evicted_query_floor_,oldest->query);
+            revisions_.erase(oldest);
+        }
+        revisions_.push_back({std::string(host),route,query});
+    }
     entries_.erase(std::remove_if(entries_.begin(), entries_.end(), [&](const Entry& value) {
         return now >= value.retain_until || (value.host == host && value.route == route);
     }), entries_.end());
@@ -56,7 +75,7 @@ void AddressResolver::remember(std::string_view host, const Route& route, const 
 
 std::vector<std::string> AddressResolver::resolve(std::string_view host, const Route& route, int timeout_ms, const Hooks& hooks) {
     if (!allowed_host(host) || timeout_ms <= 0 || timeout_ms > 30000 || !hooks.now || !hooks.cancelled || !hooks.current ||
-        !hooks.associated || !hooks.encrypted || route.identity.empty() || !route.interface_index || !route.interface_luid ||
+        (!hooks.associated && !hooks.associated_with_ttl) || !hooks.encrypted || route.identity.empty() || !route.interface_index || !route.interface_luid ||
         !usable_ipv4(route.source_ipv4) || route.addresses.empty() || route.addresses.front() != route.source_ipv4 ||
         route.addresses.size() > 16 || route.dns_servers.empty() || route.dns_servers.size() > 8 ||
         !std::all_of(route.addresses.begin(), route.addresses.end(), usable_ipv4) ||
@@ -64,6 +83,7 @@ std::vector<std::string> AddressResolver::resolve(std::string_view host, const R
     const double began = hooks.now();
     if (!std::isfinite(began)) throw Error(Failure::unavailable);
     const double deadline = began + timeout_ms / 1000.0;
+    const auto query = begin_query();
     const auto remaining = [&] {
         const double value = hooks.now();
         if (!std::isfinite(value) || value < began) throw Error(Failure::unavailable);
@@ -79,11 +99,13 @@ std::vector<std::string> AddressResolver::resolve(std::string_view host, const R
     try {
         const int budget = std::min(1000, remaining());
         if (budget <= 0) throw Error(Failure::timeout);
-        auto addresses = hooks.associated(host, route, budget);
+        auto answer = hooks.associated_with_ttl ? hooks.associated_with_ttl(host,route,budget) :
+            ResolvedAddresses{hooks.associated(host,route,budget),0};
         current(route, hooks);
         if (remaining() <= 0) throw Error(Failure::timeout);
-        if (!valid_answers(addresses)) throw Error(Failure::invalidResponse);
-        return accept(std::move(addresses));
+        if (!valid_answers(answer.addresses)) throw Error(Failure::invalidResponse);
+        if (hooks.associated_with_ttl) remember(host,route,answer.addresses,hooks.now(),answer.ttl_seconds,query);
+        return accept(std::move(answer.addresses));
     } catch (const Error& error) {
         if (error.reason == Failure::cancelled || error.reason == Failure::security) throw;
         failure = error.reason;
@@ -94,8 +116,10 @@ std::vector<std::string> AddressResolver::resolve(std::string_view host, const R
     if (previous)
         if (auto addresses = retained(*previous, hooks.now(), false)) return accept(std::move(*addresses));
     try {
-        const int reserved = previous && https_target(host) ? 100 : 0;
-        const int budget = remaining() - reserved;
+        const int available = remaining();
+        // Keep most of the deadline for a fresh answer; native cleanup is independently bounded.
+        const int reserved = previous && https_target(host) ? std::clamp(available / 3, 100, 1000) : 0;
+        const int budget = available - reserved;
         if (budget <= 0) throw Error(Failure::timeout);
         auto answer = hooks.encrypted(host, route, budget);
         current(route, hooks);
@@ -104,7 +128,7 @@ std::vector<std::string> AddressResolver::resolve(std::string_view host, const R
         const double received = hooks.now();
         current(route, hooks);
         if (remaining() <= 0) throw Error(Failure::timeout);
-        remember(host, route, answer.addresses, received, answer.ttl_seconds);
+        remember(host, route, answer.addresses, received, answer.ttl_seconds, query);
         return accept(std::move(answer.addresses));
     } catch (const Error& error) {
         if (error.reason == Failure::cancelled || error.reason == Failure::security) throw;

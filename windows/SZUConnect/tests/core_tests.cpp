@@ -1095,6 +1095,7 @@ void records_tests(Harness& t) {
         !records::diagnostics_export(ctx, health, log).find("recovery"), "older diagnostic contexts omit optional environment and recovery");
     records::DiagnosticEnvironment environment;
     environment.connection = "ethernet"; environment.system_proxy = "on"; environment.tun = "detected";
+    environment.physical_egress = "forwarding";
     ctx.environment = environment;
     records::DiagnosticRecovery recovery;
     recovery.state = "paused"; recovery.paused = recovery.network_available = recovery.network_remembered = true;
@@ -1104,6 +1105,7 @@ void records_tests(Harness& t) {
     auto report = records::diagnostics_export(ctx, health, log);
     t.check(report.find("environment")->string_at("connection") == "ethernet" &&
         report.find("environment")->string_at("systemProxy") == "on" && report.find("environment")->string_at("tun") == "detected" &&
+        report.find("environment")->string_at("physicalEgress") == "forwarding" &&
         report.find("recovery")->find("holdReasons")->size() == 2 &&
         report.find("recovery")->find("holdReasons")->items()[0].as_string() == "userPaused" &&
         report.find("recovery")->number_at("cooldownRemainingSeconds") == 13,
@@ -1114,12 +1116,13 @@ void records_tests(Harness& t) {
         copied.find(std::string(copy::text("records.diagnostics.protection.userPaused"))) != std::string::npos &&
         copied.find(copy::format("records.diagnostics.cooldown", {{"seconds", "13"}})) != std::string::npos,
         "copied diagnostics describe the same anonymous environment, protections and cooldown");
-    ctx.environment->connection = ctx.environment->system_proxy = ctx.environment->tun = "fixture-private-name-192.0.2.7";
+    ctx.environment->connection = ctx.environment->system_proxy = ctx.environment->tun = ctx.environment->physical_egress = "fixture-private-name-192.0.2.7";
     ctx.recovery->state = "fixture-private-scope";
     ctx.recovery->cooldown_remaining = 1e100;
     report = records::diagnostics_export(ctx, health, log);
     t.check(report.find("environment")->string_at("connection") == "unknown" &&
         report.find("environment")->string_at("systemProxy") == "unknown" && report.find("environment")->string_at("tun") == "unknown" &&
+        report.find("environment")->string_at("physicalEgress") == "unknown" &&
         report.find("recovery")->string_at("state") == "unknown" && report.find("recovery")->number_at("cooldownRemainingSeconds") == 86400 &&
         json::serialize(report).find("fixture-private") == std::string::npos &&
         records::diagnostics_summary_text(ctx, health).find("fixture-private") == std::string::npos,
@@ -1290,10 +1293,12 @@ void internet_check_tests(Harness& t) {
     };
     t.check(service.configure({enabled, disabled, preset}, true) && retains_report() && calls == 1 && raw.probe_calls == captured_base_calls,
         "Adding an unselected preset retains the completed result, actual mode and request durations without starting requests");
-    t.check(service.configure({{"other-preset", "https://other-preset.example/", false}, enabled}, true) && retains_report() && calls == 1 &&
+    const std::vector<WebsiteTarget> moved_disabled{{"other-preset", "https://other-preset.example/", false}, enabled};
+    t.check(service.configure(moved_disabled, true) && retains_report() && calls == 1 &&
         raw.probe_calls == captured_base_calls,
         "Removing, editing and moving only disabled rows cannot replace the selected results or start requests");
-    t.check(service.configure({{"a", "HTTPS://ALPHA.EXAMPLE:0443", true}}, true) && retains_report() && calls == 1 &&
+    const std::vector<WebsiteTarget> normalized_selected{{"a", "HTTPS://ALPHA.EXAMPLE:0443", true}};
+    t.check(service.configure(normalized_selected, true) && retains_report() && calls == 1 &&
         raw.probe_calls == captured_base_calls, "Equivalent normalized selected targets preserve their existing report");
     raw.default_probe = "offline";
     const auto private_hints = service.probe_verification_hints(CancelToken{});
@@ -1380,8 +1385,8 @@ void internet_check_tests(Harness& t) {
         t.check(!active.configure({enabled, enabled}, false) && !active_parent.cancelled(),
             "Invalid configuration cannot change the active strategy or cancel the accepted probe");
         if (change == "enabled" || change == "strategy") {
-            const bool reconfigured = change == "enabled" ? active.configure({enabled, {preset.id, preset.url, true}}, true) :
-                active.configure({enabled, preset}, false);
+            const std::vector<WebsiteTarget> changed_targets{enabled, {preset.id, preset.url, change == "enabled"}};
+            const bool reconfigured = active.configure(changed_targets, change == "enabled");
             t.check(reconfigured && active_parent.cancelled() && !active.activity(),
                 "Changing the selected targets or proxy strategy cancels the owned probe instead of mixing configurations");
         } else if (change == "websitePath") {
@@ -1616,6 +1621,7 @@ void copy_tests(Harness& t) {
 #include "tun_parity_tests.hpp"
 #include "wired_session_recovery_tests.hpp"
 #include "session_expiry_recovery_tests.hpp"
+#include "recovery_latency_tests.hpp"
 #include "r11_parser_policy_tests.hpp"
 #include "config_boundary_tests.hpp"
 #include "r11_engine_sync_tests.hpp"
@@ -1660,6 +1666,7 @@ int main(int argc, char** argv) {
     tun_parity_tests(t);
     wired_session_recovery_tests(t);
     session_expiry_recovery_tests(t);
+    recovery_latency_tests(t);
     r11_parser_policy_tests(t);
     config_boundary_tests(t);
     r11_engine_sync_tests(t);

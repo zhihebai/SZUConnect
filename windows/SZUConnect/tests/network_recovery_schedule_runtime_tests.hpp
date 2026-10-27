@@ -136,7 +136,7 @@ template<class Check> void run_network_recovery_schedule_runtime_tests(Check& ch
         const auto epoch = app.snapshot().epoch;
         const auto memory = fake->files[L"network-memory.json"];
         const int captures = fake->captures, probes = fake->probes, discoveries = fake->discoveries;
-        check(original && *original > AppController::wall_now() + 20 && app.snapshot().remembered &&
+        check(original && *original > AppController::wall_now() + 10 && *original <= AppController::wall_now() + 15 && app.snapshot().remembered &&
             app.snapshot().required_campus_confirmed, "a remembered physical attachment begins with its real scheduled monitoring round");
         for (int notification = 0; notification < 8; ++notification) {
             fake->tunnel = !fake->tunnel; app.on_network_signal(); app.on_timer(kTimerNetwork); app.on_changed();

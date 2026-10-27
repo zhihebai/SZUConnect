@@ -97,6 +97,25 @@ bool usable_connected_source(const IP_ADAPTER_ADDRESSES* a) {
 }
 
 using InterfaceStateReader = std::function<NETIO_STATUS(MIB_IF_ROW2&)>;
+void collect_physical_egress(NetworkSnapshot& snapshot,
+    const std::function<NETIO_STATUS(MIB_IPINTERFACE_ROW&)>& read_state) {
+    snapshot.physical_egress.clear();
+    for (const auto& route : snapshot.path.physical_candidates) {
+        const auto read = [&]() -> std::optional<std::pair<bool, bool>> {
+            MIB_IPINTERFACE_ROW row{}; InitializeIpInterfaceEntry(&row);
+            row.Family = AF_INET; row.InterfaceLuid.Value = route.interface_luid; row.InterfaceIndex = route.interface_index;
+            if (read_state(row) != NO_ERROR || row.Family != AF_INET || row.InterfaceLuid.Value != route.interface_luid ||
+                row.InterfaceIndex != route.interface_index) return std::nullopt;
+            return std::pair{row.ForwardingEnabled != 0, row.WeakHostSend != 0};
+        };
+        const auto first = read(), second = read();
+        std::string value = "unknown";
+        if (first && first == second) value = first->first
+            ? (first->second ? "forwardingAndWeakHostSend" : "forwarding") : (first->second ? "weakHostSend" : "normal");
+        snapshot.physical_egress.push_back({route, std::move(value)});
+    }
+}
+
 bool active_attachment(const IP_ADAPTER_ADDRESSES* a, const InterfaceStateReader& read_state, bool preserve_physical_unknown = false) {
     if (a->OperStatus != IfOperStatusUp) return false;
     physical::OtherLinkEvidence evidence;
@@ -451,6 +470,7 @@ NetworkSnapshot capture_network(bool read_wifi_name) {
     auto physical_report = capture_physical_candidate_report();
     snapshot.path.physical_candidates = std::move(physical_report.routes);
     snapshot.physical_diagnostics = std::move(physical_report.diagnostics);
+    collect_physical_egress(snapshot, [](MIB_IPINTERFACE_ROW& row) { return GetIpInterfaceEntry(&row); });
     ULONG size = 32 * 1024;
     std::vector<unsigned char> buffer(size);
     const ULONG flags = GAA_FLAG_INCLUDE_GATEWAYS | GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST;
@@ -545,6 +565,11 @@ NetworkSnapshot capture_network(bool read_wifi_name) {
 }
 
 #ifdef SZU_NETWORK_TESTING
+void collect_physical_egress_for_testing(NetworkSnapshot& snapshot,
+    const std::function<NETIO_STATUS(MIB_IPINTERFACE_ROW&)>& read_state) {
+    collect_physical_egress(snapshot, read_state);
+}
+
 NetworkSnapshot network_link_projection_for_testing(const IP_ADAPTER_ADDRESSES* first,
     const std::function<NETIO_STATUS(MIB_IF_ROW2&)>& read_state, bool virtual_default) {
     NetworkSnapshot snapshot;
@@ -557,6 +582,18 @@ NetworkSnapshot network_link_projection_for_testing(const IP_ADAPTER_ADDRESSES* 
     return snapshot;
 }
 #endif
+
+std::string physical_egress_status(const NetworkSnapshot& snapshot, const std::optional<physical::Route>& selected) {
+    const auto route = selected ? selected : snapshot.path.physical_candidates.size() == 1
+        ? std::optional<physical::Route>(snapshot.path.physical_candidates.front()) : std::nullopt;
+    if (!route) return "unknown";
+    const auto found = std::find_if(snapshot.physical_egress.begin(), snapshot.physical_egress.end(),
+        [&](const auto& item) { return item.route == *route; });
+    if (found == snapshot.physical_egress.end()) return "unknown";
+    for (const auto* value : {"normal", "forwarding", "weakHostSend", "forwardingAndWeakHostSend"})
+        if (found->binding == value) return value;
+    return "unknown";
+}
 
 namespace {
 void WINAPI on_interface_change(PVOID context, PMIB_IPINTERFACE_ROW, MIB_NOTIFICATION_TYPE) {

@@ -332,6 +332,20 @@ void verify_source_bound_wired_handover(Checks& t) {
 
 void verify_client_configuration(Checks& t) {
     const Credentials credentials{"fixture-account", "not-a-real-password"};
+    for (const auto area : {CampusArea::automatic, CampusArea::dormitory}) {
+        Backend backend; WinHttpService service(backend.hooks()); service.set_expected_physical_route(route("A"));
+        backend.respond = [](const auto& request,const auto&,const auto&) {
+            const auto path = wire::parse_url(request.url)->path;
+            if (path == "/srun_portal_pc") return success(configured_home("12","192.0.2.7"));
+            return normal(request);
+        };
+        const auto proof = service.discover(area,CancelToken{});
+        t.check(proof.teaching == Discovery::confirmed && proof.teaching_client_bound &&
+            proof.dormitory == (area == CampusArea::automatic ? Discovery::notChecked : Discovery::confirmed) &&
+            backend.count("/eportal") == (area == CampusArea::automatic ? 0 : 1) &&
+            backend.count("/cgi-bin/get_challenge") == 0 && backend.count("/cgi-bin/srun_portal") == 0,
+            "automatic strong teaching discovery skips dormitory while explicit dormitory retains both credential-free checks");
+    }
     for (const bool selected_source : {false, true}) {
         Backend backend; WinHttpService service(backend.hooks());
         auto selected = route("A"); selected.addresses.push_back("192.0.2.99");
@@ -342,9 +356,12 @@ void verify_client_configuration(Checks& t) {
             return normal(request);
         };
         const auto discovery = service.discover(CampusArea::automatic, CancelToken{});
-        t.check(discovery.teaching == Discovery::confirmed && discovery.dormitory == Discovery::confirmed &&
+        t.check(discovery.teaching == Discovery::confirmed && discovery.dormitory ==
+                (selected_source ? Discovery::notChecked : Discovery::confirmed) &&
                 discovery.teaching_client_bound == selected_source,
                 "CONFIG candidate matches the exact selected source, never a second address on that interface");
+        t.check(backend.count("/eportal") == (selected_source ? 0 : 1),
+                "only an exact-source CONFIG avoids the unrelated dormitory discovery request");
         const auto result = service.attempt_with_requirements(credentials, CampusArea::teaching, CancelToken{}, true);
         t.check(selected_source ? result.outcome == Outcome::success :
                 result.outcome == Outcome::security && !result.credential_submission_started,
@@ -728,6 +745,64 @@ void verify_session_expiry_recovery(Checks& t) {
             "a fresh teaching redirect avoids unrelated dormitory requests even when the saved entrance was dormitory");
     }
 }
+void verify_unsent_preparation_recovery(Checks& t) {
+    for (const auto mode : {ProbeMode::quick, ProbeMode::complete}) for (const bool transport_failure : {false, true})
+        for (const bool public_peer_first : {false, true}) {
+        Backend backend; WinHttpService service(backend.hooks());
+        std::atomic<bool> preparation_ready{false}, session_online{false}, preparation_failed{false};
+        backend.respond = [&](const HttpRequest& request, const auto&, const auto&) {
+            const auto url = wire::parse_url(request.url);
+            if (public_peer_first && url->host == "www.apple.com" && !session_online && !preparation_failed) {
+                HttpResponse result; result.error = HttpError::timeout; return result;
+            }
+            if (url->host == "www.msftconnecttest.com" && !session_online) {
+                if (public_peer_first && preparation_failed) std::this_thread::sleep_for(std::chrono::milliseconds(4));
+                HttpResponse result; result.status = 302; result.error = HttpError::redirect;
+                result.campus_area_hint = CampusPortalHint::teaching; result.authentication_required = true; return result;
+            }
+            if (url->path == "/cgi-bin/get_challenge" && !preparation_ready) {
+                preparation_failed = true;
+                if (!transport_failure) return success(R"({"error":"not_online_error"})");
+                HttpResponse result; result.error = HttpError::timeout; result.failure_stage = HttpFailureStage::transport; return result;
+            }
+            if (url->path == "/cgi-bin/srun_portal") session_online = true;
+            return normal(request);
+        };
+        auto attachment = route("A");
+        attachment.descriptor.kind = "wired";
+        attachment.descriptor.raw = {{"gw", "02:00:00:00:00:07"}, {"gwip", "192.0.2.254"}, {"net", "192.0.2.0/24"}};
+        double now = 1000, wall = 1800000000;
+        ConnectionEngine::Hooks hooks;
+        hooks.now = [&] { return now; }; hooks.wall_now = [&] { return wall; }; hooks.sleep = [](double) {};
+        hooks.persist_recovery = [](const std::string&) { return true; }; hooks.persist_memory = [](const std::string&) { return true; };
+        hooks.random_hex = [] { return "00112233445566778899aabbccddeeff"; };
+        ConnectionEngine engine(service, hooks); engine.restore_recovery(std::nullopt);
+        engine.configure(MonitoringMode::recover, CampusArea::teaching, mode, Credentials{"fixture-account", "not-a-real-password"});
+        NetworkMemory memory("00112233445566778899aabbccddeeff");
+        memory.remember(attachment.descriptor, "teaching", true, false, wall - 100, "abcde107"); engine.restore_memory(memory.encode());
+        PathSnapshot path; path.identity = "unsent-preparation-fixture"; path.tunnel = true;
+        path.usable = path.link_active = path.requires_physical_binding = true;
+        path.physical_candidates = {attachment}; path.descriptors = {attachment.descriptor}; engine.receive_path(path);
+        const auto epoch = engine.snapshot().epoch;
+        for (int round = 0; round < 5 && backend.count("/cgi-bin/get_challenge") == 0; ++round) {
+            engine.automatic_round();
+            if (backend.count("/cgi-bin/get_challenge") == 0) { const auto delay = std::max(1, engine.next_check_delay()); now += delay; wall += delay; }
+        }
+        t.check(engine.snapshot().last_attempt && !engine.snapshot().last_attempt->credential_submission_started &&
+            backend.count("/cgi-bin/get_challenge") > 0 && backend.count("/cgi-bin/srun_portal") == 0 && engine.next_check_delay() == 5,
+            "real portal preparation failure sends no login request and schedules a bounded retry");
+        const auto challenge_calls = backend.count("/cgi-bin/get_challenge");
+        engine.automatic_round();
+        t.check(backend.count("/cgi-bin/get_challenge") == challenge_calls && engine.next_check_delay() == 5,
+            "an early native pipeline callback cannot retry the preparation or extend its deadline");
+        preparation_ready = true; now += 5; wall += 5;
+        engine.automatic_round();
+        t.check(engine.snapshot().online && engine.snapshot().epoch == epoch && session_online &&
+            backend.count("/cgi-bin/srun_portal") == 1 && backend.count("/eportal/portal/login") == 0 &&
+            engine.snapshot().cooldown_remaining,
+            "restored native preparation recovers the unchanged TUN-bound session with exactly one fake login");
+    }
+}
 
 int main() {
     Checks t;
@@ -737,6 +812,7 @@ int main() {
     verify_discovery_failure_phases(t);
     verify_source_bound_wired_handover(t);
     verify_session_expiry_recovery(t);
+    verify_unsent_preparation_recovery(t);
     verify_preflight_backoff(t);
     const Credentials credentials{"fixture-account", "not-a-real-password"};
     {
