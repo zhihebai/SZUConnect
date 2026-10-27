@@ -1,6 +1,7 @@
 #include "szu/presentation.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdio>
 #include <ctime>
@@ -602,34 +603,38 @@ void HealthLog::prune(double now) {
 
 HealthSummary HealthLog::summary(double now) const {
     HealthSummary out;
-    std::vector<double> latencies;
+    std::array<double, kLimit> latencies;
+    std::size_t count = 0;
     for (const Sample& s : items_) {
         if (now - s.time > kWindowSeconds) continue;
         ++out.samples;
         if (s.online) ++out.online;
-        if (s.latency_ms >= 0) latencies.push_back(s.latency_ms);
+        if (s.latency_ms >= 0) latencies[count++] = s.latency_ms;
     }
-    if (!latencies.empty()) {
-        std::sort(latencies.begin(), latencies.end());
-        const std::size_t n = latencies.size();
-        out.median_latency_ms = n % 2 ? latencies[n / 2] : (latencies[n / 2 - 1] + latencies[n / 2]) / 2;
+    if (count) {
+        const auto middle = latencies.begin() + static_cast<std::ptrdiff_t>(count / 2);
+        std::nth_element(latencies.begin(), middle, latencies.begin() + static_cast<std::ptrdiff_t>(count));
+        out.median_latency_ms = count % 2 ? *middle : (*std::max_element(latencies.begin(), middle) + *middle) / 2;
     }
     return out;
 }
 
 HealthRange HealthLog::range(double now, std::size_t ribbon) const {
     HealthRange out;
-    std::vector<const Sample*> window;
+    std::array<double, kLimit> window;
+    std::size_t count = 0;
     for (const Sample& s : items_)
-        if (now - s.time <= kWindowSeconds) window.push_back(&s);
-    out.count = static_cast<int>(window.size());
-    if (window.empty()) return out;
-    out.first = window.front()->time;
-    out.last = window.back()->time;
-    const std::size_t take = std::min(ribbon, window.size());
+        if (now - s.time <= kWindowSeconds) window[count++] = s.time;
+    out.count = static_cast<int>(count);
+    if (!count) return out;
+    out.first = window[0];
+    out.last = window[count - 1];
+    const std::size_t take = std::min(ribbon, count);
     out.ribbon_count = static_cast<int>(take);
-    out.ribbon_first = window[window.size() - take]->time;
-    out.ribbon_last = window.back()->time;
+    if (take) {
+        out.ribbon_first = window[count - take];
+        out.ribbon_last = window[count - 1];
+    }
     return out;
 }
 

@@ -27,6 +27,7 @@ using namespace szu::app;
 #include "campus_diagnostics_runtime_tests.hpp"
 #include "diagnostic_context_runtime_tests.hpp"
 #include "history_detail_runtime_tests.hpp"
+#include "log_persistence_runtime_tests.hpp"
 #include "failure_context_runtime_tests.hpp"
 #include "system_probe_transport_tests.hpp"
 #include "record_copy_runtime_tests.hpp"
@@ -207,6 +208,7 @@ int main() {
     run_campus_diagnostics_runtime_tests(check);
     run_diagnostic_context_runtime_tests(check);
     run_history_detail_runtime_tests(check);
+    run_log_persistence_runtime_tests(check);
     run_failure_context_runtime_tests(check);
     run_system_probe_transport_tests(check);
     run_record_copy_runtime_tests(check);
