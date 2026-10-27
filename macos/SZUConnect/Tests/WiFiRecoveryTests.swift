@@ -7,6 +7,9 @@ private final class FakeRadio: WiFiRecoveryRadio, @unchecked Sendable {
     var connection: WiFiPhysicalState = .disconnected
     var powered: Bool? = true
     var results: [WiFiScanCandidate] = []
+    var cachedResults: [WiFiScanCandidate] = []
+    var cacheReads = 0
+    var onCache: (() -> Void)?
     var scanned: [String] = []
     var powers = 0
     var joins = 0
@@ -44,6 +47,10 @@ private final class FakeRadio: WiFiRecoveryRadio, @unchecked Sendable {
         joins += 1; associated.append(candidate.ssid); onAssociate?()
         if let associationError { throw associationError }
         if associationFailures.contains(candidate.ssid) { throw NSError(domain: "association-error-must-not-escape", code: 2) }
+    }
+    func cachedNetworks(ssids: Set<String>) -> [WiFiScanCandidate] {
+        cacheReads += 1; onCache?()
+        return cachedResults
     }
 }
 
@@ -299,6 +306,51 @@ struct WiFiRecoveryTests {
                 userInfo: [NSLocalizedDescriptionKey: "do-not-export"]))
         check(foreignFailure.summary == "scan/other/unknown",
               "Unrecognized native domains and unbounded codes cannot enter diagnostics")
+        do {
+            let radio = FakeRadio(); radio.scanError = NSError(domain: NSPOSIXErrorDomain, code: Int(EBUSY))
+            radio.cachedResults = [secondOpen]
+            let attempt = await CoreWLANRecoveryService(radio: radio).recoverAttempt(
+                .init(networks: [first, second], allowPowerOn: false), authorization: .init())
+            check(attempt.result == .joined && radio.scanned == [first.ssid] && radio.cacheReads == 1,
+                  "One busy scan uses the OS cache once without repeating a rejected scan for each target")
+            check(radio.associated == [second.ssid] && attempt.cachedTargets == 1,
+                  "A later selected open Wi-Fi in the cached results cannot be starved by the first target")
+            check(attempt.failures.map(\.summary) == ["scan/posix/16"],
+                  "The successful busy-scan fallback retains the precise original native failure")
+        }
+        for unsafe in 0..<5 {
+            let radio = FakeRadio(); radio.scanError = NSError(domain: NSPOSIXErrorDomain, code: Int(EBUSY))
+            let token = WiFiRecoveryAuthorization()
+            switch unsafe {
+            case 0: radio.cachedResults = [secondOpen]
+            case 1: radio.cachedResults = [encrypted]
+            case 2: radio.cachedResults = [open]; radio.onCache = { token.invalidate() }
+            case 3: radio.cachedResults = [open]; radio.onCache = { radio.connection = .connected }
+            default: radio.cachedResults = [open]; radio.onCache = { radio.connection = .unknown }
+            }
+            let result = await CoreWLANRecoveryService(radio: radio).recover(request, authorization: token)
+            check(radio.joins == 0 && radio.scanned == [first.ssid] && radio.cacheReads == 1,
+                  "Busy-scan fallback preserves exact targets, open security, cancellation and physical guards \(unsafe)")
+            check(result == (unsafe < 2 ? .radioBusy : unsafe == 2 ? .cancelled
+                : unsafe == 3 ? .alreadyConnected : .connectionUnclear),
+                  "Busy-scan fallback reports the actual blocking condition \(unsafe)")
+        }
+        do {
+            let radio = FakeRadio(); radio.scanError = NSError(domain: NSPOSIXErrorDomain, code: Int(EBUSY))
+            let attempt = await CoreWLANRecoveryService(radio: radio).recoverAttempt(
+                .init(networks: [first, second], allowPowerOn: false), authorization: .init())
+            check(attempt.result == .radioBusy && attempt.scans == 1 && attempt.associations == 0,
+                  "A busy device without a safe cached target stops the whole scan round promptly")
+            let otherError = FakeRadio(); otherError.scanError = NSError(domain: NSCocoaErrorDomain, code: Int(EBUSY))
+            otherError.cachedResults = [open]
+            check(await run(otherError) == .failed && otherError.cacheReads == 0 && otherError.joins == 0,
+                  "The numeric code alone cannot authorize a cached-target fallback for another error domain")
+            let busyJoin = FakeRadio(); busyJoin.results = [open, secondOpen]
+            busyJoin.associationError = NSError(domain: NSPOSIXErrorDomain, code: Int(EBUSY))
+            check(await run(busyJoin, networks: [first, second]) == .radioBusy && busyJoin.joins == 1
+                  && busyJoin.scanned == [first.ssid],
+                  "A busy association stops later targets instead of issuing more calls to the occupied radio")
+        }
         do {
             let clock = ManualClock(); let radio = FakeRadio(); radio.results = [open]
             radio.associationError = NSError(domain: CWErrorDomain, code: -3909,
@@ -1015,6 +1067,20 @@ struct WiFiRecoveryTests {
             check(retry.deadline == clock.now().addingTimeInterval(15),
                   "Permission, platform and unclear-link failures retain conservative retry: \(protected)")
             model.setAutoJoinEnabled(false); await sleeper.cancelAll()
+        }
+        do {
+            let clock = ManualClock(); let sleeper = ManualRetrySleeper(clock); let service = ControlledService()
+            let model = productionModel(service, clock, sleeper)
+            await waitForCall(service)
+            for (index, delay) in [2.0, 5, 10, 15, 15, 15, 15, 15, 15].enumerated() {
+                await service.release(.radioBusy)
+                let retry = await nextTicket(sleeper)
+                check(retry.deadline == clock.now().addingTimeInterval(delay),
+                      "Device-busy retries stay bounded to fifteen seconds without a tight loop \(index)")
+                clock.set(retry.deadline); _ = await sleeper.releaseDue()
+                await waitForCall(service, count: index + 2)
+            }
+            model.setAutoJoinEnabled(false); await service.release(); await sleeper.cancelAll()
         }
         for progress in [WiFiRecoveryResult.poweredOn, .joined, .alreadyConnected] {
             let clock = ManualClock(); let sleeper = ManualRetrySleeper(clock); let service = ControlledService()
