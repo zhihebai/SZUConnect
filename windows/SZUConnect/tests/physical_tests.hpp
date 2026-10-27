@@ -278,10 +278,16 @@ inline void physical_tests(Harness& t) {
 
     t.begin("physical-dns-exchange");
     const auto simulate = [&](int scenario, std::size_t servers, double deadline, physical::Failure expected, bool success) {
-        double clock = 0; bool stopped = false, delivered = false;
+        double clock = 0; bool stopped = false, delivered = false; unsigned batch_checks = 0;
         std::vector<std::pair<std::size_t, double>> sent;
         physical::ExchangeHooks h;
         h.now = [&] { return clock; }; h.cancelled = [&] { return stopped; };
+        h.prepare_send = [&] {
+            ++batch_checks;
+            if (scenario == 14 && batch_checks == 2) throw physical::Error(physical::Failure::unavailable);
+            if (scenario == 15) stopped = true;
+            if (scenario == 16) clock = deadline;
+        };
         h.send = [&](std::size_t server, const physical::Packet& packet) {
             t.equal(packet, physical::dns_query("net.szu.edu.cn", 0x1234), "retransmission retains exact question and transaction");
             sent.push_back({server, clock});
@@ -324,6 +330,12 @@ inline void physical_tests(Harness& t) {
         if (scenario == 3 || scenario == 4) t.check(clock < 0.1 && sent.size() == 1, "valid RCODE/TC ends that resolver promptly");
         if (scenario == 5) t.equal(sent.size(), std::size_t(3), "stray wrong transaction cannot stop finite retries");
         if (scenario == 11) t.check(sent.empty(), "already cancelled never sends DNS");
+        if (scenario == 13) t.check(batch_checks == 3 && sent.size() == 24,
+            "eight associated resolvers share three route validations while each socket keeps its binding");
+        if (scenario == 14) t.check(batch_checks == 2 && sent.size() == 8,
+            "a changed physical route before retransmission stops the next DNS batch");
+        if (scenario == 15 || scenario == 16) t.check(sent.empty(),
+            "cancellation or deadline reached during route validation prevents every DNS send");
     };
     simulate(0, 1, 1, physical::Failure::timeout, false);
     simulate(1, 1, 1, physical::Failure::timeout, true);
@@ -338,4 +350,8 @@ inline void physical_tests(Harness& t) {
     simulate(10, 1, 1, physical::Failure::unavailable, false);
     simulate(11, 1, 1, physical::Failure::cancelled, false);
     simulate(12, 1, 1, physical::Failure::cancelled, false);
+    simulate(13, 8, 1, physical::Failure::timeout, false);
+    simulate(14, 8, 1, physical::Failure::unavailable, false);
+    simulate(15, 2, 1, physical::Failure::cancelled, false);
+    simulate(16, 2, 1, physical::Failure::timeout, false);
 }

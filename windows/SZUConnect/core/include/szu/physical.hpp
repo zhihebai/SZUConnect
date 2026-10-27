@@ -119,6 +119,7 @@ struct ExchangeHooks {
     std::function<bool(std::size_t, const Packet&)> send;
     std::function<std::vector<ExchangeEvent>(const std::vector<std::size_t>&, double)> receive;
     std::function<bool()> cancelled;
+    std::function<void()> prepare_send{};
 };
 // One common deadline for all associated resolvers; initial send plus bounded
 // retransmissions at 250/750 ms. No public/system DNS or TCP fallback.

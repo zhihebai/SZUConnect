@@ -361,6 +361,7 @@ ResolvedAddresses dns_exchange_with_ttl(std::string_view host, std::uint16_t tra
         if (attempt < 3 && h.now() >= started + offsets[attempt]) {
             ++attempt;
             const auto sending = pending;
+            if (h.prepare_send) h.prepare_send();
             for (const auto i : sending) {
                 if (h.cancelled()) throw Error(Failure::cancelled);
                 if (h.now() >= deadline) throw Error(Failure::timeout);

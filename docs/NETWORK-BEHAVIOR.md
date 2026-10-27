@@ -177,6 +177,8 @@ VPN/TUN 的全局路由、按应用或目的地址分流可能改变检测路径
 
 macOS 合并同一同步代码段内重复的完整物理租约采集。异步前后、物理 DNS／套接字绑定及 HTTP 发送前仍重新核验，不以时间缓存替代发送前检查。
 
+Windows 对固定域名的加密解析设置有界任务队列，超时或取消后停止等待，丢弃迟到结果。已有合格 HTTPS 旧候选时，保留回退所需预算，避免底层查询清理拖过整轮截止时间。连接建立、发送前和结果返回时仍核验物理绑定及证书；认证提交不进入该队列。
+
 - [URLSession 代理](https://developer.apple.com/documentation/foundation/urlsessionconfiguration/connectionproxydictionary)：未覆盖代理配置时采用系统设置。
 - [Apple VPN 路由](https://developer.apple.com/documentation/networkextension/routing-your-vpn-network-traffic)：路由、全量隧道和按应用规则可改变连接路径。
 - [WinHTTP 代理](https://learn.microsoft.com/en-us/windows/win32/api/winhttp/nf-winhttp-winhttpopen)：自动代理模式采用适用的系统和用户配置。

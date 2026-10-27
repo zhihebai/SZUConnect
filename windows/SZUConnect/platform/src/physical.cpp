@@ -99,8 +99,9 @@ static physical::ResolvedAddresses resolve_physical_udp_a(const std::string& hos
     physical::ExchangeHooks hooks;
     hooks.now = now_seconds;
     hooks.cancelled = [&] { return token.cancelled(); };
+    hooks.prepare_send = [&] { current(route, token); };
     hooks.send = [&](std::size_t i, const physical::Packet& packet) {
-        current(route, token);
+        cancelled(token);
         if (now_seconds() >= deadline) throw physical::Error(physical::Failure::timeout);
         return send(sockets.values[i], reinterpret_cast<const char*>(packet.data()), static_cast<int>(packet.size()), 0) ==
             static_cast<int>(packet.size());
